@@ -40,8 +40,12 @@ class VLLMChatClient(BaseChatClient):
             Response content as string
         """
         # Convert ChatMessage to dict format for vLLM
+        # Role is an enum, so we need to get its string value
         vllm_messages = [
-            {"role": msg.role, "content": msg.text}
+            {
+                "role": msg.role if isinstance(msg.role, str) else msg.role.value,
+                "content": msg.text
+            }
             for msg in messages
         ]
 
@@ -69,8 +73,12 @@ class VLLMChatClient(BaseChatClient):
             Chunks of response content
         """
         # Convert ChatMessage to dict format for vLLM
+        # Role is an enum, so we need to get its string value
         vllm_messages = [
-            {"role": msg.role, "content": msg.text}
+            {
+                "role": msg.role if isinstance(msg.role, str) else msg.role.value,
+                "content": msg.text
+            }
             for msg in messages
         ]
 
