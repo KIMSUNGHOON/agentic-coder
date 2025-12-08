@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routes import router as api_router
+from app.db import init_db
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +22,12 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up Coding Agent API...")
     logger.info(f"Reasoning model endpoint: {settings.vllm_reasoning_endpoint}")
     logger.info(f"Coding model endpoint: {settings.vllm_coding_endpoint}")
+
+    # Initialize database
+    logger.info("Initializing database...")
+    init_db()
+    logger.info("Database initialized successfully")
+
     yield
     logger.info("Shutting down Coding Agent API...")
 

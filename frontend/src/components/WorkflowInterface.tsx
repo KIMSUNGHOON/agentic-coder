@@ -4,12 +4,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { WorkflowUpdate } from '../types/api';
 import WorkflowStep from './WorkflowStep';
+import apiClient from '../api/client';
 
 interface WorkflowInterfaceProps {
   sessionId: string;
+  initialUpdates?: WorkflowUpdate[];
 }
 
-const WorkflowInterface = ({ sessionId }: WorkflowInterfaceProps) => {
+const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps) => {
   const [input, setInput] = useState('');
   const [updates, setUpdates] = useState<WorkflowUpdate[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -23,6 +25,26 @@ const WorkflowInterface = ({ sessionId }: WorkflowInterfaceProps) => {
     scrollToBottom();
   }, [updates]);
 
+  // Load initial updates when session changes
+  useEffect(() => {
+    if (initialUpdates && initialUpdates.length > 0) {
+      setUpdates(initialUpdates);
+    } else {
+      setUpdates([]);
+    }
+  }, [sessionId, initialUpdates]);
+
+  // Save workflow state after updates complete
+  const saveWorkflowState = async (workflowUpdates: WorkflowUpdate[]) => {
+    try {
+      await apiClient.updateConversation(sessionId, undefined, {
+        updates: workflowUpdates,
+      });
+    } catch (err) {
+      console.error('Failed to save workflow state:', err);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isRunning) return;
@@ -31,6 +53,23 @@ const WorkflowInterface = ({ sessionId }: WorkflowInterfaceProps) => {
     setInput('');
     setUpdates([]);
     setIsRunning(true);
+
+    // Create/update conversation for workflow
+    try {
+      await apiClient.createConversation(sessionId, userMessage.slice(0, 50), 'workflow');
+    } catch (err) {
+      // Conversation might already exist, continue
+      console.log('Conversation may already exist:', err);
+    }
+
+    // Save user message
+    try {
+      await apiClient.addMessage(sessionId, 'user', userMessage);
+    } catch (err) {
+      console.error('Failed to save user message:', err);
+    }
+
+    const allUpdates: WorkflowUpdate[] = [];
 
     try {
       const response = await fetch('http://localhost:8000/api/workflow/execute', {
@@ -65,6 +104,15 @@ const WorkflowInterface = ({ sessionId }: WorkflowInterfaceProps) => {
         for (const line of lines) {
           try {
             const update: WorkflowUpdate = JSON.parse(line);
+
+            // Track all updates for saving
+            const existingIndex = allUpdates.findIndex(u => u.agent === update.agent);
+            if (existingIndex >= 0) {
+              allUpdates[existingIndex] = update;
+            } else {
+              allUpdates.push(update);
+            }
+
             setUpdates(prev => {
               // Update existing or add new
               const existingIndex = prev.findIndex(u => u.agent === update.agent);
@@ -78,19 +126,37 @@ const WorkflowInterface = ({ sessionId }: WorkflowInterfaceProps) => {
                 return [...prev, update];
               }
             });
+
+            // Save artifacts when they're created
+            if (update.type === 'artifact' && update.artifact) {
+              try {
+                await apiClient.addArtifact(
+                  sessionId,
+                  update.artifact.filename,
+                  update.artifact.language,
+                  update.artifact.content
+                );
+              } catch (err) {
+                console.error('Failed to save artifact:', err);
+              }
+            }
           } catch (e) {
             console.error('Error parsing update:', e);
           }
         }
       }
+
+      // Save final workflow state
+      await saveWorkflowState(allUpdates);
     } catch (error) {
       console.error('Error executing workflow:', error);
       setUpdates(prev => [
         ...prev,
         {
           agent: 'Workflow',
+          type: 'error',
           status: 'error',
-          content: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         },
       ]);
     } finally {
@@ -103,7 +169,7 @@ const WorkflowInterface = ({ sessionId }: WorkflowInterfaceProps) => {
       {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <h2 className="text-2xl font-bold text-white mb-2">
-          🤖 Multi-Agent Workflow
+          Multi-Agent Workflow
         </h2>
         <p className="text-gray-400 text-sm">
           Planning → Coding → Review

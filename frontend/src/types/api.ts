@@ -53,3 +53,44 @@ export interface WorkflowRequest {
   message: string;
   session_id: string;
 }
+
+// Conversation persistence types
+export interface StoredMessage {
+  id: number;
+  role: string;
+  content: string;
+  agent_name?: string;
+  message_type?: string;
+  meta_info?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface StoredArtifact {
+  id: number;
+  filename: string;
+  language: string;
+  content: string;
+  task_num?: number;
+  version: number;
+  created_at: string;
+}
+
+export interface Conversation {
+  id: number;
+  session_id: string;
+  title: string;
+  mode: 'chat' | 'workflow';
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  workflow_state?: Record<string, unknown>;
+  messages?: StoredMessage[];
+  artifacts?: StoredArtifact[];
+}
+
+export interface ConversationListResponse {
+  conversations: Conversation[];
+  count: number;
+  limit: number;
+  offset: number;
+}

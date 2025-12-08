@@ -6,6 +6,15 @@ python-multipart==0.0.12
 # Microsoft Agent Framework (includes openai, pydantic, httpx)
 agent-framework==1.0.0b251204
 
+# Database
+sqlalchemy==2.0.23
+
+# Vector DB for semantic search
+chromadb==0.4.22
+
+# Caching
+redis==5.0.1
+
 # Additional dependencies not included in agent-framework
 python-jose[cryptography]==3.3.0
 structlog==24.4.0

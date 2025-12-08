@@ -3,15 +3,16 @@
  */
 import React, { useState, useRef, useEffect } from 'react';
 import { apiClient } from '../api/client';
-import { ChatMessage as ChatMessageType } from '../types/api';
+import { ChatMessage as ChatMessageType, StoredMessage } from '../types/api';
 import ChatMessage from './ChatMessage';
 
 interface ChatInterfaceProps {
   sessionId: string;
   taskType: 'reasoning' | 'coding';
+  initialMessages?: StoredMessage[];
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, initialMessages }) => {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -26,10 +27,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType }) =>
     scrollToBottom();
   }, [messages]);
 
-  // Load conversation history on mount
+  // Load conversation history on mount or when initial messages change
   useEffect(() => {
-    loadHistory();
-  }, [sessionId]);
+    if (initialMessages && initialMessages.length > 0) {
+      // Convert StoredMessage to ChatMessage format
+      const convertedMessages: ChatMessageType[] = initialMessages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      setMessages(convertedMessages);
+    } else {
+      loadHistory();
+    }
+  }, [sessionId, initialMessages]);
 
   const loadHistory = async () => {
     try {
@@ -37,6 +47,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType }) =>
       setMessages(status.history);
     } catch (error) {
       console.error('Failed to load history:', error);
+      setMessages([]);
     }
   };
 
@@ -53,6 +64,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType }) =>
     setIsLoading(true);
 
     try {
+      // Save user message to conversation
+      try {
+        await apiClient.addMessage(sessionId, 'user', inputMessage);
+      } catch (err) {
+        console.error('Failed to save user message:', err);
+      }
+
       if (useStreaming) {
         // Streaming mode
         const assistantMessage: ChatMessageType = {
@@ -76,6 +94,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType }) =>
             return newMessages;
           });
         }
+
+        // Save assistant message to conversation
+        try {
+          await apiClient.addMessage(sessionId, 'assistant', assistantMessage.content);
+        } catch (err) {
+          console.error('Failed to save assistant message:', err);
+        }
       } else {
         // Non-streaming mode
         const response = await apiClient.chat({
@@ -90,6 +115,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType }) =>
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
+
+        // Save assistant message to conversation
+        try {
+          await apiClient.addMessage(sessionId, 'assistant', response.response);
+        } catch (err) {
+          console.error('Failed to save assistant message:', err);
+        }
       }
     } catch (error) {
       console.error('Failed to send message:', error);
