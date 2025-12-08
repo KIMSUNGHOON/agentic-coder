@@ -43,10 +43,53 @@ export interface ErrorResponse {
 }
 
 // Workflow types
+export interface ChecklistItem {
+  id: number;
+  task: string;
+  completed: boolean;
+}
+
+export interface Artifact {
+  type: string;
+  language: string;
+  filename: string;
+  content: string;
+}
+
+export interface CompletedTask {
+  task_num: number;
+  task: string;
+  artifacts: string[] | Artifact[];
+}
+
+export interface TaskResult {
+  task_num: number;
+  task: string;
+  artifacts: Artifact[];
+}
+
 export interface WorkflowUpdate {
   agent: string;
+  type: 'thinking' | 'artifact' | 'task_completed' | 'completed' | 'error';
   status: 'running' | 'completed' | 'error' | 'finished';
-  content: string;
+  message?: string;
+  content?: string;
+  items?: ChecklistItem[];
+  artifact?: Artifact;
+  artifacts?: Artifact[];
+  checklist?: ChecklistItem[];
+  completed_tasks?: CompletedTask[];
+  task_result?: TaskResult;
+  issues?: string[];
+  suggestions?: string[];
+  approved?: boolean;
+  corrected_artifacts?: Artifact[];
+  summary?: {
+    tasks_completed: number;
+    total_tasks: number;
+    artifacts_count: number;
+    review_approved: boolean;
+  };
 }
 
 export interface WorkflowRequest {

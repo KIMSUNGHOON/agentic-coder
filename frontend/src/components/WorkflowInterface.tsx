@@ -114,15 +114,14 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
             }
 
             setUpdates(prev => {
-              // Update existing or add new
               const existingIndex = prev.findIndex(u => u.agent === update.agent);
-              if (existingIndex >= 0 && update.status !== 'running') {
-                // Update existing step
+              if (existingIndex >= 0) {
+                // Replace existing update for this agent
                 const newUpdates = [...prev];
                 newUpdates[existingIndex] = update;
                 return newUpdates;
               } else {
-                // Add new step
+                // Add new agent step
                 return [...prev, update];
               }
             });
