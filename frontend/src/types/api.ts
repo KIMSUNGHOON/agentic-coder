@@ -41,3 +41,15 @@ export interface ErrorResponse {
   error: string;
   detail?: string;
 }
+
+// Workflow types
+export interface WorkflowUpdate {
+  agent: string;
+  status: 'running' | 'completed' | 'error' | 'finished';
+  content: string;
+}
+
+export interface WorkflowRequest {
+  message: string;
+  session_id: string;
+}
