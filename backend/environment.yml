@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.11
+  - python=3.12
   - pip
   - pip:
     # FastAPI and ASGI server
@@ -11,22 +11,9 @@ dependencies:
     - uvicorn[standard]==0.32.0
     - python-multipart==0.0.12
 
-    # Microsoft Agent Framework
+    # Microsoft Agent Framework (includes openai, pydantic, httpx)
     - agent-framework==1.0.0b251204
 
-    # HTTP Client for vLLM
-    - httpx==0.27.2
-    - openai==1.54.0
-
-    # Environment management
-    - python-dotenv==1.0.1
-
-    # CORS middleware
+    # Additional dependencies not included in agent-framework
     - python-jose[cryptography]==3.3.0
-
-    # Logging
     - structlog==24.4.0
-
-    # Pydantic for data validation
-    - pydantic==2.9.2
-    - pydantic-settings==2.6.0

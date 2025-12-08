@@ -59,7 +59,7 @@ A full-stack coding agent powered by Microsoft Agent Framework and vLLM, featuri
    vllm serve Qwen/Qwen3-8B-Coder --port 8002
    ```
 
-2. **Python 3.11+** and **Node.js 20+** installed (or Conda/Miniconda)
+2. **Python 3.12** and **Node.js 20+** installed (or Conda/Miniconda)
 
 ### Development Setup
 
@@ -69,63 +69,59 @@ You can set up the development environment using either **pip/venv** or **Conda*
 
 #### Option 1: Using Conda (Recommended for Data Scientists)
 
-**Full Stack Setup:**
+**Prerequisites:** Conda or Miniconda installed, Python 3.12 environment
+
+📘 **Detailed installation guide:** See [INSTALL_CONDA.md](INSTALL_CONDA.md) for comprehensive instructions.
+
+**Quick Start - Using Existing Environment:**
 
 ```bash
-# Create conda environment with all dependencies
-./setup_conda.sh
+# Activate your existing conda environment (with Python 3.12)
+conda activate <your-env-name>
 
-# Activate the environment
-conda activate coding-agent
-
-# Setup backend environment file
+# Install backend dependencies
 cd backend
+pip install -r requirements.txt
+
+# Setup environment file
 cp .env.example .env
-# Edit .env if needed
+# Edit .env to configure vLLM endpoints
 
 # Install frontend dependencies
 cd ../frontend
 npm install
 
-# Return to root and run both services
-cd ..
-./run_conda.sh
+# Run backend (Terminal 1)
+cd ../backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Run frontend (Terminal 2)
+cd frontend
+npm run dev
 ```
 
-**Backend Only:**
+**Create New Environment (Optional):**
+
+If you don't have a conda environment yet, you can create one:
 
 ```bash
+# Option A: Create from environment.yml (includes Python 3.12 + Node.js 20)
+conda env create -f environment.yml
+conda activate coding-agent
+
+# Option B: Backend-only environment
 cd backend
-
-# Create conda environment
-./setup_conda.sh
-
-# Activate environment
+conda env create -f environment.yml
 conda activate coding-agent-backend
 
-# Run the server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Then follow the Quick Start steps above
 ```
 
-**Manual Conda Setup:**
+**Convenience Script:**
 
 ```bash
-# Create environment from YAML file
-conda env create -f environment.yml
-
-# Activate environment
-conda activate coding-agent
-
-# Setup and run backend
-cd backend
-cp .env.example .env
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# In another terminal, run frontend
-conda activate coding-agent
-cd frontend
-npm install
-npm run dev
+# Run entire stack with one command (requires 'coding-agent' environment)
+./run_conda.sh
 ```
 
 ---
@@ -212,10 +208,9 @@ TestCodeAgent/
 │   │   └── services/
 │   │       └── vllm_client.py   # vLLM client & router
 │   ├── requirements.txt         # pip dependencies
-│   ├── environment.yml          # Conda environment (backend only)
+│   ├── environment.yml          # Conda environment (backend only, Python 3.12)
 │   ├── Dockerfile
-│   ├── run_dev.sh              # pip/venv dev script
-│   └── setup_conda.sh          # Conda setup script
+│   └── run_dev.sh              # pip/venv dev script
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -231,10 +226,10 @@ TestCodeAgent/
 │   ├── package.json
 │   ├── Dockerfile
 │   └── nginx.conf
-├── environment.yml              # Conda environment (full stack)
-├── setup_conda.sh              # Conda setup script (full stack)
+├── environment.yml              # Conda environment (full stack, Python 3.12)
 ├── run_conda.sh                # Run full stack with Conda
 ├── docker-compose.yml
+├── INSTALL_CONDA.md            # Detailed Conda installation guide
 ├── .env.example
 └── README.md
 ```
@@ -265,17 +260,43 @@ LOG_LEVEL=INFO
 
 ## 🐍 Conda Environment Management
 
+📘 **See [INSTALL_CONDA.md](INSTALL_CONDA.md) for detailed installation and setup instructions.**
+
 ### Available Conda Environments
 
 **Full Stack Environment (`coding-agent`):**
-- Includes Python 3.11, Node.js 20, and all backend dependencies
+- Includes Python 3.12, Node.js 20, and all backend dependencies
 - Best for running both frontend and backend
 - File: `environment.yml`
 
 **Backend Only Environment (`coding-agent-backend`):**
-- Includes only Python and backend dependencies
+- Includes Python 3.12 and backend dependencies only
 - Best for API development
 - File: `backend/environment.yml`
+
+### Quick Installation
+
+**Using Existing Environment:**
+```bash
+# Activate your conda environment (must have Python 3.12)
+conda activate <your-env-name>
+
+# Install dependencies
+cd backend && pip install -r requirements.txt
+cd ../frontend && npm install
+```
+
+**Create New Environment:**
+```bash
+# Full stack
+conda env create -f environment.yml
+conda activate coding-agent
+
+# Backend only
+cd backend
+conda env create -f environment.yml
+conda activate coding-agent-backend
+```
 
 ### Common Conda Commands
 
@@ -306,9 +327,9 @@ conda list
 
 **Update backend dependencies:**
 ```bash
-# Edit backend/environment.yml or backend/requirements.txt
-# Then update the conda environment
-conda env update -f backend/environment.yml --prune
+conda activate <your-env-name>
+cd backend
+pip install -r requirements.txt --upgrade
 ```
 
 **Update frontend dependencies:**
