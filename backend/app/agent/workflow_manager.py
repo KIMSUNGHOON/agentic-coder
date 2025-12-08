@@ -18,13 +18,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Response:
-    """Response wrapper matching agent framework expectations."""
+    """Complete response wrapper matching agent framework expectations."""
     messages: List[ChatMessage] = field(default_factory=list)
     conversation_id: Optional[str] = None
     response_id: Optional[str] = None
     object: str = "response"
     created_at: Optional[datetime] = None
     status: str = "completed"
+    model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    usage_details: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         """Initialize default values."""
@@ -32,6 +35,18 @@ class Response:
             self.response_id = f"resp_{uuid.uuid4().hex[:24]}"
         if self.created_at is None:
             self.created_at = datetime.now()
+        if self.usage is None:
+            self.usage = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        if self.usage_details is None:
+            self.usage_details = {}
+
+    def __getattr__(self, name: str) -> Any:
+        """Return None for any undefined attributes to prevent AttributeError."""
+        return None
 
     @property
     def text(self) -> str:
@@ -88,10 +103,21 @@ class VLLMChatClient(BaseChatClient):
             text=vllm_response.choices[0].message.content
         )
 
-        # Return Response object with conversation_id
+        # Extract usage information if available
+        usage = None
+        if hasattr(vllm_response, 'usage') and vllm_response.usage:
+            usage = {
+                "prompt_tokens": getattr(vllm_response.usage, 'prompt_tokens', 0),
+                "completion_tokens": getattr(vllm_response.usage, 'completion_tokens', 0),
+                "total_tokens": getattr(vllm_response.usage, 'total_tokens', 0)
+            }
+
+        # Return Response object with all metadata
         return Response(
             messages=[response_message],
-            conversation_id=kwargs.get("conversation_id")
+            conversation_id=kwargs.get("conversation_id"),
+            model=self.model_type,
+            usage=usage
         )
 
     async def _inner_get_streaming_response(
