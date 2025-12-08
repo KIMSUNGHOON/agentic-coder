@@ -152,17 +152,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-800 rounded-lg shadow-lg">
+    <div className="flex flex-col h-full bg-[#2A2A2A] rounded-lg shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[#404040]">
         <div>
-          <h2 className="text-xl font-semibold text-white">Coding Agent</h2>
-          <p className="text-sm text-gray-400">
+          <h2 className="text-xl font-semibold text-[#ECECF1]">Coding Agent</h2>
+          <p className="text-sm text-[#9B9B9B]">
             Mode: {taskType === 'reasoning' ? 'Reasoning (DeepSeek-R1)' : 'Coding (Qwen3)'}
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm text-gray-300">
+          <label className="flex items-center gap-2 text-sm text-[#ECECF1]">
             <input
               type="checkbox"
               checked={useStreaming}
@@ -173,7 +173,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
           </label>
           <button
             onClick={handleClearHistory}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded"
+            className="px-3 py-1 text-sm bg-[#343434] hover:bg-[#404040] text-[#ECECF1] rounded transition-colors"
           >
             Clear History
           </button>
@@ -183,7 +183,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
+          <div className="flex items-center justify-center h-full text-[#9B9B9B]">
             <p>Start a conversation with the coding agent</p>
           </div>
         ) : (
@@ -197,21 +197,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
       </div>
 
       {/* Input */}
-      <div className="px-6 py-4 border-t border-gray-700">
+      <div className="px-6 py-4 border-t border-[#404040]">
         <div className="flex gap-2">
           <textarea
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Type your message... (Shift+Enter for new line)"
-            className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-4 py-2 bg-[#343434] text-[#ECECF1] placeholder-[#9B9B9B] rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#10A37F] border border-[#404040]"
             rows={3}
             disabled={isLoading}
           />
           <button
             onClick={handleSendMessage}
             disabled={isLoading || !inputMessage.trim()}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors"
+            className="px-6 py-2 bg-[#10A37F] hover:bg-[#0E8C6F] disabled:bg-[#505050] disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
           >
             {isLoading ? 'Sending...' : 'Send'}
           </button>

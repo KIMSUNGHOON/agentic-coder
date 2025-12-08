@@ -70,12 +70,12 @@ const ConversationList = ({
   };
 
   return (
-    <div className="w-64 bg-gray-900 border-r border-gray-700 flex flex-col h-full">
+    <div className="w-64 bg-[#1A1A1A] border-r border-[#404040] flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-gray-700">
+      <div className="p-4 border-b border-[#404040]">
         <button
           onClick={onNewConversation}
-          className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+          className="w-full px-4 py-2 bg-[#10A37F] hover:bg-[#0E8C6F] text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
         >
           <span className="text-lg">+</span>
           <span>New {mode === 'workflow' ? 'Workflow' : 'Chat'}</span>
@@ -86,12 +86,12 @@ const ConversationList = ({
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center p-4">
-            <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+            <div className="animate-spin h-6 w-6 border-2 border-[#10A37F] border-t-transparent rounded-full"></div>
           </div>
         ) : error ? (
           <div className="p-4 text-center text-red-400">{error}</div>
         ) : conversations.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">
+          <div className="p-4 text-center text-[#9B9B9B]">
             No conversations yet
           </div>
         ) : (
@@ -102,27 +102,27 @@ const ConversationList = ({
                 onClick={() => onSelectConversation(conversation)}
                 className={`group p-3 rounded-lg cursor-pointer transition-colors ${
                   conversation.session_id === currentSessionId
-                    ? 'bg-gray-700'
-                    : 'hover:bg-gray-800'
+                    ? 'bg-[#343434]'
+                    : 'hover:bg-[#2A2A2A]'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-gray-200 truncate">
+                    <h3 className="text-sm font-medium text-[#ECECF1] truncate">
                       {conversation.title}
                     </h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-[#9B9B9B]">
                         {formatDate(conversation.updated_at)}
                       </span>
-                      <span className="text-xs text-gray-600">
+                      <span className="text-xs text-[#6B6B6B]">
                         {conversation.message_count} messages
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={(e) => handleDelete(e, conversation.session_id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-gray-500 hover:text-red-400 transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-1 text-[#9B9B9B] hover:text-red-400 transition-all"
                     title="Delete conversation"
                   >
                     <svg
@@ -148,10 +148,10 @@ const ConversationList = ({
       </div>
 
       {/* Refresh button */}
-      <div className="p-2 border-t border-gray-700">
+      <div className="p-2 border-t border-[#404040]">
         <button
           onClick={loadConversations}
-          className="w-full px-3 py-2 text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors flex items-center justify-center gap-2"
+          className="w-full px-3 py-2 text-sm text-[#9B9B9B] hover:text-[#ECECF1] hover:bg-[#2A2A2A] rounded-lg transition-colors flex items-center justify-center gap-2"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
