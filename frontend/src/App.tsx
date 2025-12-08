@@ -1,7 +1,7 @@
 /**
  * Main App component
  */
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ChatInterface from './components/ChatInterface';
 import AgentStatus from './components/AgentStatus';
 
