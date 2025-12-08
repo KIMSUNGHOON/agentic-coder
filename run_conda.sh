@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Run the full stack using Conda environment
+# Run the full stack using existing Conda environment
 
 set -e
 
@@ -16,7 +16,12 @@ echo ""
 # Check if conda environment exists
 if ! conda env list | grep -q "coding-agent"; then
     echo -e "${RED}❌ Error: Conda environment 'coding-agent' not found${NC}"
-    echo "Please run ./setup_conda.sh first to create the environment"
+    echo ""
+    echo "Please create the environment first:"
+    echo "  conda env create -f environment.yml"
+    echo ""
+    echo "Or activate an existing environment:"
+    echo "  conda activate <your-env-name>"
     exit 1
 fi
 
