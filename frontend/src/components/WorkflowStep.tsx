@@ -73,8 +73,8 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         </div>
       </div>
 
-      {update.status !== 'running' && update.content && (
-        <div className="prose prose-invert max-w-none">
+      {update.content && (
+        <div className={`prose prose-invert max-w-none ${update.status === 'running' ? 'opacity-90' : ''}`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -102,8 +102,8 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         </div>
       )}
 
-      {update.status === 'running' && (
-        <p className="text-gray-400 italic">{update.content}</p>
+      {update.status === 'running' && !update.content && (
+        <p className="text-gray-400 italic animate-pulse">Initializing...</p>
       )}
     </div>
   );
