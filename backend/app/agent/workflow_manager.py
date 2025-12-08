@@ -54,6 +54,21 @@ class Response:
         return self.messages[0].text if self.messages else ""
 
 
+@dataclass
+class StreamChunk:
+    """Wrapper for streaming chunks with author_name attribute.
+
+    The Microsoft Agent Framework's run_stream() expects yielded objects
+    to have an author_name attribute. This wrapper provides that attribute.
+    """
+    text: str
+    author_name: str = ""
+
+    def __str__(self) -> str:
+        """Return the text content when converted to string."""
+        return self.text
+
+
 class VLLMChatClient(BaseChatClient):
     """Custom chat client for vLLM that implements BaseChatClient interface."""
 
@@ -124,7 +139,7 @@ class VLLMChatClient(BaseChatClient):
         self,
         messages: List[ChatMessage],
         **kwargs
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[StreamChunk, None]:
         """Get a streaming response from vLLM.
 
         Args:
@@ -132,7 +147,7 @@ class VLLMChatClient(BaseChatClient):
             **kwargs: Additional arguments (temperature, max_tokens, etc.)
 
         Yields:
-            Chunks of response content
+            StreamChunk objects with text and author_name attributes
         """
         # Convert ChatMessage to dict format for vLLM
         # Role is an enum, so we need to get its string value
@@ -149,7 +164,8 @@ class VLLMChatClient(BaseChatClient):
             temperature=kwargs.get("temperature", 0.7),
             max_tokens=kwargs.get("max_tokens", 2048)
         ):
-            yield chunk
+            # Wrap chunk in StreamChunk with author_name attribute
+            yield StreamChunk(text=chunk, author_name="")
 
 
 class CodingWorkflow:
