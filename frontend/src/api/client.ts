@@ -11,10 +11,8 @@ import {
 
 class ApiClient {
   private client: AxiosInstance;
-  private baseURL: string;
 
   constructor(baseURL: string = '/api') {
-    this.baseURL = baseURL;
     this.client = axios.create({
       baseURL,
       headers: {
