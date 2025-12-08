@@ -58,19 +58,19 @@ const AgentStatus: React.FC<AgentStatusProps> = ({
   };
 
   return (
-    <div className="w-80 bg-[#2A2A2A] border-l border-[#404040] p-6 overflow-y-auto">
-      <h2 className="text-xl font-semibold text-[#ECECF1] mb-6">Agent Status</h2>
+    <div className="w-80 bg-[#FFFFFF] border-l border-[#E5E5E7] p-6 overflow-y-auto">
+      <h2 className="text-xl font-semibold text-[#2D2D2D] mb-6">Agent Status</h2>
 
       {/* Health Status */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-[#9B9B9B] mb-2">API Status</h3>
+        <h3 className="text-sm font-semibold text-[#6B6B6B] mb-2">API Status</h3>
         <div className="flex items-center gap-2">
           <div
             className={`w-3 h-3 rounded-full ${
               isHealthy ? 'bg-green-500' : 'bg-red-500'
             }`}
           />
-          <span className="text-[#ECECF1]">
+          <span className="text-[#2D2D2D]">
             {isHealthy ? 'Connected' : 'Disconnected'}
           </span>
         </div>
@@ -78,25 +78,25 @@ const AgentStatus: React.FC<AgentStatusProps> = ({
 
       {/* Session Info */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-[#9B9B9B] mb-2">Session</h3>
-        <div className="bg-[#343434] rounded p-3 border border-[#404040]">
-          <p className="text-xs text-[#9B9B9B]">Session ID</p>
-          <p className="text-sm text-[#ECECF1] font-mono break-all">{sessionId}</p>
-          <p className="text-xs text-[#9B9B9B] mt-2">Messages</p>
-          <p className="text-sm text-[#ECECF1]">{messageCount}</p>
+        <h3 className="text-sm font-semibold text-[#6B6B6B] mb-2">Session</h3>
+        <div className="bg-[#F0F0F0] rounded p-3 border border-[#E5E5E7]">
+          <p className="text-xs text-[#6B6B6B]">Session ID</p>
+          <p className="text-sm text-[#2D2D2D] font-mono break-all">{sessionId}</p>
+          <p className="text-xs text-[#6B6B6B] mt-2">Messages</p>
+          <p className="text-sm text-[#2D2D2D]">{messageCount}</p>
         </div>
       </div>
 
       {/* Task Type Selector */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-[#9B9B9B] mb-2">Task Mode</h3>
+        <h3 className="text-sm font-semibold text-[#6B6B6B] mb-2">Task Mode</h3>
         <div className="space-y-2">
           <button
             onClick={() => onTaskTypeChange('coding')}
             className={`w-full px-4 py-2 rounded text-left transition-colors ${
               taskType === 'coding'
                 ? 'bg-[#10A37F] text-white'
-                : 'bg-[#343434] text-[#ECECF1] hover:bg-[#404040]'
+                : 'bg-[#F0F0F0] text-[#2D2D2D] hover:bg-[#E5E5E7]'
             }`}
           >
             <div className="font-semibold">Coding</div>
@@ -107,7 +107,7 @@ const AgentStatus: React.FC<AgentStatusProps> = ({
             className={`w-full px-4 py-2 rounded text-left transition-colors ${
               taskType === 'reasoning'
                 ? 'bg-[#10A37F] text-white'
-                : 'bg-[#343434] text-[#ECECF1] hover:bg-[#404040]'
+                : 'bg-[#F0F0F0] text-[#2D2D2D] hover:bg-[#E5E5E7]'
             }`}
           >
             <div className="font-semibold">Reasoning</div>
@@ -118,25 +118,25 @@ const AgentStatus: React.FC<AgentStatusProps> = ({
 
       {/* Models */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-[#9B9B9B] mb-2">
+        <h3 className="text-sm font-semibold text-[#6B6B6B] mb-2">
           Available Models
         </h3>
         <div className="space-y-2">
           {models.map((model, index) => (
-            <div key={index} className="bg-[#343434] rounded p-3 border border-[#404040]">
+            <div key={index} className="bg-[#F0F0F0] rounded p-3 border border-[#E5E5E7]">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-[#9B9B9B]">{model.type}</span>
+                <span className="text-xs text-[#6B6B6B]">{model.type}</span>
                 <span
                   className={`px-2 py-0.5 text-xs rounded ${
                     model.type === taskType
                       ? 'bg-green-500 text-white'
-                      : 'bg-[#505050] text-[#ECECF1]'
+                      : 'bg-[#505050] text-[#2D2D2D]'
                   }`}
                 >
                   {model.type === taskType ? 'Active' : 'Standby'}
                 </span>
               </div>
-              <p className="text-sm text-[#ECECF1] font-mono text-xs break-all">
+              <p className="text-sm text-[#2D2D2D] font-mono text-xs break-all">
                 {model.name}
               </p>
             </div>
@@ -145,7 +145,7 @@ const AgentStatus: React.FC<AgentStatusProps> = ({
       </div>
 
       {/* Info */}
-      <div className="text-xs text-[#9B9B9B] leading-relaxed">
+      <div className="text-xs text-[#6B6B6B] leading-relaxed">
         <p className="mb-2">
           This agent uses Microsoft Agent Framework with vLLM for model serving.
         </p>

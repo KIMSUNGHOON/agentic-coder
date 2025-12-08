@@ -7,9 +7,9 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: dark;
-  color: #ECECF1;
-  background-color: #1A1A1A;
+  color-scheme: light;
+  color: #2D2D2D;
+  background-color: #F7F7F8;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -22,7 +22,7 @@ body {
   display: flex;
   min-width: 320px;
   min-height: 100vh;
-  background-color: #1A1A1A;
+  background-color: #F7F7F8;
 }
 
 #root {
@@ -30,21 +30,21 @@ body {
   margin: 0 auto;
 }
 
-/* Custom scrollbar - Claude style */
+/* Custom scrollbar - Claude light style */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1A1A1A;
+  background: #F7F7F8;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #404040;
+  background: #D1D1D6;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #505050;
+  background: #B8B8BD;
 }

@@ -50,32 +50,32 @@ class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex items-center justify-center min-h-screen bg-[#1A1A1A]">
-          <div className="max-w-2xl p-8 bg-[#2A2A2A] border border-[#404040] rounded-lg">
+        <div className="flex items-center justify-center min-h-screen bg-[#FFFFFF]">
+          <div className="max-w-2xl p-8 bg-[#FFFFFF] border border-[#E5E5E7] rounded-lg">
             <div className="text-center mb-6">
               <div className="text-6xl mb-4">⚠️</div>
-              <h1 className="text-2xl font-bold text-[#ECECF1] mb-2">
+              <h1 className="text-2xl font-bold text-[#2D2D2D] mb-2">
                 Something went wrong
               </h1>
-              <p className="text-[#9B9B9B]">
+              <p className="text-[#6B6B6B]">
                 The application encountered an error and couldn't continue.
               </p>
             </div>
 
             {this.state.error && (
-              <div className="mb-6 p-4 bg-[#1A1A1A] rounded border border-red-500/30">
+              <div className="mb-6 p-4 bg-[#FFFFFF] rounded border border-red-500/30">
                 <h3 className="text-sm font-semibold text-red-400 mb-2">
                   Error Details:
                 </h3>
-                <pre className="text-xs text-[#ECECF1] whitespace-pre-wrap break-words">
+                <pre className="text-xs text-[#2D2D2D] whitespace-pre-wrap break-words">
                   {this.state.error.toString()}
                 </pre>
                 {this.state.errorInfo && (
                   <details className="mt-3">
-                    <summary className="text-xs text-[#9B9B9B] cursor-pointer hover:text-[#ECECF1]">
+                    <summary className="text-xs text-[#6B6B6B] cursor-pointer hover:text-[#2D2D2D]">
                       Stack Trace
                     </summary>
-                    <pre className="mt-2 text-xs text-[#9B9B9B] whitespace-pre-wrap break-words">
+                    <pre className="mt-2 text-xs text-[#6B6B6B] whitespace-pre-wrap break-words">
                       {this.state.errorInfo.componentStack}
                     </pre>
                   </details>
@@ -92,7 +92,7 @@ class ErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 onClick={() => window.history.back()}
-                className="px-6 py-2 bg-[#343434] hover:bg-[#404040] text-[#ECECF1] rounded-lg font-medium transition-colors"
+                className="px-6 py-2 bg-[#F0F0F0] hover:bg-[#E5E5E7] text-[#2D2D2D] rounded-lg font-medium transition-colors"
               >
                 Go Back
               </button>

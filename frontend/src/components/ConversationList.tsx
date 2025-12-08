@@ -70,9 +70,9 @@ const ConversationList = ({
   };
 
   return (
-    <div className="w-64 bg-[#1A1A1A] border-r border-[#404040] flex flex-col h-full">
+    <div className="w-64 bg-[#FFFFFF] border-r border-[#E5E5E7] flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 border-b border-[#404040]">
+      <div className="p-4 border-b border-[#E5E5E7]">
         <button
           onClick={onNewConversation}
           className="w-full px-4 py-2 bg-[#10A37F] hover:bg-[#0E8C6F] text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
@@ -91,7 +91,7 @@ const ConversationList = ({
         ) : error ? (
           <div className="p-4 text-center text-red-400">{error}</div>
         ) : conversations.length === 0 ? (
-          <div className="p-4 text-center text-[#9B9B9B]">
+          <div className="p-4 text-center text-[#6B6B6B]">
             No conversations yet
           </div>
         ) : (
@@ -102,17 +102,17 @@ const ConversationList = ({
                 onClick={() => onSelectConversation(conversation)}
                 className={`group p-3 rounded-lg cursor-pointer transition-colors ${
                   conversation.session_id === currentSessionId
-                    ? 'bg-[#343434]'
-                    : 'hover:bg-[#2A2A2A]'
+                    ? 'bg-[#F0F0F0]'
+                    : 'hover:bg-[#FFFFFF]'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium text-[#ECECF1] truncate">
+                    <h3 className="text-sm font-medium text-[#2D2D2D] truncate">
                       {conversation.title}
                     </h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-[#9B9B9B]">
+                      <span className="text-xs text-[#6B6B6B]">
                         {formatDate(conversation.updated_at)}
                       </span>
                       <span className="text-xs text-[#6B6B6B]">
@@ -122,7 +122,7 @@ const ConversationList = ({
                   </div>
                   <button
                     onClick={(e) => handleDelete(e, conversation.session_id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-[#9B9B9B] hover:text-red-400 transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-1 text-[#6B6B6B] hover:text-red-400 transition-all"
                     title="Delete conversation"
                   >
                     <svg
@@ -148,10 +148,10 @@ const ConversationList = ({
       </div>
 
       {/* Refresh button */}
-      <div className="p-2 border-t border-[#404040]">
+      <div className="p-2 border-t border-[#E5E5E7]">
         <button
           onClick={loadConversations}
-          className="w-full px-3 py-2 text-sm text-[#9B9B9B] hover:text-[#ECECF1] hover:bg-[#2A2A2A] rounded-lg transition-colors flex items-center justify-center gap-2"
+          className="w-full px-3 py-2 text-sm text-[#6B6B6B] hover:text-[#2D2D2D] hover:bg-[#FFFFFF] rounded-lg transition-colors flex items-center justify-center gap-2"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

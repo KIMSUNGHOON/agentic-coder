@@ -72,7 +72,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
     const allUpdates: WorkflowUpdate[] = [];
 
     try {
-      const response = await fetch('http://localhost:8000/api/workflow/execute', {
+      const response = await fetch('/api/workflow/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -164,13 +164,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#2A2A2A] rounded-lg shadow-xl">
+    <div className="flex flex-col h-full bg-[#FFFFFF] rounded-lg shadow-xl">
       {/* Header */}
-      <div className="p-4 border-b border-[#404040]">
-        <h2 className="text-2xl font-bold text-[#ECECF1] mb-2">
+      <div className="p-4 border-b border-[#E5E5E7]">
+        <h2 className="text-2xl font-bold text-[#2D2D2D] mb-2">
           Multi-Agent Workflow
         </h2>
-        <p className="text-[#9B9B9B] text-sm">
+        <p className="text-[#6B6B6B] text-sm">
           Planning → Coding → Review
         </p>
       </div>
@@ -178,9 +178,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
       {/* Workflow Steps */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {updates.length === 0 && !isRunning && (
-          <div className="text-center text-[#9B9B9B] mt-20">
+          <div className="text-center text-[#6B6B6B] mt-20">
             <div className="text-6xl mb-4">🚀</div>
-            <p className="text-xl text-[#ECECF1]">Enter a coding task to start the workflow</p>
+            <p className="text-xl text-[#2D2D2D]">Enter a coding task to start the workflow</p>
             <p className="text-sm mt-2">
               The multi-agent system will plan, code, and review your request
             </p>
@@ -195,7 +195,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
       </div>
 
       {/* Input Form */}
-      <form onSubmit={handleSubmit} className="p-4 border-t border-[#404040]">
+      <form onSubmit={handleSubmit} className="p-4 border-t border-[#E5E5E7]">
         <div className="flex space-x-2">
           <input
             type="text"
@@ -203,7 +203,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
             onChange={(e) => setInput(e.target.value)}
             placeholder="Enter your coding task..."
             disabled={isRunning}
-            className="flex-1 bg-[#343434] text-[#ECECF1] placeholder-[#9B9B9B] px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#10A37F] border border-[#404040] disabled:opacity-50"
+            className="flex-1 bg-[#F0F0F0] text-[#2D2D2D] placeholder-[#6B6B6B] px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#10A37F] border border-[#E5E5E7] disabled:opacity-50"
           />
           <button
             type="submit"

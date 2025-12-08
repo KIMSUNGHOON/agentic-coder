@@ -24,10 +24,10 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
         className={`max-w-[80%] rounded-lg px-4 py-3 ${
           isUser
             ? 'bg-[#10A37F] text-white'
-            : 'bg-[#343434] text-[#ECECF1] border border-[#404040]'
+            : 'bg-[#F0F0F0] text-[#2D2D2D] border border-[#E5E5E7]'
         }`}
       >
-        <div className={`text-xs font-semibold mb-1 ${isUser ? 'text-white/70' : 'text-[#9B9B9B]'}`}>
+        <div className={`text-xs font-semibold mb-1 ${isUser ? 'text-white/70' : 'text-[#6B6B6B]'}`}>
           {isUser ? 'You' : 'Agent'}
         </div>
         <div className="prose prose-invert max-w-none">
