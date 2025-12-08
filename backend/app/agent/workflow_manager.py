@@ -275,61 +275,91 @@ Output:
             yield {
                 "agent": "PlanningAgent",
                 "status": "running",
-                "content": "🔍 Analyzing requirements and creating plan..."
+                "content": ""
             }
 
-            plan_result = await self.planning_agent.run(initial_message)
+            # Stream planning agent output
+            plan_text = ""
+            async for chunk in self.planning_agent.run_stream(initial_message):
+                if hasattr(chunk, 'text') and chunk.text:
+                    plan_text += chunk.text
+                    yield {
+                        "agent": "PlanningAgent",
+                        "status": "running",
+                        "content": plan_text
+                    }
+
             yield {
                 "agent": "PlanningAgent",
                 "status": "completed",
-                "content": plan_result.text
+                "content": plan_text
             }
 
             # Step 2: Coding
             yield {
                 "agent": "CodingAgent",
                 "status": "running",
-                "content": "💻 Generating code based on plan..."
+                "content": ""
             }
 
             # Pass plan to coding agent
             coding_message = ChatMessage(
                 role="user",
-                text=f"Based on this plan:\n\n{plan_result.text}\n\nPlease implement the code."
+                text=f"Based on this plan:\n\n{plan_text}\n\nPlease implement the code."
             )
-            code_result = await self.coding_agent.run(coding_message)
+
+            # Stream coding agent output
+            code_text = ""
+            async for chunk in self.coding_agent.run_stream(coding_message):
+                if hasattr(chunk, 'text') and chunk.text:
+                    code_text += chunk.text
+                    yield {
+                        "agent": "CodingAgent",
+                        "status": "running",
+                        "content": code_text
+                    }
 
             yield {
                 "agent": "CodingAgent",
                 "status": "completed",
-                "content": code_result.text
+                "content": code_text
             }
 
             # Step 3: Review
             yield {
                 "agent": "ReviewAgent",
                 "status": "running",
-                "content": "🔎 Reviewing and improving code..."
+                "content": ""
             }
 
             # Pass code to review agent
             review_message = ChatMessage(
                 role="user",
-                text=f"Please review this code:\n\n{code_result.text}"
+                text=f"Please review this code:\n\n{code_text}"
             )
-            review_result = await self.review_agent.run(review_message)
+
+            # Stream review agent output
+            review_text = ""
+            async for chunk in self.review_agent.run_stream(review_message):
+                if hasattr(chunk, 'text') and chunk.text:
+                    review_text += chunk.text
+                    yield {
+                        "agent": "ReviewAgent",
+                        "status": "running",
+                        "content": review_text
+                    }
 
             yield {
                 "agent": "ReviewAgent",
                 "status": "completed",
-                "content": review_result.text
+                "content": review_text
             }
 
             # Final result
             yield {
                 "agent": "Workflow",
                 "status": "finished",
-                "content": f"✅ Workflow completed!\n\n**Final Code:**\n{code_result.text}\n\n**Review:**\n{review_result.text}"
+                "content": f"✅ Workflow completed!\n\n**Final Code:**\n{code_text}\n\n**Review:**\n{review_text}"
             }
 
         except Exception as e:
