@@ -41,7 +41,7 @@ class VLLMChatClient(BaseChatClient):
         """
         # Convert ChatMessage to dict format for vLLM
         vllm_messages = [
-            {"role": msg.role, "content": msg.content}
+            {"role": msg.role, "content": msg.text}
             for msg in messages
         ]
 
@@ -70,7 +70,7 @@ class VLLMChatClient(BaseChatClient):
         """
         # Convert ChatMessage to dict format for vLLM
         vllm_messages = [
-            {"role": msg.role, "content": msg.content}
+            {"role": msg.role, "content": msg.text}
             for msg in messages
         ]
 
