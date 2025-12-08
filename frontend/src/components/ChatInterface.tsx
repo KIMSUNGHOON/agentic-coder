@@ -17,6 +17,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [useStreaming, setUseStreaming] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -29,17 +30,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
 
   // Load conversation history on mount or when session/initial messages change
   useEffect(() => {
-    // If we have initial messages from a loaded conversation, use them
-    if (initialMessages && initialMessages.length > 0) {
-      // Convert StoredMessage to ChatMessage format
-      const convertedMessages: ChatMessageType[] = initialMessages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      setMessages(convertedMessages);
-    } else {
-      // For new sessions, start with empty messages
-      // Don't call loadHistory as it fetches from agent memory, not DB
+    try {
+      setError(null);
+      // If we have initial messages from a loaded conversation, use them
+      if (initialMessages && initialMessages.length > 0) {
+        // Convert StoredMessage to ChatMessage format
+        const convertedMessages: ChatMessageType[] = initialMessages.map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
+        setMessages(convertedMessages);
+      } else {
+        // For new sessions, start with empty messages
+        // Don't call loadHistory as it fetches from agent memory, not DB
+        setMessages([]);
+      }
+    } catch (err) {
+      console.error('Error loading messages:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load messages');
       setMessages([]);
     }
   }, [sessionId, initialMessages]);
@@ -118,9 +126,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      setError(`Failed to send message: ${errorMsg}`);
       const errorMessage: ChatMessageType = {
         role: 'assistant',
-        content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        content: `Error: ${errorMsg}`,
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -175,6 +185,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
+        {error && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <div className="flex items-center gap-2 text-red-400">
+              <span className="text-xl">⚠️</span>
+              <span className="font-semibold">Error:</span>
+              <span>{error}</span>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="mt-2 text-sm text-red-400 hover:text-red-300 underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[#9B9B9B]">
             <p>Start a conversation with the coding agent</p>

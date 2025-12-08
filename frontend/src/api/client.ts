@@ -32,27 +32,44 @@ class ApiClient {
   }
 
   /**
-   * Stream a chat message
+   * Stream a chat message using native Fetch API
    */
   async *chatStream(request: ChatRequest): AsyncGenerator<string, void, unknown> {
-    const response = await this.client.post('/chat/stream', request, {
-      responseType: 'stream',
-      adapter: 'fetch',
-    });
-
-    const reader = response.data.getReader();
-    const decoder = new TextDecoder();
-
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const baseURL = this.client.defaults.baseURL || '/api';
+      const response = await fetch(`${baseURL}/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
 
-        const chunk = decoder.decode(value, { stream: true });
-        yield chunk;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } finally {
-      reader.releaseLock();
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Response body is not readable');
+      }
+
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          yield chunk;
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error('Chat stream error:', error);
+      throw error;
     }
   }
 

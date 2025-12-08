@@ -39,10 +39,16 @@ function App() {
         setMode('workflow');
         // Extract workflow updates from stored state (saved as { updates: [...] })
         if (fullConversation.workflow_state) {
-          const workflowState = fullConversation.workflow_state as { updates?: WorkflowUpdate[] };
-          if (workflowState.updates && Array.isArray(workflowState.updates)) {
-            setLoadedWorkflowState(workflowState.updates);
-          } else {
+          try {
+            const workflowState = fullConversation.workflow_state as { updates?: WorkflowUpdate[] };
+            if (workflowState && workflowState.updates && Array.isArray(workflowState.updates)) {
+              setLoadedWorkflowState(workflowState.updates);
+            } else {
+              console.warn('Invalid workflow state format:', fullConversation.workflow_state);
+              setLoadedWorkflowState([]);
+            }
+          } catch (parseErr) {
+            console.error('Failed to parse workflow state:', parseErr);
             setLoadedWorkflowState([]);
           }
         } else {
@@ -54,8 +60,11 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to load conversation:', err);
+      alert(`Failed to load conversation: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Reset to new conversation on error
+      handleNewConversation();
     }
-  }, []);
+  }, [handleNewConversation]);
 
   const handleModeChange = (newMode: Mode) => {
     setMode(newMode);
