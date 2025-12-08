@@ -1,6 +1,9 @@
 """Workflow-based coding agent using Microsoft Agent Framework."""
 import logging
+import uuid
+from datetime import datetime
 from typing import List, Dict, Any, AsyncGenerator, Optional
+from dataclasses import dataclass, field
 from agent_framework import (
     WorkflowBuilder,
     ChatAgent,
@@ -11,6 +14,44 @@ from agent_framework import (
 from app.services.vllm_client import vllm_router
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Response:
+    """Complete response wrapper matching agent framework expectations."""
+    messages: List[ChatMessage] = field(default_factory=list)
+    conversation_id: Optional[str] = None
+    response_id: Optional[str] = None
+    object: str = "response"
+    created_at: Optional[datetime] = None
+    status: str = "completed"
+    model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+    usage_details: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        """Initialize default values."""
+        if self.response_id is None:
+            self.response_id = f"resp_{uuid.uuid4().hex[:24]}"
+        if self.created_at is None:
+            self.created_at = datetime.now()
+        if self.usage is None:
+            self.usage = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        if self.usage_details is None:
+            self.usage_details = {}
+
+    def __getattr__(self, name: str) -> Any:
+        """Return None for any undefined attributes to prevent AttributeError."""
+        return None
+
+    @property
+    def text(self) -> str:
+        """Get text from first message."""
+        return self.messages[0].text if self.messages else ""
 
 
 class VLLMChatClient(BaseChatClient):
@@ -29,7 +70,7 @@ class VLLMChatClient(BaseChatClient):
         self,
         messages: List[ChatMessage],
         **kwargs
-    ) -> str:
+    ) -> Response:
         """Get a non-streaming response from vLLM.
 
         Args:
@@ -37,7 +78,7 @@ class VLLMChatClient(BaseChatClient):
             **kwargs: Additional arguments (temperature, max_tokens, etc.)
 
         Returns:
-            Response content as string
+            Response object with messages and conversation_id
         """
         # Convert ChatMessage to dict format for vLLM
         # Role is an enum, so we need to get its string value
@@ -49,14 +90,35 @@ class VLLMChatClient(BaseChatClient):
             for msg in messages
         ]
 
-        response = await self.vllm_client.chat_completion(
+        vllm_response = await self.vllm_client.chat_completion(
             messages=vllm_messages,
             temperature=kwargs.get("temperature", 0.7),
             max_tokens=kwargs.get("max_tokens", 2048),
             stream=False
         )
 
-        return response.choices[0].message.content
+        # Create response message
+        response_message = ChatMessage(
+            role="assistant",
+            text=vllm_response.choices[0].message.content
+        )
+
+        # Extract usage information if available
+        usage = None
+        if hasattr(vllm_response, 'usage') and vllm_response.usage:
+            usage = {
+                "prompt_tokens": getattr(vllm_response.usage, 'prompt_tokens', 0),
+                "completion_tokens": getattr(vllm_response.usage, 'completion_tokens', 0),
+                "total_tokens": getattr(vllm_response.usage, 'total_tokens', 0)
+            }
+
+        # Return Response object with all metadata
+        return Response(
+            messages=[response_message],
+            conversation_id=kwargs.get("conversation_id"),
+            model=self.model_type,
+            usage=usage
+        )
 
     async def _inner_get_streaming_response(
         self,
@@ -176,7 +238,7 @@ Output:
         logger.info(f"Executing workflow for request: {user_request[:100]}...")
 
         # Create initial message
-        initial_message = ChatMessage(role="user", content=user_request)
+        initial_message = ChatMessage(role="user", text=user_request)
 
         # Run the workflow
         result = await self.workflow.run(
@@ -203,7 +265,7 @@ Output:
         logger.info(f"Streaming workflow for request: {user_request[:100]}...")
 
         # Create initial message
-        initial_message = ChatMessage(role="user", content=user_request)
+        initial_message = ChatMessage(role="user", text=user_request)
 
         # For now, we'll execute each step and yield progress
         # TODO: Implement proper streaming when agent-framework supports it
@@ -220,7 +282,7 @@ Output:
             yield {
                 "agent": "PlanningAgent",
                 "status": "completed",
-                "content": plan_result
+                "content": plan_result.text
             }
 
             # Step 2: Coding
@@ -233,14 +295,14 @@ Output:
             # Pass plan to coding agent
             coding_message = ChatMessage(
                 role="user",
-                content=f"Based on this plan:\n\n{plan_result}\n\nPlease implement the code."
+                text=f"Based on this plan:\n\n{plan_result.text}\n\nPlease implement the code."
             )
             code_result = await self.coding_agent.run(coding_message)
 
             yield {
                 "agent": "CodingAgent",
                 "status": "completed",
-                "content": code_result
+                "content": code_result.text
             }
 
             # Step 3: Review
@@ -253,21 +315,21 @@ Output:
             # Pass code to review agent
             review_message = ChatMessage(
                 role="user",
-                content=f"Please review this code:\n\n{code_result}"
+                text=f"Please review this code:\n\n{code_result.text}"
             )
             review_result = await self.review_agent.run(review_message)
 
             yield {
                 "agent": "ReviewAgent",
                 "status": "completed",
-                "content": review_result
+                "content": review_result.text
             }
 
             # Final result
             yield {
                 "agent": "Workflow",
                 "status": "finished",
-                "content": f"✅ Workflow completed!\n\n**Final Code:**\n{code_result}\n\n**Review:**\n{review_result}"
+                "content": f"✅ Workflow completed!\n\n**Final Code:**\n{code_result.text}\n\n**Review:**\n{review_result.text}"
             }
 
         except Exception as e:
