@@ -44,6 +44,7 @@ A full-stack coding agent powered by Microsoft Agent Framework and vLLM, featuri
 - 🎨 **Modern UI**: Built with React, TypeScript, and TailwindCSS
 - 🔄 **Session Management**: Persistent conversation history per session
 - 🐳 **Docker Support**: Easy deployment with Docker Compose
+- 🐍 **Conda Support**: Alternative setup using Conda/Miniconda environments
 
 ## 🚀 Quick Start
 
@@ -58,11 +59,80 @@ A full-stack coding agent powered by Microsoft Agent Framework and vLLM, featuri
    vllm serve Qwen/Qwen3-8B-Coder --port 8002
    ```
 
-2. **Python 3.11+** and **Node.js 20+** installed
+2. **Python 3.11+** and **Node.js 20+** installed (or Conda/Miniconda)
 
 ### Development Setup
 
-#### Backend
+You can set up the development environment using either **pip/venv** or **Conda**. Choose the method that works best for you.
+
+---
+
+#### Option 1: Using Conda (Recommended for Data Scientists)
+
+**Full Stack Setup:**
+
+```bash
+# Create conda environment with all dependencies
+./setup_conda.sh
+
+# Activate the environment
+conda activate coding-agent
+
+# Setup backend environment file
+cd backend
+cp .env.example .env
+# Edit .env if needed
+
+# Install frontend dependencies
+cd ../frontend
+npm install
+
+# Return to root and run both services
+cd ..
+./run_conda.sh
+```
+
+**Backend Only:**
+
+```bash
+cd backend
+
+# Create conda environment
+./setup_conda.sh
+
+# Activate environment
+conda activate coding-agent-backend
+
+# Run the server
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Manual Conda Setup:**
+
+```bash
+# Create environment from YAML file
+conda env create -f environment.yml
+
+# Activate environment
+conda activate coding-agent
+
+# Setup and run backend
+cd backend
+cp .env.example .env
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# In another terminal, run frontend
+conda activate coding-agent
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+#### Option 2: Using pip/venv
+
+**Backend:**
 
 ```bash
 cd backend
@@ -88,7 +158,7 @@ cd backend
 ./run_dev.sh
 ```
 
-#### Frontend
+**Frontend:**
 
 ```bash
 cd frontend
@@ -141,9 +211,11 @@ TestCodeAgent/
 │   │   │   └── agent_manager.py # Agent Framework integration
 │   │   └── services/
 │   │       └── vllm_client.py   # vLLM client & router
-│   ├── requirements.txt
+│   ├── requirements.txt         # pip dependencies
+│   ├── environment.yml          # Conda environment (backend only)
 │   ├── Dockerfile
-│   └── run_dev.sh
+│   ├── run_dev.sh              # pip/venv dev script
+│   └── setup_conda.sh          # Conda setup script
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -159,6 +231,9 @@ TestCodeAgent/
 │   ├── package.json
 │   ├── Dockerfile
 │   └── nginx.conf
+├── environment.yml              # Conda environment (full stack)
+├── setup_conda.sh              # Conda setup script (full stack)
+├── run_conda.sh                # Run full stack with Conda
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -186,6 +261,60 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 
 # Logging
 LOG_LEVEL=INFO
+```
+
+## 🐍 Conda Environment Management
+
+### Available Conda Environments
+
+**Full Stack Environment (`coding-agent`):**
+- Includes Python 3.11, Node.js 20, and all backend dependencies
+- Best for running both frontend and backend
+- File: `environment.yml`
+
+**Backend Only Environment (`coding-agent-backend`):**
+- Includes only Python and backend dependencies
+- Best for API development
+- File: `backend/environment.yml`
+
+### Common Conda Commands
+
+```bash
+# List all conda environments
+conda env list
+
+# Activate environment
+conda activate coding-agent
+
+# Deactivate environment
+conda deactivate
+
+# Update environment from YAML file
+conda env update -f environment.yml --prune
+
+# Remove environment
+conda env remove -n coding-agent
+
+# Export current environment
+conda env export > environment_snapshot.yml
+
+# View installed packages
+conda list
+```
+
+### Updating Dependencies
+
+**Update backend dependencies:**
+```bash
+# Edit backend/environment.yml or backend/requirements.txt
+# Then update the conda environment
+conda env update -f backend/environment.yml --prune
+```
+
+**Update frontend dependencies:**
+```bash
+cd frontend
+npm update
 ```
 
 ## 🎯 API Endpoints
