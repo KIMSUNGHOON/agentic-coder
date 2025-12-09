@@ -11,6 +11,43 @@ interface WorkflowStepProps {
   update: WorkflowUpdate;
 }
 
+// Separate component for artifact display to properly use hooks
+interface ArtifactDisplayProps {
+  artifact: Artifact;
+  defaultExpanded: boolean;
+}
+
+const ArtifactDisplay = ({ artifact, defaultExpanded }: ArtifactDisplayProps) => {
+  const [artifactExpanded, setArtifactExpanded] = useState(defaultExpanded);
+
+  return (
+    <div className="mt-3 rounded-lg overflow-hidden border border-[#E5E5E7]">
+      <div
+        className="bg-[#FFFFFF] px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-[#FFFFFF]"
+        onClick={() => setArtifactExpanded(!artifactExpanded)}
+      >
+        <div className="flex items-center space-x-2">
+          <span className="text-[#6B6B6B] text-sm">
+            {artifactExpanded ? '▼' : '▶'}
+          </span>
+          <span className="text-sm text-[#2D2D2D] font-mono">{artifact.filename}</span>
+        </div>
+        <span className="text-xs text-[#6B6B6B] uppercase">{artifact.language}</span>
+      </div>
+      {artifactExpanded && (
+        <SyntaxHighlighter
+          style={vscDarkPlus}
+          language={artifact.language}
+          customStyle={{ margin: 0, borderRadius: 0, maxHeight: '400px' }}
+          showLineNumbers
+        >
+          {artifact.content}
+        </SyntaxHighlighter>
+      )}
+    </div>
+  );
+};
+
 const WorkflowStep = ({ update }: WorkflowStepProps) => {
   // Default: expanded when running, collapsed when completed
   const [isExpanded, setIsExpanded] = useState(update.status === 'running');
@@ -19,7 +56,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     switch (update.status) {
       case 'running':
         return (
-          <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+          <div className="animate-spin h-5 w-5 border-2 border-[#10A37F] border-t-transparent rounded-full"></div>
         );
       case 'completed':
         return <span className="text-green-500 text-xl">✓</span>;
@@ -35,7 +72,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
   const getStatusColor = () => {
     switch (update.status) {
       case 'running':
-        return 'border-blue-500 bg-blue-500/10';
+        return 'border-[#10A37F] bg-[#10A37F]/10';
       case 'completed':
         return 'border-green-500 bg-green-500/10';
       case 'error':
@@ -43,7 +80,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
       case 'finished':
         return 'border-green-500 bg-green-500/20';
       default:
-        return 'border-gray-500 bg-gray-500/10';
+        return 'border-[#E5E5E7] bg-[#F0F0F0]/50';
     }
   };
 
@@ -113,10 +150,10 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     <div className="space-y-2 mt-3">
       {items.map((item) => (
         <div key={item.id} className="flex items-center space-x-3">
-          <span className={`text-lg ${item.completed ? 'text-green-500' : 'text-gray-500'}`}>
+          <span className={`text-lg ${item.completed ? 'text-green-500' : 'text-[#6B6B6B]'}`}>
             {item.completed ? '✓' : '○'}
           </span>
-          <span className={item.completed ? 'text-gray-300' : 'text-gray-400'}>
+          <span className={item.completed ? 'text-[#2D2D2D]' : 'text-[#6B6B6B]'}>
             {item.id}. {item.task}
           </span>
         </div>
@@ -124,43 +161,13 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     </div>
   );
 
-  const renderArtifact = (artifact: Artifact, defaultExpanded: boolean = false) => {
-    const [artifactExpanded, setArtifactExpanded] = useState(defaultExpanded);
-
-    return (
-      <div className="mt-3 rounded-lg overflow-hidden border border-gray-700">
-        <div
-          className="bg-gray-900 px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-gray-800"
-          onClick={() => setArtifactExpanded(!artifactExpanded)}
-        >
-          <div className="flex items-center space-x-2">
-            <span className="text-gray-400 text-sm">
-              {artifactExpanded ? '▼' : '▶'}
-            </span>
-            <span className="text-sm text-gray-300 font-mono">{artifact.filename}</span>
-          </div>
-          <span className="text-xs text-gray-500 uppercase">{artifact.language}</span>
-        </div>
-        {artifactExpanded && (
-          <SyntaxHighlighter
-            style={vscDarkPlus}
-            language={artifact.language}
-            customStyle={{ margin: 0, borderRadius: 0, maxHeight: '400px' }}
-            showLineNumbers
-          >
-            {artifact.content}
-          </SyntaxHighlighter>
-        )}
-      </div>
-    );
-  };
 
   const renderReview = () => (
     <div className="mt-3 space-y-4">
       {update.issues && update.issues.length > 0 && (
         <div>
           <h4 className="text-red-400 font-semibold mb-2">Issues ({update.issues.length})</h4>
-          <ul className="list-disc list-inside text-gray-300 space-y-1">
+          <ul className="list-disc list-inside text-[#2D2D2D] space-y-1">
             {update.issues.map((issue, i) => (
               <li key={i}>{issue}</li>
             ))}
@@ -170,7 +177,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
       {update.suggestions && update.suggestions.length > 0 && (
         <div>
           <h4 className="text-yellow-400 font-semibold mb-2">Suggestions ({update.suggestions.length})</h4>
-          <ul className="list-disc list-inside text-gray-300 space-y-1">
+          <ul className="list-disc list-inside text-[#2D2D2D] space-y-1">
             {update.suggestions.map((suggestion, i) => (
               <li key={i}>{suggestion}</li>
             ))}
@@ -183,7 +190,9 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         {update.approved ? '✓ APPROVED' : '⚠ NEEDS REVISION'}
       </div>
       {update.corrected_artifacts?.map((artifact, i) => (
-        <div key={i}>{renderArtifact(artifact, false)}</div>
+        <div key={i}>
+          <ArtifactDisplay artifact={artifact} defaultExpanded={false} />
+        </div>
       ))}
     </div>
   );
@@ -194,10 +203,10 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         <div key={task.task_num} className="text-sm">
           <div className="flex items-center space-x-2">
             <span className="text-green-500">✓</span>
-            <span className="text-gray-300">Task {task.task_num}: {task.task}</span>
+            <span className="text-[#2D2D2D]">Task {task.task_num}: {task.task}</span>
           </div>
           {task.artifacts && task.artifacts.length > 0 && (
-            <div className="ml-6 text-gray-500">
+            <div className="ml-6 text-[#6B6B6B]">
               → {Array.isArray(task.artifacts) && typeof task.artifacts[0] === 'string'
                   ? (task.artifacts as string[]).join(', ')
                   : (task.artifacts as Artifact[]).map(a => a.filename).join(', ')}
@@ -210,19 +219,19 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
   const renderSummary = () => (
     <div className="mt-3 grid grid-cols-2 gap-4">
-      <div className="bg-gray-900 p-3 rounded-lg">
+      <div className="bg-[#FFFFFF] p-3 rounded-lg border border-[#E5E5E7]">
         <div className="text-2xl font-bold text-green-400">
           {update.summary?.tasks_completed}/{update.summary?.total_tasks}
         </div>
-        <div className="text-sm text-gray-400">Tasks Completed</div>
+        <div className="text-sm text-[#6B6B6B]">Tasks Completed</div>
       </div>
-      <div className="bg-gray-900 p-3 rounded-lg">
-        <div className="text-2xl font-bold text-blue-400">
+      <div className="bg-[#FFFFFF] p-3 rounded-lg border border-[#E5E5E7]">
+        <div className="text-2xl font-bold text-[#10A37F]">
           {update.summary?.artifacts_count}
         </div>
-        <div className="text-sm text-gray-400">Files Created</div>
+        <div className="text-sm text-[#6B6B6B]">Files Created</div>
       </div>
-      <div className="bg-gray-900 p-3 rounded-lg col-span-2">
+      <div className="bg-[#FFFFFF] p-3 rounded-lg border border-[#E5E5E7] col-span-2">
         <div className={`text-xl font-bold ${update.summary?.review_approved ? 'text-green-400' : 'text-yellow-400'}`}>
           {update.summary?.review_approved ? '✓ Review Approved' : '⚠ Review Pending'}
         </div>
@@ -238,7 +247,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
           {update.completed_tasks && update.completed_tasks.length > 0 && (
             renderCompletedTasks(update.completed_tasks)
           )}
-          <p className="text-gray-400 italic animate-pulse mt-3">
+          <p className="text-[#6B6B6B] italic animate-pulse mt-3">
             {update.message || 'Processing...'}
           </p>
         </div>
@@ -256,7 +265,12 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
             <div className="mt-3">
               <p className="text-sm text-gray-400 mb-2">Artifacts created:</p>
               {update.task_result.artifacts.map((artifact, i) => (
-                <div key={i}>{renderArtifact(artifact, i === update.task_result!.artifacts.length - 1)}</div>
+                <div key={i}>
+                  <ArtifactDisplay
+                    artifact={artifact}
+                    defaultExpanded={i === update.task_result!.artifacts.length - 1}
+                  />
+                </div>
               ))}
             </div>
           )}
@@ -271,8 +285,8 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
           {update.completed_tasks && update.completed_tasks.length > 0 && (
             renderCompletedTasks(update.completed_tasks)
           )}
-          <p className="text-gray-300 mb-2">{update.message}</p>
-          {renderArtifact(update.artifact, true)}
+          <p className="text-[#2D2D2D] mb-2">{update.message}</p>
+          <ArtifactDisplay artifact={update.artifact} defaultExpanded={true} />
         </div>
       );
     }
@@ -292,7 +306,9 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
             <div className="mt-4">
               <p className="text-sm text-gray-400 mb-2">All artifacts ({update.artifacts.length}):</p>
               {update.artifacts.map((artifact, i) => (
-                <div key={i}>{renderArtifact(artifact, false)}</div>
+                <div key={i}>
+                  <ArtifactDisplay artifact={artifact} defaultExpanded={false} />
+                </div>
               ))}
             </div>
           </div>
@@ -317,7 +333,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
     // Fallback for legacy content
     if (update.content) {
-      return <pre className="text-gray-300 whitespace-pre-wrap">{update.content}</pre>;
+      return <pre className="text-[#2D2D2D] whitespace-pre-wrap">{update.content}</pre>;
     }
 
     return null;
@@ -339,7 +355,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
           </h3>
           {/* Summary info when collapsed */}
           {!isExpanded && (
-            <span className="text-gray-400 text-sm ml-2">
+            <span className="text-[#6B6B6B] text-sm ml-2">
               — {getSummaryInfo()}
             </span>
           )}
@@ -348,7 +364,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         {/* Expand/Collapse button */}
         {canExpand && (
           <button
-            className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
+            className="p-1 text-[#6B6B6B] hover:text-[#2D2D2D] transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               setIsExpanded(!isExpanded);
@@ -375,7 +391,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
       {/* Expandable content */}
       {isExpanded && (
-        <div className="mt-3 pt-3 border-t border-gray-700/50">
+        <div className="mt-3 pt-3 border-t border-[#E5E5E7]/50">
           {renderExpandedContent()}
         </div>
       )}

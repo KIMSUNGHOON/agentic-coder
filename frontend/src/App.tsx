@@ -37,9 +37,22 @@ function App() {
 
       if (conversation.mode === 'workflow') {
         setMode('workflow');
-        // Convert stored messages to workflow updates if available
+        // Extract workflow updates from stored state (saved as { updates: [...] })
         if (fullConversation.workflow_state) {
-          setLoadedWorkflowState(fullConversation.workflow_state as unknown as WorkflowUpdate[]);
+          try {
+            const workflowState = fullConversation.workflow_state as { updates?: WorkflowUpdate[] };
+            if (workflowState && workflowState.updates && Array.isArray(workflowState.updates)) {
+              setLoadedWorkflowState(workflowState.updates);
+            } else {
+              console.warn('Invalid workflow state format:', fullConversation.workflow_state);
+              setLoadedWorkflowState([]);
+            }
+          } catch (parseErr) {
+            console.error('Failed to parse workflow state:', parseErr);
+            setLoadedWorkflowState([]);
+          }
+        } else {
+          setLoadedWorkflowState([]);
         }
       } else {
         setMode('chat');
@@ -47,8 +60,11 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to load conversation:', err);
+      alert(`Failed to load conversation: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      // Reset to new conversation on error
+      handleNewConversation();
     }
-  }, []);
+  }, [handleNewConversation]);
 
   const handleModeChange = (newMode: Mode) => {
     setMode(newMode);
@@ -57,7 +73,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-900">
+    <div className="flex h-screen bg-[#1A1A1A]">
       {/* Conversation List Sidebar */}
       {showSidebar && (
         <ConversationList
@@ -71,11 +87,11 @@ function App() {
       {/* Main Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+        <div className="p-4 border-b border-[#404040] flex items-center justify-between bg-[#1A1A1A]">
           {/* Sidebar Toggle */}
           <button
             onClick={() => setShowSidebar(!showSidebar)}
-            className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-lg transition-colors"
+            className="p-2 text-[#9B9B9B] hover:text-[#ECECF1] hover:bg-[#2A2A2A] rounded-lg transition-colors"
             title={showSidebar ? 'Hide sidebar' : 'Show sidebar'}
           >
             <svg
@@ -98,20 +114,20 @@ function App() {
           <div className="flex space-x-2">
             <button
               onClick={() => handleModeChange('chat')}
-              className={`px-4 py-2 rounded-lg font-semibold transition ${
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                 mode === 'chat'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? 'bg-[#10A37F] text-white hover:bg-[#0E8C6F]'
+                  : 'bg-[#2A2A2A] text-[#ECECF1] hover:bg-[#343434]'
               }`}
             >
               Chat Mode
             </button>
             <button
               onClick={() => handleModeChange('workflow')}
-              className={`px-4 py-2 rounded-lg font-semibold transition ${
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                 mode === 'workflow'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? 'bg-[#10A37F] text-white hover:bg-[#0E8C6F]'
+                  : 'bg-[#2A2A2A] text-[#ECECF1] hover:bg-[#343434]'
               }`}
             >
               Workflow Mode
@@ -119,7 +135,7 @@ function App() {
           </div>
 
           {/* Session Info */}
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-[#9B9B9B]">
             Session: {sessionId.slice(-8)}
           </div>
         </div>
