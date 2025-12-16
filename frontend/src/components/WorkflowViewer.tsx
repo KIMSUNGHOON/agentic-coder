@@ -14,11 +14,13 @@ const WorkflowViewer = ({ workflowInfo }: WorkflowViewerProps) => {
   const getNodeColor = (nodeName: string, isCurrent: boolean) => {
     if (nodeName === 'START') return { bg: '#1A1A1A', text: 'white' };
     if (nodeName === 'END') return { bg: '#16A34A', text: 'white' };
+    if (nodeName === 'Decision') return { bg: isCurrent ? '#7C3AED' : '#7C3AED40', text: isCurrent ? 'white' : '#7C3AED' };
 
     const colors: Record<string, { bg: string; text: string }> = {
       PlanningAgent: { bg: isCurrent ? '#DA7756' : '#DA775640', text: isCurrent ? 'white' : '#DA7756' },
       CodingAgent: { bg: isCurrent ? '#16A34A' : '#16A34A40', text: isCurrent ? 'white' : '#16A34A' },
       ReviewAgent: { bg: isCurrent ? '#2563EB' : '#2563EB40', text: isCurrent ? 'white' : '#2563EB' },
+      FixCodeAgent: { bg: isCurrent ? '#F59E0B' : '#F59E0B40', text: isCurrent ? 'white' : '#F59E0B' },
     };
 
     return colors[nodeName] || { bg: '#66666640', text: '#666666' };
@@ -134,7 +136,7 @@ const WorkflowViewer = ({ workflowInfo }: WorkflowViewerProps) => {
           </div>
 
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-[#E5E5E5] text-xs text-[#666666]">
+          <div className="flex flex-wrap items-center justify-center gap-4 mt-4 pt-4 border-t border-[#E5E5E5] text-xs text-[#666666]">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded bg-[#DA7756]" />
               <span>Planning</span>
@@ -147,7 +149,21 @@ const WorkflowViewer = ({ workflowInfo }: WorkflowViewerProps) => {
               <div className="w-3 h-3 rounded bg-[#2563EB]" />
               <span>Review</span>
             </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-[#F59E0B]" />
+              <span>Fix Code</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-[#7C3AED]" />
+              <span>Decision</span>
+            </div>
           </div>
+          {/* Max iterations info */}
+          {workflowInfo.max_iterations && (
+            <div className="text-center text-xs text-[#999999] mt-2">
+              Max review iterations: {workflowInfo.max_iterations}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Options: "microsoft", "langchain", "deepagent"
     agent_framework: Literal["microsoft", "langchain", "deepagent"] = "microsoft"
 
+    # Workflow Configuration
+    max_review_iterations: int = 3  # Maximum code review/fix iterations
+
     # API Configuration
     api_host: str = "0.0.0.0"
     api_port: int = 8000

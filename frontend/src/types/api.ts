@@ -92,13 +92,29 @@ export interface WorkflowInfo {
   workflow_id: string;
   workflow_type: string;
   nodes: string[];
-  edges: Array<{ from: string; to: string }>;
+  edges: Array<{ from: string; to: string; condition?: string }>;
   current_node?: string;
+  max_iterations?: number;
+  final_status?: string;
+}
+
+// Decision info for review decisions
+export interface DecisionInfo {
+  approved: boolean;
+  iteration: number;
+  max_iterations: number;
+  action: 'end' | 'fix_code' | 'end_max_iterations';
+}
+
+// Iteration tracking info
+export interface IterationInfo {
+  current: number;
+  max: number;
 }
 
 export interface WorkflowUpdate {
   agent: string;
-  type: 'thinking' | 'artifact' | 'task_completed' | 'completed' | 'error' | 'agent_spawn' | 'workflow_created';
+  type: 'thinking' | 'artifact' | 'task_completed' | 'completed' | 'error' | 'agent_spawn' | 'workflow_created' | 'decision';
   status: 'running' | 'completed' | 'error' | 'finished';
   message?: string;
   content?: string;
@@ -117,11 +133,16 @@ export interface WorkflowUpdate {
     total_tasks: number;
     artifacts_count: number;
     review_approved: boolean;
+    review_iterations?: number;
+    max_iterations?: number;
   };
-  // New fields for transparency
+  // Transparency fields
   prompt_info?: PromptInfo;
   agent_spawn?: AgentSpawnInfo;
   workflow_info?: WorkflowInfo;
+  // Decision and iteration fields
+  decision?: DecisionInfo;
+  iteration_info?: IterationInfo;
 }
 
 export interface WorkflowRequest {

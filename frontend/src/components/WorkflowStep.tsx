@@ -73,6 +73,8 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         return { color: '#16A34A', bgColor: '#16A34A10', icon: '2', label: 'Coding' };
       case 'ReviewAgent':
         return { color: '#2563EB', bgColor: '#2563EB10', icon: '3', label: 'Review' };
+      case 'FixCodeAgent':
+        return { color: '#F59E0B', bgColor: '#F59E0B10', icon: '⟳', label: 'Fix Code' };
       case 'Workflow':
         return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '', label: 'Complete' };
       default:
@@ -113,12 +115,23 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
   const getSummaryInfo = (): string => {
     if (update.type === 'workflow_created' && update.workflow_info) {
-      return `${update.workflow_info.workflow_type} (${update.workflow_info.nodes.length} agents)`;
+      const maxIter = update.workflow_info.max_iterations;
+      return `${update.workflow_info.workflow_type} (max ${maxIter} iterations)`;
     }
     if (update.type === 'agent_spawn' && update.agent_spawn) {
       return update.agent_spawn.spawn_reason;
     }
-    if (update.type === 'thinking') return update.message || 'Processing...';
+    if (update.type === 'decision' && update.decision) {
+      const { approved, iteration, max_iterations } = update.decision;
+      if (approved) return `APPROVED (iteration ${iteration}/${max_iterations})`;
+      if (iteration >= max_iterations) return `Max iterations reached (${iteration}/${max_iterations})`;
+      return `NEEDS_REVISION → Fix Code (iteration ${iteration}/${max_iterations})`;
+    }
+    if (update.type === 'thinking') {
+      const iterInfo = update.iteration_info;
+      if (iterInfo) return `${update.message} (iteration ${iterInfo.current}/${iterInfo.max})`;
+      return update.message || 'Processing...';
+    }
     if (update.type === 'task_completed') {
       const taskNum = update.task_result?.task_num || 0;
       const totalTasks = update.checklist?.length || 0;
@@ -128,8 +141,16 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     if (update.type === 'completed') {
       if (update.agent === 'PlanningAgent' && update.items) return `${update.items.length} tasks planned`;
       if (update.agent === 'CodingAgent' && update.artifacts) return `${update.artifacts.length} files created`;
-      if (update.agent === 'ReviewAgent') return update.approved ? 'Approved' : 'Needs revision';
-      if (update.agent === 'Workflow' && update.summary) return `${update.summary.tasks_completed}/${update.summary.total_tasks} tasks, ${update.summary.artifacts_count} files`;
+      if (update.agent === 'FixCodeAgent' && update.artifacts) return `${update.artifacts.length} files fixed`;
+      if (update.agent === 'ReviewAgent') {
+        const iterInfo = update.iteration_info;
+        const status = update.approved ? 'Approved' : 'Needs revision';
+        return iterInfo ? `${status} (iteration ${iterInfo.current}/${iterInfo.max})` : status;
+      }
+      if (update.agent === 'Workflow' && update.summary) {
+        const { tasks_completed, total_tasks, artifacts_count, review_iterations, max_iterations } = update.summary;
+        return `${tasks_completed}/${total_tasks} tasks, ${artifacts_count} files (${review_iterations}/${max_iterations} iterations)`;
+      }
     }
     if (update.type === 'error') return update.message || 'Error occurred';
     return '';
@@ -139,6 +160,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     // New types always expandable
     if (update.type === 'workflow_created' && update.workflow_info) return true;
     if (update.type === 'agent_spawn' && update.agent_spawn) return true;
+    if (update.type === 'decision' && update.decision) return true;
     // Prompt info makes anything expandable
     if (update.prompt_info) return true;
     // Existing checks
@@ -149,6 +171,7 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
       if (update.items?.length) return true;
       if (update.artifacts?.length) return true;
       if (update.agent === 'ReviewAgent') return true;
+      if (update.agent === 'FixCodeAgent') return true;
       if (update.summary) return true;
     }
     return false;
@@ -273,6 +296,47 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     </div>
   );
 
+  const renderDecision = () => {
+    if (!update.decision) return null;
+    const { approved, iteration, max_iterations, action } = update.decision;
+
+    return (
+      <div className={`p-4 rounded-xl border ${approved ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+        <div className="flex items-center gap-3 mb-3">
+          {approved ? (
+            <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+            </div>
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            </div>
+          )}
+          <div>
+            <h4 className={`font-semibold ${approved ? 'text-green-700' : 'text-amber-700'}`}>
+              {approved ? 'Code Approved' : 'Revision Required'}
+            </h4>
+            <p className="text-sm text-gray-600">
+              Iteration {iteration} of {max_iterations}
+            </p>
+          </div>
+        </div>
+        <div className="text-sm">
+          <span className="font-medium">Next Action: </span>
+          <span className={approved ? 'text-green-600' : 'text-amber-600'}>
+            {action === 'end' && 'Complete workflow'}
+            {action === 'fix_code' && 'Spawn FixCodeAgent to address issues'}
+            {action === 'end_max_iterations' && 'End workflow (max iterations reached)'}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   const renderExpandedContent = () => {
     // Render workflow info for workflow_created type
     if (update.type === 'workflow_created' && update.workflow_info) {
@@ -282,6 +346,11 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     // Render agent spawn info
     if (update.type === 'agent_spawn' && update.agent_spawn) {
       return <AgentSpawnViewer spawnInfo={update.agent_spawn} />;
+    }
+
+    // Render decision info
+    if (update.type === 'decision' && update.decision) {
+      return renderDecision();
     }
 
     if (update.type === 'thinking') {
@@ -339,6 +408,25 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
                 <ArtifactDisplay key={i} artifact={artifact} defaultExpanded={false} />
               ))}
             </div>
+          </div>
+        );
+      }
+      if (update.agent === 'FixCodeAgent' && update.artifacts) {
+        return (
+          <div>
+            <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-700">
+                <span className="font-medium">Fixes Applied:</span> Code has been modified based on review feedback
+              </p>
+            </div>
+            <div className="space-y-2">
+              {update.artifacts.map((artifact, i) => (
+                <ArtifactDisplay key={i} artifact={artifact} defaultExpanded={true} />
+              ))}
+            </div>
+            {update.prompt_info && (
+              <PromptViewer promptInfo={update.prompt_info} agentName={update.agent} />
+            )}
           </div>
         );
       }

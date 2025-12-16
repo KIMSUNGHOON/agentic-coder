@@ -1,15 +1,14 @@
-"""Workflow-based coding agent using LangGraph."""
+"""Workflow-based coding agent using LangGraph with iterative review loop."""
 import logging
 import re
 import time
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any, AsyncGenerator, Optional, TypedDict, Annotated
+from typing import List, Dict, Any, AsyncGenerator, Optional, TypedDict, Annotated, Literal
 from operator import add
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from app.core.config import settings
 from app.agent.base.interface import BaseWorkflow, BaseWorkflowManager
 
@@ -25,6 +24,8 @@ class WorkflowState(TypedDict):
     code_text: str
     artifacts: Annotated[List[Dict[str, Any]], add]
     review_result: Dict[str, Any]
+    review_iteration: int  # Track review iterations
+    max_iterations: int    # Maximum allowed iterations
     current_task_idx: int
     status: str
     error: Optional[str]
@@ -102,8 +103,28 @@ def parse_review(text: str) -> Dict[str, Any]:
     }
 
 
+def should_fix_code(state: WorkflowState) -> Literal["fix_code", "end"]:
+    """Decision function: should we fix the code or end?"""
+    review_result = state.get("review_result", {})
+    review_iteration = state.get("review_iteration", 0)
+    max_iterations = state.get("max_iterations", settings.max_review_iterations)
+
+    approved = review_result.get("approved", False)
+
+    # End if approved OR max iterations reached
+    if approved:
+        logger.info("Code approved by review, ending workflow")
+        return "end"
+    elif review_iteration >= max_iterations:
+        logger.info(f"Max iterations ({max_iterations}) reached, ending workflow")
+        return "end"
+    else:
+        logger.info(f"Code not approved (iteration {review_iteration}/{max_iterations}), fixing code")
+        return "fix_code"
+
+
 class LangGraphWorkflow(BaseWorkflow):
-    """Multi-agent coding workflow using LangGraph: Planning -> Coding -> Review."""
+    """Multi-agent coding workflow using LangGraph with iterative review loop."""
 
     def __init__(self):
         """Initialize the LangGraph workflow."""
@@ -194,25 +215,64 @@ If changes needed:
 
 Only list actual issues found. Be concise."""
 
+        # Fix code prompt - used when review finds issues
+        self.fix_code_prompt = """Fix the code based on review feedback.
+
+<review_issues>
+{issues}
+</review_issues>
+
+<review_suggestions>
+{suggestions}
+</review_suggestions>
+
+<response_format>
+FIXES_APPLIED: [list what you fixed]
+
+```language filename.ext
+// corrected complete code
+```
+</response_format>
+
+<rules>
+- Address ALL issues mentioned
+- Apply relevant suggestions
+- Provide complete fixed code
+- Maintain original functionality
+</rules>"""
+
         # Build the workflow graph
         self.graph = self._build_graph()
 
-        logger.info("LangGraphWorkflow initialized")
+        logger.info("LangGraphWorkflow initialized with iterative review loop")
 
     def _build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow."""
+        """Build the LangGraph workflow with conditional edges."""
         graph = StateGraph(WorkflowState)
 
         # Add nodes
         graph.add_node("planning", self._planning_node)
         graph.add_node("coding", self._coding_node)
         graph.add_node("review", self._review_node)
+        graph.add_node("fix_code", self._fix_code_node)
 
-        # Add edges
+        # Add edges - with conditional loop
         graph.add_edge(START, "planning")
         graph.add_edge("planning", "coding")
         graph.add_edge("coding", "review")
-        graph.add_edge("review", END)
+
+        # Conditional edge after review: either fix_code or end
+        graph.add_conditional_edges(
+            "review",
+            should_fix_code,
+            {
+                "fix_code": "fix_code",
+                "end": END
+            }
+        )
+
+        # After fixing, go back to review
+        graph.add_edge("fix_code", "review")
 
         return graph.compile()
 
@@ -278,6 +338,7 @@ Only list actual issues found. Be concise."""
             "code_text": code_text,
             "artifacts": all_artifacts,
             "checklist": checklist,
+            "review_iteration": 0,  # Reset iteration on new code
             "status": "coding_complete"
         }
 
@@ -291,9 +352,42 @@ Only list actual issues found. Be concise."""
         response = await self.coding_llm.ainvoke(messages)
         review_result = parse_review(response.content)
 
+        # Increment review iteration
+        current_iteration = state.get("review_iteration", 0) + 1
+
         return {
             "review_result": review_result,
+            "review_iteration": current_iteration,
             "status": "review_complete"
+        }
+
+    async def _fix_code_node(self, state: WorkflowState) -> Dict[str, Any]:
+        """Fix code based on review feedback."""
+        review_result = state.get("review_result", {})
+        issues = review_result.get("issues", [])
+        suggestions = review_result.get("suggestions", [])
+
+        # Build fix prompt with review feedback
+        fix_prompt = self.fix_code_prompt.format(
+            issues="\n".join(f"- {issue}" for issue in issues) if issues else "None",
+            suggestions="\n".join(f"- {s}" for s in suggestions) if suggestions else "None"
+        )
+
+        messages = [
+            SystemMessage(content=fix_prompt),
+            HumanMessage(content=f"Original code to fix:\n\n{state['code_text']}")
+        ]
+
+        response = await self.coding_llm.ainvoke(messages)
+        fixed_code = response.content
+
+        # Extract new artifacts from fixed code
+        fixed_artifacts = parse_code_blocks(fixed_code)
+
+        return {
+            "code_text": fixed_code,
+            "artifacts": fixed_artifacts,
+            "status": "fix_complete"
         }
 
     async def execute(
@@ -301,15 +395,7 @@ Only list actual issues found. Be concise."""
         user_request: str,
         context: Optional[Any] = None
     ) -> str:
-        """Execute the coding workflow.
-
-        Args:
-            user_request: User's coding request
-            context: Optional run context
-
-        Returns:
-            Final result from the workflow
-        """
+        """Execute the coding workflow."""
         logger.info(f"Executing LangGraph workflow for request: {user_request[:100]}...")
 
         initial_state = WorkflowState(
@@ -319,6 +405,8 @@ Only list actual issues found. Be concise."""
             code_text="",
             artifacts=[],
             review_result={},
+            review_iteration=0,
+            max_iterations=settings.max_review_iterations,
             current_task_idx=0,
             status="started",
             error=None
@@ -332,40 +420,37 @@ Only list actual issues found. Be concise."""
         user_request: str,
         context: Optional[Any] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Execute the workflow with streaming updates.
-
-        Args:
-            user_request: User's coding request
-            context: Optional run context
-
-        Yields:
-            Updates with workflow progress
-        """
+        """Execute the workflow with streaming updates and iterative review."""
         logger.info(f"Streaming LangGraph workflow for request: {user_request[:100]}...")
         workflow_id = str(uuid.uuid4())[:8]
+        max_iterations = settings.max_review_iterations
 
         try:
-            # Emit workflow creation event
+            # Emit workflow creation event with loop structure
             yield {
                 "agent": "Orchestrator",
                 "type": "workflow_created",
                 "status": "running",
-                "message": "LangGraph workflow initialized",
+                "message": f"LangGraph workflow initialized (max {max_iterations} review iterations)",
                 "workflow_info": {
                     "workflow_id": workflow_id,
-                    "workflow_type": "LangGraph Multi-Agent",
-                    "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent"],
+                    "workflow_type": "LangGraph Iterative Multi-Agent",
+                    "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent", "FixCodeAgent"],
                     "edges": [
                         {"from": "START", "to": "PlanningAgent"},
                         {"from": "PlanningAgent", "to": "CodingAgent"},
                         {"from": "CodingAgent", "to": "ReviewAgent"},
-                        {"from": "ReviewAgent", "to": "END"}
+                        {"from": "ReviewAgent", "to": "Decision"},
+                        {"from": "Decision", "to": "FixCodeAgent", "condition": "not approved"},
+                        {"from": "Decision", "to": "END", "condition": "approved"},
+                        {"from": "FixCodeAgent", "to": "ReviewAgent"}
                     ],
-                    "current_node": "PlanningAgent"
+                    "current_node": "PlanningAgent",
+                    "max_iterations": max_iterations
                 }
             }
 
-            # Step 1: Planning - emit agent spawn
+            # Step 1: Planning
             planning_agent_id = f"planning-{uuid.uuid4().hex[:6]}"
             yield {
                 "agent": "PlanningAgent",
@@ -416,7 +501,7 @@ Only list actual issues found. Be concise."""
                 }
             }
 
-            # Step 2: Coding - emit agent spawn
+            # Step 2: Coding
             coding_agent_id = f"coding-{uuid.uuid4().hex[:6]}"
             yield {
                 "agent": "CodingAgent",
@@ -521,60 +606,165 @@ Only list actual issues found. Be concise."""
                 "checklist": checklist
             }
 
-            # Step 3: Review - emit agent spawn
-            review_agent_id = f"review-{uuid.uuid4().hex[:6]}"
-            yield {
-                "agent": "ReviewAgent",
-                "type": "agent_spawn",
-                "status": "running",
-                "message": "Spawning ReviewAgent for code review",
-                "agent_spawn": {
-                    "agent_id": review_agent_id,
-                    "agent_type": "ReviewAgent",
-                    "parent_agent": "Orchestrator",
-                    "spawn_reason": f"Review {len(all_artifacts)} artifacts for quality and correctness",
-                    "timestamp": datetime.now().isoformat()
+            # Step 3: Review Loop
+            review_iteration = 0
+            approved = False
+
+            while not approved and review_iteration < max_iterations:
+                review_iteration += 1
+
+                # Spawn ReviewAgent
+                review_agent_id = f"review-{uuid.uuid4().hex[:6]}"
+                yield {
+                    "agent": "ReviewAgent",
+                    "type": "agent_spawn",
+                    "status": "running",
+                    "message": f"Spawning ReviewAgent (iteration {review_iteration}/{max_iterations})",
+                    "agent_spawn": {
+                        "agent_id": review_agent_id,
+                        "agent_type": "ReviewAgent",
+                        "parent_agent": "Orchestrator",
+                        "spawn_reason": f"Review code - iteration {review_iteration} of {max_iterations}",
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    "iteration_info": {
+                        "current": review_iteration,
+                        "max": max_iterations
+                    }
                 }
-            }
 
-            yield {
-                "agent": "ReviewAgent",
-                "type": "thinking",
-                "status": "running",
-                "message": "Reviewing code..."
-            }
-
-            review_user_prompt = f"Please review this code:\n\n{code_text}"
-            messages = [
-                SystemMessage(content=self.review_prompt),
-                HumanMessage(content=review_user_prompt)
-            ]
-
-            start_time = time.time()
-            review_text = ""
-            async for chunk in self.coding_llm.astream(messages):
-                if chunk.content:
-                    review_text += chunk.content
-            review_latency_ms = int((time.time() - start_time) * 1000)
-
-            review_result = parse_review(review_text)
-
-            yield {
-                "agent": "ReviewAgent",
-                "type": "completed",
-                "status": "completed",
-                "issues": review_result["issues"],
-                "suggestions": review_result["suggestions"],
-                "approved": review_result["approved"],
-                "corrected_artifacts": review_result["corrected_artifacts"],
-                "prompt_info": {
-                    "system_prompt": self.review_prompt,
-                    "user_prompt": review_user_prompt,
-                    "output": review_text,
-                    "model": settings.coding_model,
-                    "latency_ms": review_latency_ms
+                yield {
+                    "agent": "ReviewAgent",
+                    "type": "thinking",
+                    "status": "running",
+                    "message": f"Reviewing code (iteration {review_iteration}/{max_iterations})..."
                 }
-            }
+
+                review_user_prompt = f"Please review this code:\n\n{code_text}"
+                messages = [
+                    SystemMessage(content=self.review_prompt),
+                    HumanMessage(content=review_user_prompt)
+                ]
+
+                start_time = time.time()
+                review_text = ""
+                async for chunk in self.coding_llm.astream(messages):
+                    if chunk.content:
+                        review_text += chunk.content
+                review_latency_ms = int((time.time() - start_time) * 1000)
+
+                review_result = parse_review(review_text)
+                approved = review_result["approved"]
+
+                yield {
+                    "agent": "ReviewAgent",
+                    "type": "completed",
+                    "status": "completed",
+                    "issues": review_result["issues"],
+                    "suggestions": review_result["suggestions"],
+                    "approved": approved,
+                    "corrected_artifacts": review_result["corrected_artifacts"],
+                    "prompt_info": {
+                        "system_prompt": self.review_prompt,
+                        "user_prompt": review_user_prompt,
+                        "output": review_text,
+                        "model": settings.coding_model,
+                        "latency_ms": review_latency_ms
+                    },
+                    "iteration_info": {
+                        "current": review_iteration,
+                        "max": max_iterations
+                    }
+                }
+
+                # Decision point
+                yield {
+                    "agent": "Orchestrator",
+                    "type": "decision",
+                    "status": "running",
+                    "message": f"Review decision: {'APPROVED' if approved else 'NEEDS_REVISION'}",
+                    "decision": {
+                        "approved": approved,
+                        "iteration": review_iteration,
+                        "max_iterations": max_iterations,
+                        "action": "end" if approved else ("fix_code" if review_iteration < max_iterations else "end_max_iterations")
+                    }
+                }
+
+                # If not approved and we have iterations left, fix the code
+                if not approved and review_iteration < max_iterations:
+                    fix_agent_id = f"fix-{uuid.uuid4().hex[:6]}"
+                    yield {
+                        "agent": "FixCodeAgent",
+                        "type": "agent_spawn",
+                        "status": "running",
+                        "message": f"Spawning FixCodeAgent to address {len(review_result['issues'])} issues",
+                        "agent_spawn": {
+                            "agent_id": fix_agent_id,
+                            "agent_type": "FixCodeAgent",
+                            "parent_agent": "Orchestrator",
+                            "spawn_reason": f"Fix {len(review_result['issues'])} issues from review",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    }
+
+                    yield {
+                        "agent": "FixCodeAgent",
+                        "type": "thinking",
+                        "status": "running",
+                        "message": f"Fixing {len(review_result['issues'])} issues..."
+                    }
+
+                    # Build fix prompt
+                    fix_prompt = self.fix_code_prompt.format(
+                        issues="\n".join(f"- {issue}" for issue in review_result["issues"]) if review_result["issues"] else "None",
+                        suggestions="\n".join(f"- {s}" for s in review_result["suggestions"]) if review_result["suggestions"] else "None"
+                    )
+
+                    fix_user_prompt = f"Original code to fix:\n\n{code_text}"
+                    messages = [
+                        SystemMessage(content=fix_prompt),
+                        HumanMessage(content=fix_user_prompt)
+                    ]
+
+                    start_time = time.time()
+                    fixed_code = ""
+                    async for chunk in self.coding_llm.astream(messages):
+                        if chunk.content:
+                            fixed_code += chunk.content
+                    fix_latency_ms = int((time.time() - start_time) * 1000)
+
+                    # Update code and artifacts
+                    code_text = fixed_code
+                    fixed_artifacts = parse_code_blocks(fixed_code)
+                    all_artifacts = fixed_artifacts  # Replace with fixed versions
+
+                    for artifact in fixed_artifacts:
+                        yield {
+                            "agent": "FixCodeAgent",
+                            "type": "artifact",
+                            "status": "running",
+                            "message": f"Fixed: {artifact['filename']}",
+                            "artifact": artifact
+                        }
+
+                    yield {
+                        "agent": "FixCodeAgent",
+                        "type": "completed",
+                        "status": "completed",
+                        "artifacts": fixed_artifacts,
+                        "prompt_info": {
+                            "system_prompt": fix_prompt,
+                            "user_prompt": fix_user_prompt,
+                            "output": fixed_code,
+                            "model": settings.coding_model,
+                            "latency_ms": fix_latency_ms
+                        },
+                        "iteration_info": {
+                            "current": review_iteration,
+                            "max": max_iterations
+                        }
+                    }
 
             # Final summary
             yield {
@@ -585,19 +775,25 @@ Only list actual issues found. Be concise."""
                     "tasks_completed": sum(1 for item in checklist if item["completed"]),
                     "total_tasks": len(checklist),
                     "artifacts_count": len(all_artifacts),
-                    "review_approved": review_result["approved"]
+                    "review_approved": approved,
+                    "review_iterations": review_iteration,
+                    "max_iterations": max_iterations
                 },
                 "workflow_info": {
                     "workflow_id": workflow_id,
-                    "workflow_type": "LangGraph Multi-Agent",
-                    "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent"],
+                    "workflow_type": "LangGraph Iterative Multi-Agent",
+                    "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent", "FixCodeAgent"],
                     "edges": [
                         {"from": "START", "to": "PlanningAgent"},
                         {"from": "PlanningAgent", "to": "CodingAgent"},
                         {"from": "CodingAgent", "to": "ReviewAgent"},
-                        {"from": "ReviewAgent", "to": "END"}
+                        {"from": "ReviewAgent", "to": "Decision"},
+                        {"from": "Decision", "to": "FixCodeAgent", "condition": "not approved"},
+                        {"from": "Decision", "to": "END", "condition": "approved"},
+                        {"from": "FixCodeAgent", "to": "ReviewAgent"}
                     ],
-                    "current_node": "END"
+                    "current_node": "END",
+                    "final_status": "approved" if approved else "max_iterations_reached"
                 }
             }
 
@@ -621,35 +817,20 @@ class LangGraphWorkflowManager(BaseWorkflowManager):
         logger.info("LangGraphWorkflowManager initialized")
 
     def get_or_create_workflow(self, session_id: str) -> LangGraphWorkflow:
-        """Get existing workflow or create new one for session.
-
-        Args:
-            session_id: Session identifier
-
-        Returns:
-            LangGraphWorkflow instance
-        """
+        """Get existing workflow or create new one for session."""
         if session_id not in self.workflows:
             self.workflows[session_id] = LangGraphWorkflow()
             logger.info(f"Created new LangGraph workflow for session {session_id}")
         return self.workflows[session_id]
 
     def delete_workflow(self, session_id: str) -> None:
-        """Delete workflow for session.
-
-        Args:
-            session_id: Session identifier
-        """
+        """Delete workflow for session."""
         if session_id in self.workflows:
             del self.workflows[session_id]
             logger.info(f"Deleted workflow for session {session_id}")
 
     def get_active_sessions(self) -> List[str]:
-        """Get list of active session IDs.
-
-        Returns:
-            List of session IDs
-        """
+        """Get list of active session IDs."""
         return list(self.workflows.keys())
 
 
