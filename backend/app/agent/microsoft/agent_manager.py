@@ -2,17 +2,18 @@
 import logging
 from typing import List, Dict, Any, AsyncGenerator, Optional
 from app.services.vllm_client import vllm_router
+from app.agent.base.interface import BaseAgent, BaseAgentManager
 
 logger = logging.getLogger(__name__)
 
 
-class CodingAgent:
+class CodingAgent(BaseAgent):
     """Coding agent that uses vLLM models for code generation and reasoning."""
 
     def __init__(self):
         """Initialize coding agent."""
         self.conversation_history: List[Dict[str, str]] = []
-        logger.info("CodingAgent initialized")
+        logger.info("CodingAgent (Microsoft) initialized")
 
     async def process_message(
         self,
@@ -122,7 +123,7 @@ class CodingAgent:
             logger.error(f"Error streaming message: {e}")
             raise
 
-    def clear_history(self):
+    def clear_history(self) -> None:
         """Clear conversation history."""
         self.conversation_history = []
         logger.info("Conversation history cleared")
@@ -136,13 +137,13 @@ class CodingAgent:
         return self.conversation_history.copy()
 
 
-class AgentManager:
+class AgentManager(BaseAgentManager):
     """Manager for multiple agent sessions."""
 
     def __init__(self):
         """Initialize agent manager."""
         self.agents: Dict[str, CodingAgent] = {}
-        logger.info("AgentManager initialized")
+        logger.info("AgentManager (Microsoft) initialized")
 
     def get_or_create_agent(self, session_id: str) -> CodingAgent:
         """Get existing agent or create new one for session.
@@ -158,7 +159,7 @@ class AgentManager:
             logger.info(f"Created new agent for session {session_id}")
         return self.agents[session_id]
 
-    def delete_agent(self, session_id: str):
+    def delete_agent(self, session_id: str) -> None:
         """Delete agent for session.
 
         Args:

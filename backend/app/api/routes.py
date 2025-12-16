@@ -1,7 +1,7 @@
 """API routes for the coding agent."""
 import logging
 import json
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,13 +14,16 @@ from app.api.models import (
     ErrorResponse,
     ChatMessage
 )
-from app.agent.agent_manager import agent_manager
-from app.agent.workflow_manager import workflow_manager
+from app.agent import get_agent_manager, get_workflow_manager, get_framework_info
 from app.core.config import settings
 from app.db import get_db, ConversationRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Get managers based on configured framework
+agent_manager = get_agent_manager()
+workflow_manager = get_workflow_manager()
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -199,6 +202,35 @@ async def list_models():
     ]
 
     return ModelsResponse(models=models)
+
+
+@router.get("/frameworks")
+async def list_frameworks():
+    """List available agent frameworks and their capabilities.
+
+    Returns:
+        Framework information including current framework and available options
+    """
+    try:
+        return get_framework_info()
+
+    except Exception as e:
+        logger.error(f"Error getting framework info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/framework/current")
+async def get_current_framework():
+    """Get the currently active agent framework.
+
+    Returns:
+        Current framework name and settings
+    """
+    return {
+        "framework": settings.agent_framework,
+        "agent_manager": type(agent_manager).__name__,
+        "workflow_manager": type(workflow_manager).__name__
+    }
 
 
 # ==================== Workflow Endpoints ====================

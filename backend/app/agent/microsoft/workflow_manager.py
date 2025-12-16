@@ -15,6 +15,7 @@ from agent_framework import (
     TextContent,
 )
 from app.services.vllm_client import vllm_router
+from app.agent.base.interface import BaseWorkflow, BaseWorkflowManager
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +278,7 @@ class VLLMChatClient(BaseChatClient):
             )
 
 
-class CodingWorkflow:
+class CodingWorkflow(BaseWorkflow):
     """Multi-agent coding workflow: Planning -> Coding -> Review."""
 
     def __init__(self):
@@ -380,7 +381,7 @@ Keep feedback concise. Only list actual issues found."""
             .build()
         )
 
-        logger.info("CodingWorkflow initialized with 3 agents")
+        logger.info("CodingWorkflow (Microsoft) initialized with 3 agents")
 
     async def execute(
         self,
@@ -555,7 +556,7 @@ Keep feedback concise. Only list actual issues found."""
                     "agent": "CodingAgent",
                     "type": "task_completed",
                     "status": "running",
-                    "message": f"✓ Task {task_num}/{len(checklist_items)}: {task_description}",
+                    "message": f"Task {task_num}/{len(checklist_items)}: {task_description}",
                     "task_result": {
                         "task_num": task_num,
                         "task": task_description,
@@ -639,13 +640,13 @@ Keep feedback concise. Only list actual issues found."""
             raise
 
 
-class WorkflowManager:
+class WorkflowManager(BaseWorkflowManager):
     """Manager for workflow-based coding sessions."""
 
     def __init__(self):
         """Initialize workflow manager."""
         self.workflows: Dict[str, CodingWorkflow] = {}
-        logger.info("WorkflowManager initialized")
+        logger.info("WorkflowManager (Microsoft) initialized")
 
     def get_or_create_workflow(self, session_id: str) -> CodingWorkflow:
         """Get existing workflow or create new one for session.
@@ -661,7 +662,7 @@ class WorkflowManager:
             logger.info(f"Created new workflow for session {session_id}")
         return self.workflows[session_id]
 
-    def delete_workflow(self, session_id: str):
+    def delete_workflow(self, session_id: str) -> None:
         """Delete workflow for session.
 
         Args:

@@ -15,6 +15,14 @@ dependencies:
     # Microsoft Agent Framework (includes openai, pydantic, httpx)
     - agent-framework==1.0.0b251204
 
+    # LangChain Ecosystem (optional - for langchain/deepagent framework)
+    - langchain>=0.3.0
+    - langchain-core>=0.3.0
+    - langchain-openai>=0.2.0
+    - langgraph>=0.2.0
+    # - deepagents>=0.1.0  # Uncomment when using deepagent framework
+    # - tavily-python>=0.5.0  # Required for deepagents web search
+
     # Additional dependencies
     - python-jose[cryptography]==3.3.0
     - structlog==24.4.0

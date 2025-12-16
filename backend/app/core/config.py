@@ -1,6 +1,6 @@
 """Application configuration."""
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Literal
 
 
 class Settings(BaseSettings):
@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     # Model names
     reasoning_model: str = "deepseek-ai/DeepSeek-R1"
     coding_model: str = "Qwen/Qwen3-8B-Coder"
+
+    # Agent Framework Selection
+    # Options: "microsoft", "langchain", "deepagent"
+    agent_framework: Literal["microsoft", "langchain", "deepagent"] = "microsoft"
 
     # API Configuration
     api_host: str = "0.0.0.0"
