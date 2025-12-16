@@ -245,8 +245,11 @@ async def execute_workflow(request: ChatRequest):
     2. Generate code based on the plan (Qwen3-Coder)
     3. Review and improve the code (Qwen3-Coder)
 
+    Supports context from previous conversation turns to enable
+    iterative refinement of generated code.
+
     Args:
-        request: Chat request with coding task
+        request: Chat request with coding task and optional context
 
     Returns:
         Streaming response with workflow progress
@@ -255,11 +258,33 @@ async def execute_workflow(request: ChatRequest):
         # Get or create workflow for session
         workflow = workflow_manager.get_or_create_workflow(request.session_id)
 
+        # Build context-aware request
+        context_str = ""
+        if request.context:
+            # Add previous messages as context
+            if request.context.messages:
+                context_str += "\n<previous_conversation>\n"
+                for msg in request.context.messages[-5:]:  # Last 5 messages
+                    context_str += f"{msg.role.upper()}: {msg.content}\n"
+                context_str += "</previous_conversation>\n"
+
+            # Add existing artifacts as context
+            if request.context.artifacts:
+                context_str += "\n<existing_code>\n"
+                for artifact in request.context.artifacts:
+                    context_str += f"```{artifact.language} {artifact.filename}\n{artifact.content}\n```\n\n"
+                context_str += "</existing_code>\n"
+
+        # Combine context with user message
+        full_request = request.message
+        if context_str:
+            full_request = f"{context_str}\n<current_request>\n{request.message}\n</current_request>"
+
         # Create streaming response
         async def generate():
             try:
                 async for update in workflow.execute_stream(
-                    user_request=request.message
+                    user_request=full_request
                 ):
                     # Send update as JSON
                     yield json.dumps(update) + "\n"
