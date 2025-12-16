@@ -65,16 +65,41 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
   const getAgentConfig = () => {
     switch (update.agent) {
+      // Orchestration agents
+      case 'SupervisorAgent':
+        return { color: '#9333EA', bgColor: '#9333EA10', icon: '🎯', label: 'Supervisor' };
       case 'Orchestrator':
         return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '', label: 'Orchestrator' };
+      // Planning/Analysis agents
       case 'PlanningAgent':
         return { color: '#DA7756', bgColor: '#DA775610', icon: '1', label: 'Planning' };
+      case 'AnalysisAgent':
+        return { color: '#EC4899', bgColor: '#EC489910', icon: '🔍', label: 'Analysis' };
+      // Coding agents
       case 'CodingAgent':
         return { color: '#16A34A', bgColor: '#16A34A10', icon: '2', label: 'Coding' };
+      case 'RefactorAgent':
+        return { color: '#14B8A6', bgColor: '#14B8A610', icon: '♻', label: 'Refactor' };
+      case 'DebugAgent':
+        return { color: '#EF4444', bgColor: '#EF444410', icon: '🐛', label: 'Debug' };
+      // Review/Fix agents
       case 'ReviewAgent':
         return { color: '#2563EB', bgColor: '#2563EB10', icon: '3', label: 'Review' };
       case 'FixCodeAgent':
         return { color: '#F59E0B', bgColor: '#F59E0B10', icon: '⟳', label: 'Fix Code' };
+      // Test/Validation agents
+      case 'TestGenAgent':
+        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '🧪', label: 'Test Gen' };
+      case 'TestAgent':
+        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '✓', label: 'Test' };
+      case 'ValidationAgent':
+        return { color: '#8B5CF6', bgColor: '#8B5CF610', icon: '✅', label: 'Validation' };
+      // Documentation agents
+      case 'DocGenAgent':
+        return { color: '#6366F1', bgColor: '#6366F110', icon: '📝', label: 'Doc Gen' };
+      case 'SuggestionAgent':
+        return { color: '#F97316', bgColor: '#F9731610', icon: '💡', label: 'Suggestions' };
+      // Workflow completion
       case 'Workflow':
         return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '', label: 'Complete' };
       default:
@@ -115,8 +140,10 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
   const getSummaryInfo = (): string => {
     if (update.type === 'workflow_created' && update.workflow_info) {
-      const maxIter = update.workflow_info.max_iterations;
-      return `${update.workflow_info.workflow_type} (max ${maxIter} iterations)`;
+      const { workflow_type, task_type, dynamically_created, max_iterations } = update.workflow_info;
+      const dynamicLabel = dynamically_created ? ' (dynamic)' : '';
+      const iterLabel = max_iterations ? ` [max ${max_iterations} iter]` : '';
+      return `${workflow_type}${task_type ? ` [${task_type}]` : ''}${iterLabel}${dynamicLabel}`;
     }
     if (update.type === 'agent_spawn' && update.agent_spawn) {
       return update.agent_spawn.spawn_reason;
@@ -139,9 +166,17 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     }
     if (update.type === 'artifact' && update.artifact) return `Created: ${update.artifact.filename}`;
     if (update.type === 'completed') {
+      // SupervisorAgent task analysis
+      if (update.agent === 'SupervisorAgent' && update.task_analysis) {
+        return `Task: ${update.task_analysis.task_type} → ${update.task_analysis.workflow_name}`;
+      }
       if (update.agent === 'PlanningAgent' && update.items) return `${update.items.length} tasks planned`;
+      if (update.agent === 'AnalysisAgent') return 'Analysis complete';
       if (update.agent === 'CodingAgent' && update.artifacts) return `${update.artifacts.length} files created`;
+      if (update.agent === 'RefactorAgent' && update.artifacts) return `${update.artifacts.length} files refactored`;
       if (update.agent === 'FixCodeAgent' && update.artifacts) return `${update.artifacts.length} files fixed`;
+      if (update.agent === 'TestGenAgent' && update.artifacts) return `${update.artifacts.length} test files created`;
+      if (update.agent === 'DocGenAgent' && update.artifacts) return `${update.artifacts.length} docs created`;
       if (update.agent === 'ReviewAgent') {
         const iterInfo = update.iteration_info;
         const status = update.approved ? 'Approved' : 'Needs revision';
@@ -149,7 +184,10 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
       }
       if (update.agent === 'Workflow' && update.summary) {
         const { tasks_completed, total_tasks, artifacts_count, review_iterations, max_iterations } = update.summary;
-        return `${tasks_completed}/${total_tasks} tasks, ${artifacts_count} files (${review_iterations}/${max_iterations} iterations)`;
+        if (review_iterations !== undefined && max_iterations !== undefined) {
+          return `${tasks_completed}/${total_tasks} tasks, ${artifacts_count} files (${review_iterations}/${max_iterations} iterations)`;
+        }
+        return `${tasks_completed}/${total_tasks} tasks, ${artifacts_count} files`;
       }
     }
     if (update.type === 'error') return update.message || 'Error occurred';
@@ -163,6 +201,8 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     if (update.type === 'decision' && update.decision) return true;
     // Prompt info makes anything expandable
     if (update.prompt_info) return true;
+    // Task analysis from SupervisorAgent
+    if (update.task_analysis) return true;
     // Existing checks
     if (update.type === 'thinking' && update.completed_tasks?.length) return true;
     if (update.type === 'task_completed') return true; // Always expandable for prompt info
@@ -172,6 +212,8 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
       if (update.artifacts?.length) return true;
       if (update.agent === 'ReviewAgent') return true;
       if (update.agent === 'FixCodeAgent') return true;
+      if (update.agent === 'SupervisorAgent') return true;
+      if (update.content) return true;  // For AnalysisAgent
       if (update.summary) return true;
     }
     return false;
@@ -388,6 +430,61 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
       );
     }
     if (update.type === 'completed') {
+      // SupervisorAgent task analysis
+      if (update.agent === 'SupervisorAgent' && update.task_analysis) {
+        const { task_type, workflow_name, agents, has_review_loop } = update.task_analysis;
+        return (
+          <div>
+            <div className="p-4 rounded-xl border border-purple-200 bg-purple-50">
+              <h4 className="font-semibold text-purple-700 mb-3">Task Analysis Result</h4>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Task Type:</span>
+                  <span className="ml-2 font-medium text-purple-600">{task_type}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Workflow:</span>
+                  <span className="ml-2 font-medium">{workflow_name}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Review Loop:</span>
+                  <span className={`ml-2 font-medium ${has_review_loop ? 'text-green-600' : 'text-gray-500'}`}>
+                    {has_review_loop ? 'Yes' : 'No'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Agents:</span>
+                  <span className="ml-2 font-medium">{agents.length}</span>
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-purple-200">
+                <span className="text-gray-500 text-sm">Agent Pipeline: </span>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {agents.map((agent, i) => (
+                    <span key={i} className="px-2 py-1 bg-white rounded text-xs font-medium text-purple-600 border border-purple-200">
+                      {agent}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {update.prompt_info && (
+              <PromptViewer promptInfo={update.prompt_info} agentName={update.agent} />
+            )}
+          </div>
+        );
+      }
+      // AnalysisAgent content
+      if (update.agent === 'AnalysisAgent' && update.content) {
+        return (
+          <div>
+            <pre className="text-sm text-[#1A1A1A] whitespace-pre-wrap bg-gray-50 p-4 rounded-lg">{update.content}</pre>
+            {update.prompt_info && (
+              <PromptViewer promptInfo={update.prompt_info} agentName={update.agent} />
+            )}
+          </div>
+        );
+      }
       if (update.agent === 'PlanningAgent' && update.items) {
         return (
           <div>

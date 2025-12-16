@@ -1,4 +1,4 @@
-"""Workflow-based coding agent using LangGraph with iterative review loop."""
+"""Dynamic workflow-based coding agent using LangGraph with SupervisorAgent."""
 import logging
 import re
 import time
@@ -15,17 +15,114 @@ from app.agent.base.interface import BaseWorkflow, BaseWorkflowManager
 logger = logging.getLogger(__name__)
 
 
+# Task types that can be identified
+TaskType = Literal[
+    "code_generation",    # Create new code from scratch
+    "bug_fix",            # Fix existing code
+    "refactoring",        # Improve code structure
+    "test_generation",    # Write tests
+    "code_review",        # Review existing code
+    "documentation",      # Write docs
+    "general"             # Default fallback
+]
+
+
+# Workflow templates for each task type
+WORKFLOW_TEMPLATES: Dict[TaskType, Dict[str, Any]] = {
+    "code_generation": {
+        "name": "Code Generation Workflow",
+        "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent", "FixCodeAgent"],
+        "flow": [
+            ("START", "PlanningAgent"),
+            ("PlanningAgent", "CodingAgent"),
+            ("CodingAgent", "ReviewAgent"),
+            ("ReviewAgent", "decision"),  # conditional
+            ("FixCodeAgent", "ReviewAgent"),  # loop back
+        ],
+        "has_review_loop": True
+    },
+    "bug_fix": {
+        "name": "Bug Fix Workflow",
+        "nodes": ["AnalysisAgent", "DebugAgent", "FixCodeAgent", "TestAgent"],
+        "flow": [
+            ("START", "AnalysisAgent"),
+            ("AnalysisAgent", "DebugAgent"),
+            ("DebugAgent", "FixCodeAgent"),
+            ("FixCodeAgent", "TestAgent"),
+            ("TestAgent", "decision"),  # conditional
+        ],
+        "has_review_loop": True
+    },
+    "refactoring": {
+        "name": "Refactoring Workflow",
+        "nodes": ["AnalysisAgent", "RefactorAgent", "ReviewAgent", "FixCodeAgent"],
+        "flow": [
+            ("START", "AnalysisAgent"),
+            ("AnalysisAgent", "RefactorAgent"),
+            ("RefactorAgent", "ReviewAgent"),
+            ("ReviewAgent", "decision"),
+            ("FixCodeAgent", "ReviewAgent"),
+        ],
+        "has_review_loop": True
+    },
+    "test_generation": {
+        "name": "Test Generation Workflow",
+        "nodes": ["AnalysisAgent", "TestGenAgent", "ValidationAgent"],
+        "flow": [
+            ("START", "AnalysisAgent"),
+            ("AnalysisAgent", "TestGenAgent"),
+            ("TestGenAgent", "ValidationAgent"),
+            ("ValidationAgent", "decision"),
+        ],
+        "has_review_loop": True
+    },
+    "code_review": {
+        "name": "Code Review Workflow",
+        "nodes": ["ReviewAgent", "SuggestionAgent"],
+        "flow": [
+            ("START", "ReviewAgent"),
+            ("ReviewAgent", "SuggestionAgent"),
+        ],
+        "has_review_loop": False
+    },
+    "documentation": {
+        "name": "Documentation Workflow",
+        "nodes": ["AnalysisAgent", "DocGenAgent", "ReviewAgent"],
+        "flow": [
+            ("START", "AnalysisAgent"),
+            ("AnalysisAgent", "DocGenAgent"),
+            ("DocGenAgent", "ReviewAgent"),
+        ],
+        "has_review_loop": False
+    },
+    "general": {
+        "name": "General Coding Workflow",
+        "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent", "FixCodeAgent"],
+        "flow": [
+            ("START", "PlanningAgent"),
+            ("PlanningAgent", "CodingAgent"),
+            ("CodingAgent", "ReviewAgent"),
+            ("ReviewAgent", "decision"),
+            ("FixCodeAgent", "ReviewAgent"),
+        ],
+        "has_review_loop": True
+    }
+}
+
+
 # State definition for LangGraph
 class WorkflowState(TypedDict):
     """State maintained throughout the workflow."""
     user_request: str
+    task_type: TaskType
+    task_analysis: str
     plan_text: str
     checklist: List[Dict[str, Any]]
     code_text: str
     artifacts: Annotated[List[Dict[str, Any]], add]
     review_result: Dict[str, Any]
-    review_iteration: int  # Track review iterations
-    max_iterations: int    # Maximum allowed iterations
+    review_iteration: int
+    max_iterations: int
     current_task_idx: int
     status: str
     error: Optional[str]
@@ -103,31 +200,31 @@ def parse_review(text: str) -> Dict[str, Any]:
     }
 
 
-def should_fix_code(state: WorkflowState) -> Literal["fix_code", "end"]:
-    """Decision function: should we fix the code or end?"""
-    review_result = state.get("review_result", {})
-    review_iteration = state.get("review_iteration", 0)
-    max_iterations = state.get("max_iterations", settings.max_review_iterations)
+def parse_task_type(text: str) -> TaskType:
+    """Parse task type from supervisor analysis."""
+    text_lower = text.lower()
 
-    approved = review_result.get("approved", False)
-
-    # End if approved OR max iterations reached
-    if approved:
-        logger.info("Code approved by review, ending workflow")
-        return "end"
-    elif review_iteration >= max_iterations:
-        logger.info(f"Max iterations ({max_iterations}) reached, ending workflow")
-        return "end"
+    if any(kw in text_lower for kw in ["code_generation", "create", "implement", "build", "make"]):
+        return "code_generation"
+    elif any(kw in text_lower for kw in ["bug_fix", "fix", "debug", "error", "issue"]):
+        return "bug_fix"
+    elif any(kw in text_lower for kw in ["refactor", "improve", "optimize", "clean"]):
+        return "refactoring"
+    elif any(kw in text_lower for kw in ["test", "unit test", "testing"]):
+        return "test_generation"
+    elif any(kw in text_lower for kw in ["review", "check", "analyze code"]):
+        return "code_review"
+    elif any(kw in text_lower for kw in ["document", "doc", "readme", "comment"]):
+        return "documentation"
     else:
-        logger.info(f"Code not approved (iteration {review_iteration}/{max_iterations}), fixing code")
-        return "fix_code"
+        return "general"
 
 
-class LangGraphWorkflow(BaseWorkflow):
-    """Multi-agent coding workflow using LangGraph with iterative review loop."""
+class DynamicLangGraphWorkflow(BaseWorkflow):
+    """Dynamic multi-agent workflow that creates workflow based on task analysis."""
 
     def __init__(self):
-        """Initialize the LangGraph workflow."""
+        """Initialize the dynamic workflow."""
         # Initialize LLM clients
         self.reasoning_llm = ChatOpenAI(
             base_url=settings.vllm_reasoning_endpoint,
@@ -145,9 +242,32 @@ class LangGraphWorkflow(BaseWorkflow):
             api_key="not-needed",
         )
 
-        # System prompts for each agent
-        # DeepSeek R1 style for planning (reasoning model)
-        self.planning_prompt = """Analyze request and create implementation checklist.
+        # Supervisor prompt for task analysis
+        self.supervisor_prompt = """You are a Supervisor Agent that analyzes user requests and determines the best workflow.
+
+<task>
+Analyze the user's request and determine:
+1. TASK_TYPE: One of [code_generation, bug_fix, refactoring, test_generation, code_review, documentation, general]
+2. COMPLEXITY: [simple, medium, complex]
+3. REQUIREMENTS: List key requirements
+4. RECOMMENDED_AGENTS: Which agents should be used
+</task>
+
+<response_format>
+TASK_TYPE: [type]
+COMPLEXITY: [level]
+REQUIREMENTS:
+- [requirement 1]
+- [requirement 2]
+RECOMMENDED_AGENTS: [agent1, agent2, ...]
+ANALYSIS: [brief analysis of the task]
+</response_format>
+
+Be precise and concise. Focus on understanding what the user wants to achieve."""
+
+        # Agent-specific prompts
+        self.prompts = {
+            "PlanningAgent": """Analyze request and create implementation checklist.
 
 <think>
 Break down the request into atomic, sequential steps.
@@ -158,16 +278,14 @@ Order by implementation sequence.
 <output_format>
 1. [Task description]
 2. [Task description]
-3. [Task description]
 </output_format>
 
 Rules:
 - One task per line
 - Clear, actionable steps
-- No explanations, only the numbered list"""
+- No explanations, only the numbered list""",
 
-        # Qwen3 style for coding (coding model)
-        self.coding_prompt = """Implement the specified task.
+            "CodingAgent": """Implement the specified task.
 
 <response_format>
 THOUGHTS: [brief analysis]
@@ -182,12 +300,9 @@ THOUGHTS: [brief analysis]
 - One code block per file
 - Include filename after language
 - Write complete, runnable code
-- Full file content for updates
-- No explanations outside code blocks
-</rules>"""
+</rules>""",
 
-        # Qwen3 style for review (coding model)
-        self.review_prompt = """Review code and provide structured feedback.
+            "ReviewAgent": """Review code and provide structured feedback.
 
 <response_format>
 ANALYSIS: [brief review summary]
@@ -204,19 +319,9 @@ If changes needed:
 ```language filename.ext
 // corrected code
 ```
-</response_format>
+</response_format>""",
 
-<criteria>
-- Code correctness
-- Best practices
-- Security concerns
-- Performance issues
-</criteria>
-
-Only list actual issues found. Be concise."""
-
-        # Fix code prompt - used when review finds issues
-        self.fix_code_prompt = """Fix the code based on review feedback.
+            "FixCodeAgent": """Fix the code based on review feedback.
 
 <review_issues>
 {issues}
@@ -232,405 +337,445 @@ FIXES_APPLIED: [list what you fixed]
 ```language filename.ext
 // corrected complete code
 ```
-</response_format>
+</response_format>""",
 
-<rules>
-- Address ALL issues mentioned
-- Apply relevant suggestions
-- Provide complete fixed code
-- Maintain original functionality
-</rules>"""
+            "AnalysisAgent": """Analyze the code/problem and provide insights.
 
-        # Build the workflow graph
-        self.graph = self._build_graph()
+<response_format>
+ANALYSIS:
+- [finding 1]
+- [finding 2]
 
-        logger.info("LangGraphWorkflow initialized with iterative review loop")
+ROOT_CAUSE: [if applicable]
+RECOMMENDATION: [suggested approach]
+</response_format>""",
 
-    def _build_graph(self) -> StateGraph:
-        """Build the LangGraph workflow with conditional edges."""
-        graph = StateGraph(WorkflowState)
+            "DebugAgent": """Debug the code and identify issues.
 
-        # Add nodes
-        graph.add_node("planning", self._planning_node)
-        graph.add_node("coding", self._coding_node)
-        graph.add_node("review", self._review_node)
-        graph.add_node("fix_code", self._fix_code_node)
+<response_format>
+BUGS_FOUND:
+- [bug 1]: [description]
+- [bug 2]: [description]
 
-        # Add edges - with conditional loop
-        graph.add_edge(START, "planning")
-        graph.add_edge("planning", "coding")
-        graph.add_edge("coding", "review")
+DEBUG_STEPS:
+1. [step]
+2. [step]
+</response_format>""",
 
-        # Conditional edge after review: either fix_code or end
-        graph.add_conditional_edges(
-            "review",
-            should_fix_code,
-            {
-                "fix_code": "fix_code",
-                "end": END
-            }
-        )
+            "RefactorAgent": """Refactor the code for better quality.
 
-        # After fixing, go back to review
-        graph.add_edge("fix_code", "review")
+<response_format>
+REFACTORING_PLAN:
+- [change 1]
+- [change 2]
 
-        return graph.compile()
+```language filename.ext
+// refactored code
+```
+</response_format>""",
 
-    async def _planning_node(self, state: WorkflowState) -> Dict[str, Any]:
-        """Planning agent node."""
+            "TestGenAgent": """Generate tests for the code.
+
+<response_format>
+TEST_STRATEGY: [approach]
+
+```language test_filename.ext
+// test code
+```
+</response_format>""",
+
+            "ValidationAgent": """Validate the tests and coverage.
+
+<response_format>
+VALIDATION_RESULT:
+- Coverage: [percentage]
+- Edge cases: [covered/missing]
+
+STATUS: [PASS or NEEDS_MORE_TESTS]
+</response_format>""",
+
+            "DocGenAgent": """Generate documentation for the code.
+
+<response_format>
+```markdown README.md
+// documentation
+```
+</response_format>""",
+
+            "SuggestionAgent": """Provide improvement suggestions.
+
+<response_format>
+SUGGESTIONS:
+1. [suggestion with explanation]
+2. [suggestion with explanation]
+
+PRIORITY: [high/medium/low for each]
+</response_format>"""
+        }
+
+        logger.info("DynamicLangGraphWorkflow initialized")
+
+    async def _analyze_task(self, user_request: str) -> tuple[TaskType, str, Dict[str, Any]]:
+        """Use Supervisor to analyze the task and determine workflow type."""
         messages = [
-            SystemMessage(content=self.planning_prompt),
-            HumanMessage(content=state["user_request"])
+            SystemMessage(content=self.supervisor_prompt),
+            HumanMessage(content=user_request)
         ]
 
         response = await self.reasoning_llm.ainvoke(messages)
-        plan_text = response.content
-        checklist = parse_checklist(plan_text)
+        analysis_text = response.content
 
-        return {
-            "plan_text": plan_text,
-            "checklist": checklist,
-            "status": "planning_complete"
-        }
+        # Parse task type from response
+        task_type = parse_task_type(analysis_text)
 
-    async def _coding_node(self, state: WorkflowState) -> Dict[str, Any]:
-        """Coding agent node - implements all tasks."""
-        all_artifacts = []
-        code_text = ""
-        checklist = state["checklist"]
-        existing_code = ""
+        # Get workflow template
+        template = WORKFLOW_TEMPLATES[task_type]
 
-        for idx, task_item in enumerate(checklist):
-            task_description = task_item["task"]
-
-            # Build context message
-            context_parts = [f"Original request: {state['user_request']}"]
-            context_parts.append(f"\nFull plan:\n{state['plan_text']}")
-
-            if existing_code:
-                context_parts.append(f"\nCode implemented so far:\n{existing_code}")
-
-            context_parts.append(f"\nCurrent task ({idx + 1}/{len(checklist)}): {task_description}")
-            context_parts.append("\nPlease implement this specific task now.")
-
-            messages = [
-                SystemMessage(content=self.coding_prompt),
-                HumanMessage(content="\n".join(context_parts))
-            ]
-
-            response = await self.coding_llm.ainvoke(messages)
-            task_code = response.content
-            code_text += task_code + "\n"
-
-            # Extract artifacts from this task
-            task_artifacts = parse_code_blocks(task_code)
-            all_artifacts.extend(task_artifacts)
-
-            # Update context with generated code
-            for artifact in task_artifacts:
-                existing_code += f"\n\n```{artifact['language']} {artifact['filename']}\n{artifact['content']}\n```"
-
-            # Mark task as completed
-            checklist[idx]["completed"] = True
-            checklist[idx]["artifacts"] = [a["filename"] for a in task_artifacts]
-
-        return {
-            "code_text": code_text,
-            "artifacts": all_artifacts,
-            "checklist": checklist,
-            "review_iteration": 0,  # Reset iteration on new code
-            "status": "coding_complete"
-        }
-
-    async def _review_node(self, state: WorkflowState) -> Dict[str, Any]:
-        """Review agent node."""
-        messages = [
-            SystemMessage(content=self.review_prompt),
-            HumanMessage(content=f"Please review this code:\n\n{state['code_text']}")
-        ]
-
-        response = await self.coding_llm.ainvoke(messages)
-        review_result = parse_review(response.content)
-
-        # Increment review iteration
-        current_iteration = state.get("review_iteration", 0) + 1
-
-        return {
-            "review_result": review_result,
-            "review_iteration": current_iteration,
-            "status": "review_complete"
-        }
-
-    async def _fix_code_node(self, state: WorkflowState) -> Dict[str, Any]:
-        """Fix code based on review feedback."""
-        review_result = state.get("review_result", {})
-        issues = review_result.get("issues", [])
-        suggestions = review_result.get("suggestions", [])
-
-        # Build fix prompt with review feedback
-        fix_prompt = self.fix_code_prompt.format(
-            issues="\n".join(f"- {issue}" for issue in issues) if issues else "None",
-            suggestions="\n".join(f"- {s}" for s in suggestions) if suggestions else "None"
-        )
-
-        messages = [
-            SystemMessage(content=fix_prompt),
-            HumanMessage(content=f"Original code to fix:\n\n{state['code_text']}")
-        ]
-
-        response = await self.coding_llm.ainvoke(messages)
-        fixed_code = response.content
-
-        # Extract new artifacts from fixed code
-        fixed_artifacts = parse_code_blocks(fixed_code)
-
-        return {
-            "code_text": fixed_code,
-            "artifacts": fixed_artifacts,
-            "status": "fix_complete"
-        }
+        return task_type, analysis_text, template
 
     async def execute(
         self,
         user_request: str,
         context: Optional[Any] = None
     ) -> str:
-        """Execute the coding workflow."""
-        logger.info(f"Executing LangGraph workflow for request: {user_request[:100]}...")
+        """Execute the dynamic workflow."""
+        logger.info(f"Executing dynamic workflow for: {user_request[:100]}...")
 
-        initial_state = WorkflowState(
-            user_request=user_request,
-            plan_text="",
-            checklist=[],
-            code_text="",
-            artifacts=[],
-            review_result={},
-            review_iteration=0,
-            max_iterations=settings.max_review_iterations,
-            current_task_idx=0,
-            status="started",
-            error=None
-        )
+        # First, analyze the task
+        task_type, analysis, template = await self._analyze_task(user_request)
+        logger.info(f"Task type determined: {task_type}, using workflow: {template['name']}")
 
-        result = await self.graph.ainvoke(initial_state)
-        return result.get("code_text", "")
+        # For now, use the streaming version's logic
+        # This is a simplified non-streaming version
+        return f"Task analyzed as: {task_type}\nWorkflow: {template['name']}"
 
     async def execute_stream(
         self,
         user_request: str,
         context: Optional[Any] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Execute the workflow with streaming updates and iterative review."""
-        logger.info(f"Streaming LangGraph workflow for request: {user_request[:100]}...")
+        """Execute the dynamic workflow with streaming updates."""
+        logger.info(f"Streaming dynamic workflow for: {user_request[:100]}...")
         workflow_id = str(uuid.uuid4())[:8]
         max_iterations = settings.max_review_iterations
 
         try:
-            # Emit workflow creation event with loop structure
+            # ========================================
+            # Phase 1: Supervisor analyzes the task
+            # ========================================
             yield {
-                "agent": "Orchestrator",
-                "type": "workflow_created",
-                "status": "running",
-                "message": f"LangGraph workflow initialized (max {max_iterations} review iterations)",
-                "workflow_info": {
-                    "workflow_id": workflow_id,
-                    "workflow_type": "LangGraph Iterative Multi-Agent",
-                    "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent", "FixCodeAgent"],
-                    "edges": [
-                        {"from": "START", "to": "PlanningAgent"},
-                        {"from": "PlanningAgent", "to": "CodingAgent"},
-                        {"from": "CodingAgent", "to": "ReviewAgent"},
-                        {"from": "ReviewAgent", "to": "Decision"},
-                        {"from": "Decision", "to": "FixCodeAgent", "condition": "not approved"},
-                        {"from": "Decision", "to": "END", "condition": "approved"},
-                        {"from": "FixCodeAgent", "to": "ReviewAgent"}
-                    ],
-                    "current_node": "PlanningAgent",
-                    "max_iterations": max_iterations
-                }
-            }
-
-            # Step 1: Planning
-            planning_agent_id = f"planning-{uuid.uuid4().hex[:6]}"
-            yield {
-                "agent": "PlanningAgent",
+                "agent": "SupervisorAgent",
                 "type": "agent_spawn",
                 "status": "running",
-                "message": "Spawning PlanningAgent for task analysis",
+                "message": "Spawning SupervisorAgent for task analysis",
                 "agent_spawn": {
-                    "agent_id": planning_agent_id,
-                    "agent_type": "PlanningAgent",
-                    "parent_agent": "Orchestrator",
-                    "spawn_reason": "Analyze user request and create implementation checklist",
+                    "agent_id": f"supervisor-{uuid.uuid4().hex[:6]}",
+                    "agent_type": "SupervisorAgent",
+                    "parent_agent": None,
+                    "spawn_reason": "Analyze user request and determine optimal workflow",
                     "timestamp": datetime.now().isoformat()
                 }
             }
 
             yield {
-                "agent": "PlanningAgent",
+                "agent": "SupervisorAgent",
                 "type": "thinking",
                 "status": "running",
-                "message": "Analyzing requirements..."
+                "message": "Analyzing task to determine optimal workflow..."
             }
 
+            # Analyze the task
             messages = [
-                SystemMessage(content=self.planning_prompt),
+                SystemMessage(content=self.supervisor_prompt),
                 HumanMessage(content=user_request)
             ]
 
             start_time = time.time()
-            plan_text = ""
+            analysis_text = ""
             async for chunk in self.reasoning_llm.astream(messages):
                 if chunk.content:
-                    plan_text += chunk.content
-            latency_ms = int((time.time() - start_time) * 1000)
+                    analysis_text += chunk.content
+            analysis_latency_ms = int((time.time() - start_time) * 1000)
 
-            checklist = parse_checklist(plan_text)
+            # Parse task type
+            task_type = parse_task_type(analysis_text)
+            template = WORKFLOW_TEMPLATES[task_type]
 
             yield {
-                "agent": "PlanningAgent",
+                "agent": "SupervisorAgent",
                 "type": "completed",
                 "status": "completed",
-                "items": checklist,
+                "message": f"Task identified as: {task_type}",
+                "task_analysis": {
+                    "task_type": task_type,
+                    "workflow_name": template["name"],
+                    "agents": template["nodes"],
+                    "has_review_loop": template["has_review_loop"]
+                },
                 "prompt_info": {
-                    "system_prompt": self.planning_prompt,
+                    "system_prompt": self.supervisor_prompt,
                     "user_prompt": user_request,
-                    "output": plan_text,
+                    "output": analysis_text,
                     "model": settings.reasoning_model,
-                    "latency_ms": latency_ms
+                    "latency_ms": analysis_latency_ms
                 }
             }
 
-            # Step 2: Coding
-            coding_agent_id = f"coding-{uuid.uuid4().hex[:6]}"
+            # ========================================
+            # Phase 2: Create dynamic workflow
+            # ========================================
+            # Build workflow edges with conditions
+            edges = []
+            for i, (from_node, to_node) in enumerate(template["flow"]):
+                edge = {"from": from_node, "to": to_node}
+                if to_node == "decision":
+                    edge["to"] = "Decision"
+                    edge["condition"] = "review result"
+                edges.append(edge)
+
+            # Add decision edges if has review loop
+            if template["has_review_loop"]:
+                edges.append({"from": "Decision", "to": "FixCodeAgent", "condition": "not approved"})
+                edges.append({"from": "Decision", "to": "END", "condition": "approved"})
+
             yield {
-                "agent": "CodingAgent",
-                "type": "agent_spawn",
+                "agent": "Orchestrator",
+                "type": "workflow_created",
                 "status": "running",
-                "message": "Spawning CodingAgent for implementation",
-                "agent_spawn": {
-                    "agent_id": coding_agent_id,
-                    "agent_type": "CodingAgent",
-                    "parent_agent": "Orchestrator",
-                    "spawn_reason": f"Implement {len(checklist)} tasks from planning phase",
-                    "timestamp": datetime.now().isoformat()
+                "message": f"Created {template['name']} (max {max_iterations} iterations)",
+                "workflow_info": {
+                    "workflow_id": workflow_id,
+                    "workflow_type": template["name"],
+                    "task_type": task_type,
+                    "nodes": template["nodes"],
+                    "edges": edges,
+                    "current_node": template["nodes"][0] if template["nodes"] else "END",
+                    "max_iterations": max_iterations,
+                    "dynamically_created": True
                 }
             }
 
-            all_artifacts = []
-            code_text = ""
-            existing_code = ""
+            # ========================================
+            # Phase 3: Execute the workflow
+            # ========================================
+            # For code_generation, bug_fix, refactoring, general - use standard flow
+            if task_type in ["code_generation", "general", "bug_fix", "refactoring"]:
+                # Execute standard Planning -> Coding -> Review loop
+                async for update in self._execute_coding_workflow(
+                    user_request, task_type, template, workflow_id, max_iterations
+                ):
+                    yield update
+            elif task_type == "test_generation":
+                async for update in self._execute_test_workflow(
+                    user_request, template, workflow_id, max_iterations
+                ):
+                    yield update
+            elif task_type == "code_review":
+                async for update in self._execute_review_only_workflow(
+                    user_request, template, workflow_id
+                ):
+                    yield update
+            elif task_type == "documentation":
+                async for update in self._execute_doc_workflow(
+                    user_request, template, workflow_id
+                ):
+                    yield update
+            else:
+                # Fallback to general coding workflow
+                async for update in self._execute_coding_workflow(
+                    user_request, task_type, template, workflow_id, max_iterations
+                ):
+                    yield update
 
-            for idx, task_item in enumerate(checklist):
-                task_num = idx + 1
-                task_description = task_item["task"]
+        except Exception as e:
+            logger.error(f"Error in dynamic workflow: {e}")
+            yield {
+                "agent": "Workflow",
+                "type": "error",
+                "status": "error",
+                "message": str(e)
+            }
+            raise
 
-                yield {
-                    "agent": "CodingAgent",
-                    "type": "thinking",
-                    "status": "running",
-                    "message": f"Task {task_num}/{len(checklist)}: {task_description}",
-                    "checklist": checklist
-                }
+    async def _execute_coding_workflow(
+        self,
+        user_request: str,
+        task_type: TaskType,
+        template: Dict[str, Any],
+        workflow_id: str,
+        max_iterations: int
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute the standard coding workflow (Planning -> Coding -> Review -> Fix loop)."""
 
-                # Build context
-                context_parts = [f"Original request: {user_request}"]
-                context_parts.append(f"\nFull plan:\n{plan_text}")
+        # Step 1: Planning
+        planning_agent = template["nodes"][0]  # Usually PlanningAgent or AnalysisAgent
+        yield {
+            "agent": planning_agent,
+            "type": "agent_spawn",
+            "status": "running",
+            "message": f"Spawning {planning_agent}",
+            "agent_spawn": {
+                "agent_id": f"{planning_agent.lower()}-{uuid.uuid4().hex[:6]}",
+                "agent_type": planning_agent,
+                "parent_agent": "Orchestrator",
+                "spawn_reason": "Create implementation plan",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
 
-                if existing_code:
-                    context_parts.append(f"\nCode implemented so far:\n{existing_code}")
+        yield {
+            "agent": planning_agent,
+            "type": "thinking",
+            "status": "running",
+            "message": "Creating implementation plan..."
+        }
 
-                context_parts.append(f"\nCurrent task ({task_num}/{len(checklist)}): {task_description}")
-                context_parts.append("\nPlease implement this specific task now.")
+        planning_prompt = self.prompts.get(planning_agent, self.prompts["PlanningAgent"])
+        messages = [
+            SystemMessage(content=planning_prompt),
+            HumanMessage(content=user_request)
+        ]
 
-                user_prompt_content = "\n".join(context_parts)
-                messages = [
-                    SystemMessage(content=self.coding_prompt),
-                    HumanMessage(content=user_prompt_content)
-                ]
+        start_time = time.time()
+        plan_text = ""
+        async for chunk in self.reasoning_llm.astream(messages):
+            if chunk.content:
+                plan_text += chunk.content
+        latency_ms = int((time.time() - start_time) * 1000)
 
-                start_time = time.time()
-                task_code = ""
-                async for chunk in self.coding_llm.astream(messages):
-                    if chunk.content:
-                        task_code += chunk.content
-                task_latency_ms = int((time.time() - start_time) * 1000)
+        checklist = parse_checklist(plan_text)
 
-                code_text += task_code + "\n"
+        yield {
+            "agent": planning_agent,
+            "type": "completed",
+            "status": "completed",
+            "items": checklist,
+            "prompt_info": {
+                "system_prompt": planning_prompt,
+                "user_prompt": user_request,
+                "output": plan_text,
+                "model": settings.reasoning_model,
+                "latency_ms": latency_ms
+            }
+        }
 
-                # Extract artifacts
-                task_artifacts = parse_code_blocks(task_code)
-                all_artifacts.extend(task_artifacts)
+        # Step 2: Coding
+        coding_agent = "CodingAgent" if "CodingAgent" in template["nodes"] else "RefactorAgent"
+        yield {
+            "agent": coding_agent,
+            "type": "agent_spawn",
+            "status": "running",
+            "message": f"Spawning {coding_agent}",
+            "agent_spawn": {
+                "agent_id": f"{coding_agent.lower()}-{uuid.uuid4().hex[:6]}",
+                "agent_type": coding_agent,
+                "parent_agent": "Orchestrator",
+                "spawn_reason": f"Implement {len(checklist)} tasks",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
 
-                for artifact in task_artifacts:
-                    existing_code += f"\n\n```{artifact['language']} {artifact['filename']}\n{artifact['content']}\n```"
+        all_artifacts = []
+        code_text = ""
+        existing_code = ""
+        coding_prompt = self.prompts.get(coding_agent, self.prompts["CodingAgent"])
 
-                    yield {
-                        "agent": "CodingAgent",
-                        "type": "artifact",
-                        "status": "running",
-                        "message": f"Task {task_num}: Created {artifact['filename']}",
-                        "artifact": artifact,
-                        "checklist": checklist
-                    }
-
-                # Mark task completed
-                checklist[idx]["completed"] = True
-                checklist[idx]["artifacts"] = [a["filename"] for a in task_artifacts]
-
-                yield {
-                    "agent": "CodingAgent",
-                    "type": "task_completed",
-                    "status": "running",
-                    "message": f"Task {task_num}/{len(checklist)}: {task_description}",
-                    "task_result": {
-                        "task_num": task_num,
-                        "task": task_description,
-                        "artifacts": task_artifacts
-                    },
-                    "checklist": checklist,
-                    "prompt_info": {
-                        "system_prompt": self.coding_prompt,
-                        "user_prompt": user_prompt_content,
-                        "output": task_code,
-                        "model": settings.coding_model,
-                        "latency_ms": task_latency_ms
-                    }
-                }
+        for idx, task_item in enumerate(checklist):
+            task_num = idx + 1
+            task_description = task_item["task"]
 
             yield {
-                "agent": "CodingAgent",
-                "type": "completed",
-                "status": "completed",
-                "artifacts": all_artifacts,
+                "agent": coding_agent,
+                "type": "thinking",
+                "status": "running",
+                "message": f"Task {task_num}/{len(checklist)}: {task_description}",
                 "checklist": checklist
             }
 
-            # Step 3: Review Loop
+            context_parts = [f"Original request: {user_request}"]
+            context_parts.append(f"\nFull plan:\n{plan_text}")
+            if existing_code:
+                context_parts.append(f"\nCode so far:\n{existing_code}")
+            context_parts.append(f"\nCurrent task ({task_num}/{len(checklist)}): {task_description}")
+
+            user_prompt = "\n".join(context_parts)
+            messages = [
+                SystemMessage(content=coding_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+
+            start_time = time.time()
+            task_code = ""
+            async for chunk in self.coding_llm.astream(messages):
+                if chunk.content:
+                    task_code += chunk.content
+            task_latency_ms = int((time.time() - start_time) * 1000)
+
+            code_text += task_code + "\n"
+            task_artifacts = parse_code_blocks(task_code)
+            all_artifacts.extend(task_artifacts)
+
+            for artifact in task_artifacts:
+                existing_code += f"\n\n```{artifact['language']} {artifact['filename']}\n{artifact['content']}\n```"
+                yield {
+                    "agent": coding_agent,
+                    "type": "artifact",
+                    "status": "running",
+                    "message": f"Created {artifact['filename']}",
+                    "artifact": artifact
+                }
+
+            checklist[idx]["completed"] = True
+            checklist[idx]["artifacts"] = [a["filename"] for a in task_artifacts]
+
+            yield {
+                "agent": coding_agent,
+                "type": "task_completed",
+                "status": "running",
+                "message": f"Task {task_num}/{len(checklist)} completed",
+                "task_result": {"task_num": task_num, "task": task_description, "artifacts": task_artifacts},
+                "checklist": checklist,
+                "prompt_info": {
+                    "system_prompt": coding_prompt,
+                    "user_prompt": user_prompt,
+                    "output": task_code,
+                    "model": settings.coding_model,
+                    "latency_ms": task_latency_ms
+                }
+            }
+
+        yield {
+            "agent": coding_agent,
+            "type": "completed",
+            "status": "completed",
+            "artifacts": all_artifacts,
+            "checklist": checklist
+        }
+
+        # Step 3: Review Loop (if has_review_loop)
+        if template["has_review_loop"]:
             review_iteration = 0
             approved = False
+            review_prompt = self.prompts["ReviewAgent"]
+            fix_prompt_template = self.prompts["FixCodeAgent"]
 
             while not approved and review_iteration < max_iterations:
                 review_iteration += 1
 
-                # Spawn ReviewAgent
-                review_agent_id = f"review-{uuid.uuid4().hex[:6]}"
+                # Review
                 yield {
                     "agent": "ReviewAgent",
                     "type": "agent_spawn",
                     "status": "running",
                     "message": f"Spawning ReviewAgent (iteration {review_iteration}/{max_iterations})",
                     "agent_spawn": {
-                        "agent_id": review_agent_id,
+                        "agent_id": f"review-{uuid.uuid4().hex[:6]}",
                         "agent_type": "ReviewAgent",
                         "parent_agent": "Orchestrator",
-                        "spawn_reason": f"Review code - iteration {review_iteration} of {max_iterations}",
+                        "spawn_reason": f"Review iteration {review_iteration}",
                         "timestamp": datetime.now().isoformat()
                     },
-                    "iteration_info": {
-                        "current": review_iteration,
-                        "max": max_iterations
-                    }
+                    "iteration_info": {"current": review_iteration, "max": max_iterations}
                 }
 
                 yield {
@@ -640,9 +785,9 @@ FIXES_APPLIED: [list what you fixed]
                     "message": f"Reviewing code (iteration {review_iteration}/{max_iterations})..."
                 }
 
-                review_user_prompt = f"Please review this code:\n\n{code_text}"
+                review_user_prompt = f"Review this code:\n\n{code_text}"
                 messages = [
-                    SystemMessage(content=self.review_prompt),
+                    SystemMessage(content=review_prompt),
                     HumanMessage(content=review_user_prompt)
                 ]
 
@@ -665,24 +810,21 @@ FIXES_APPLIED: [list what you fixed]
                     "approved": approved,
                     "corrected_artifacts": review_result["corrected_artifacts"],
                     "prompt_info": {
-                        "system_prompt": self.review_prompt,
+                        "system_prompt": review_prompt,
                         "user_prompt": review_user_prompt,
                         "output": review_text,
                         "model": settings.coding_model,
                         "latency_ms": review_latency_ms
                     },
-                    "iteration_info": {
-                        "current": review_iteration,
-                        "max": max_iterations
-                    }
+                    "iteration_info": {"current": review_iteration, "max": max_iterations}
                 }
 
-                # Decision point
+                # Decision
                 yield {
                     "agent": "Orchestrator",
                     "type": "decision",
                     "status": "running",
-                    "message": f"Review decision: {'APPROVED' if approved else 'NEEDS_REVISION'}",
+                    "message": f"Decision: {'APPROVED' if approved else 'NEEDS_REVISION'}",
                     "decision": {
                         "approved": approved,
                         "iteration": review_iteration,
@@ -691,19 +833,18 @@ FIXES_APPLIED: [list what you fixed]
                     }
                 }
 
-                # If not approved and we have iterations left, fix the code
+                # Fix if needed
                 if not approved and review_iteration < max_iterations:
-                    fix_agent_id = f"fix-{uuid.uuid4().hex[:6]}"
                     yield {
                         "agent": "FixCodeAgent",
                         "type": "agent_spawn",
                         "status": "running",
-                        "message": f"Spawning FixCodeAgent to address {len(review_result['issues'])} issues",
+                        "message": f"Spawning FixCodeAgent",
                         "agent_spawn": {
-                            "agent_id": fix_agent_id,
+                            "agent_id": f"fix-{uuid.uuid4().hex[:6]}",
                             "agent_type": "FixCodeAgent",
                             "parent_agent": "Orchestrator",
-                            "spawn_reason": f"Fix {len(review_result['issues'])} issues from review",
+                            "spawn_reason": f"Fix {len(review_result['issues'])} issues",
                             "timestamp": datetime.now().isoformat()
                         }
                     }
@@ -715,13 +856,12 @@ FIXES_APPLIED: [list what you fixed]
                         "message": f"Fixing {len(review_result['issues'])} issues..."
                     }
 
-                    # Build fix prompt
-                    fix_prompt = self.fix_code_prompt.format(
-                        issues="\n".join(f"- {issue}" for issue in review_result["issues"]) if review_result["issues"] else "None",
-                        suggestions="\n".join(f"- {s}" for s in review_result["suggestions"]) if review_result["suggestions"] else "None"
+                    fix_prompt = fix_prompt_template.format(
+                        issues="\n".join(f"- {i}" for i in review_result["issues"]) or "None",
+                        suggestions="\n".join(f"- {s}" for s in review_result["suggestions"]) or "None"
                     )
 
-                    fix_user_prompt = f"Original code to fix:\n\n{code_text}"
+                    fix_user_prompt = f"Code to fix:\n\n{code_text}"
                     messages = [
                         SystemMessage(content=fix_prompt),
                         HumanMessage(content=fix_user_prompt)
@@ -734,10 +874,9 @@ FIXES_APPLIED: [list what you fixed]
                             fixed_code += chunk.content
                     fix_latency_ms = int((time.time() - start_time) * 1000)
 
-                    # Update code and artifacts
                     code_text = fixed_code
                     fixed_artifacts = parse_code_blocks(fixed_code)
-                    all_artifacts = fixed_artifacts  # Replace with fixed versions
+                    all_artifacts = fixed_artifacts
 
                     for artifact in fixed_artifacts:
                         yield {
@@ -759,10 +898,6 @@ FIXES_APPLIED: [list what you fixed]
                             "output": fixed_code,
                             "model": settings.coding_model,
                             "latency_ms": fix_latency_ms
-                        },
-                        "iteration_info": {
-                            "current": review_iteration,
-                            "max": max_iterations
                         }
                     }
 
@@ -781,46 +916,244 @@ FIXES_APPLIED: [list what you fixed]
                 },
                 "workflow_info": {
                     "workflow_id": workflow_id,
-                    "workflow_type": "LangGraph Iterative Multi-Agent",
-                    "nodes": ["PlanningAgent", "CodingAgent", "ReviewAgent", "FixCodeAgent"],
-                    "edges": [
-                        {"from": "START", "to": "PlanningAgent"},
-                        {"from": "PlanningAgent", "to": "CodingAgent"},
-                        {"from": "CodingAgent", "to": "ReviewAgent"},
-                        {"from": "ReviewAgent", "to": "Decision"},
-                        {"from": "Decision", "to": "FixCodeAgent", "condition": "not approved"},
-                        {"from": "Decision", "to": "END", "condition": "approved"},
-                        {"from": "FixCodeAgent", "to": "ReviewAgent"}
-                    ],
+                    "workflow_type": template["name"],
+                    "task_type": task_type,
+                    "nodes": template["nodes"],
                     "current_node": "END",
-                    "final_status": "approved" if approved else "max_iterations_reached"
+                    "final_status": "approved" if approved else "max_iterations_reached",
+                    "dynamically_created": True
+                }
+            }
+        else:
+            # No review loop - just finish
+            yield {
+                "agent": "Workflow",
+                "type": "completed",
+                "status": "finished",
+                "summary": {
+                    "tasks_completed": len(checklist),
+                    "total_tasks": len(checklist),
+                    "artifacts_count": len(all_artifacts),
+                    "review_approved": True,
+                    "review_iterations": 0,
+                    "max_iterations": 0
+                },
+                "workflow_info": {
+                    "workflow_id": workflow_id,
+                    "workflow_type": template["name"],
+                    "task_type": task_type,
+                    "nodes": template["nodes"],
+                    "current_node": "END",
+                    "dynamically_created": True
                 }
             }
 
-        except Exception as e:
-            logger.error(f"Error in LangGraph workflow: {e}")
-            yield {
-                "agent": "Workflow",
-                "type": "error",
-                "status": "error",
-                "message": str(e)
+    async def _execute_test_workflow(
+        self,
+        user_request: str,
+        template: Dict[str, Any],
+        workflow_id: str,
+        max_iterations: int
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute test generation workflow."""
+        # Simplified - use coding workflow structure
+        async for update in self._execute_coding_workflow(
+            user_request, "test_generation", template, workflow_id, max_iterations
+        ):
+            yield update
+
+    async def _execute_review_only_workflow(
+        self,
+        user_request: str,
+        template: Dict[str, Any],
+        workflow_id: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute review-only workflow (no code generation)."""
+        # Review agent
+        yield {
+            "agent": "ReviewAgent",
+            "type": "agent_spawn",
+            "status": "running",
+            "message": "Spawning ReviewAgent",
+            "agent_spawn": {
+                "agent_id": f"review-{uuid.uuid4().hex[:6]}",
+                "agent_type": "ReviewAgent",
+                "parent_agent": "Orchestrator",
+                "spawn_reason": "Review provided code",
+                "timestamp": datetime.now().isoformat()
             }
-            raise
+        }
+
+        yield {
+            "agent": "ReviewAgent",
+            "type": "thinking",
+            "status": "running",
+            "message": "Reviewing code..."
+        }
+
+        messages = [
+            SystemMessage(content=self.prompts["ReviewAgent"]),
+            HumanMessage(content=user_request)
+        ]
+
+        start_time = time.time()
+        review_text = ""
+        async for chunk in self.coding_llm.astream(messages):
+            if chunk.content:
+                review_text += chunk.content
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        review_result = parse_review(review_text)
+
+        yield {
+            "agent": "ReviewAgent",
+            "type": "completed",
+            "status": "completed",
+            "issues": review_result["issues"],
+            "suggestions": review_result["suggestions"],
+            "approved": review_result["approved"],
+            "prompt_info": {
+                "system_prompt": self.prompts["ReviewAgent"],
+                "user_prompt": user_request,
+                "output": review_text,
+                "model": settings.coding_model,
+                "latency_ms": latency_ms
+            }
+        }
+
+        yield {
+            "agent": "Workflow",
+            "type": "completed",
+            "status": "finished",
+            "summary": {
+                "tasks_completed": 1,
+                "total_tasks": 1,
+                "artifacts_count": 0,
+                "review_approved": review_result["approved"]
+            },
+            "workflow_info": {
+                "workflow_id": workflow_id,
+                "workflow_type": template["name"],
+                "task_type": "code_review",
+                "current_node": "END",
+                "dynamically_created": True
+            }
+        }
+
+    async def _execute_doc_workflow(
+        self,
+        user_request: str,
+        template: Dict[str, Any],
+        workflow_id: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute documentation workflow."""
+        # Analysis
+        yield {
+            "agent": "AnalysisAgent",
+            "type": "agent_spawn",
+            "status": "running",
+            "message": "Spawning AnalysisAgent",
+            "agent_spawn": {
+                "agent_id": f"analysis-{uuid.uuid4().hex[:6]}",
+                "agent_type": "AnalysisAgent",
+                "parent_agent": "Orchestrator",
+                "spawn_reason": "Analyze code for documentation",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+
+        messages = [
+            SystemMessage(content=self.prompts["AnalysisAgent"]),
+            HumanMessage(content=user_request)
+        ]
+
+        analysis_text = ""
+        async for chunk in self.reasoning_llm.astream(messages):
+            if chunk.content:
+                analysis_text += chunk.content
+
+        yield {
+            "agent": "AnalysisAgent",
+            "type": "completed",
+            "status": "completed",
+            "content": analysis_text
+        }
+
+        # DocGen
+        yield {
+            "agent": "DocGenAgent",
+            "type": "agent_spawn",
+            "status": "running",
+            "message": "Spawning DocGenAgent",
+            "agent_spawn": {
+                "agent_id": f"docgen-{uuid.uuid4().hex[:6]}",
+                "agent_type": "DocGenAgent",
+                "parent_agent": "Orchestrator",
+                "spawn_reason": "Generate documentation",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+
+        messages = [
+            SystemMessage(content=self.prompts["DocGenAgent"]),
+            HumanMessage(content=f"{user_request}\n\nAnalysis:\n{analysis_text}")
+        ]
+
+        doc_text = ""
+        async for chunk in self.coding_llm.astream(messages):
+            if chunk.content:
+                doc_text += chunk.content
+
+        artifacts = parse_code_blocks(doc_text)
+
+        for artifact in artifacts:
+            yield {
+                "agent": "DocGenAgent",
+                "type": "artifact",
+                "status": "running",
+                "artifact": artifact
+            }
+
+        yield {
+            "agent": "DocGenAgent",
+            "type": "completed",
+            "status": "completed",
+            "artifacts": artifacts
+        }
+
+        yield {
+            "agent": "Workflow",
+            "type": "completed",
+            "status": "finished",
+            "summary": {
+                "tasks_completed": 1,
+                "total_tasks": 1,
+                "artifacts_count": len(artifacts),
+                "review_approved": True
+            },
+            "workflow_info": {
+                "workflow_id": workflow_id,
+                "workflow_type": template["name"],
+                "task_type": "documentation",
+                "current_node": "END",
+                "dynamically_created": True
+            }
+        }
 
 
 class LangGraphWorkflowManager(BaseWorkflowManager):
-    """Manager for LangGraph workflow sessions."""
+    """Manager for dynamic LangGraph workflow sessions."""
 
     def __init__(self):
         """Initialize workflow manager."""
-        self.workflows: Dict[str, LangGraphWorkflow] = {}
-        logger.info("LangGraphWorkflowManager initialized")
+        self.workflows: Dict[str, DynamicLangGraphWorkflow] = {}
+        logger.info("LangGraphWorkflowManager initialized with dynamic workflow support")
 
-    def get_or_create_workflow(self, session_id: str) -> LangGraphWorkflow:
+    def get_or_create_workflow(self, session_id: str) -> DynamicLangGraphWorkflow:
         """Get existing workflow or create new one for session."""
         if session_id not in self.workflows:
-            self.workflows[session_id] = LangGraphWorkflow()
-            logger.info(f"Created new LangGraph workflow for session {session_id}")
+            self.workflows[session_id] = DynamicLangGraphWorkflow()
+            logger.info(f"Created new dynamic workflow for session {session_id}")
         return self.workflows[session_id]
 
     def delete_workflow(self, session_id: str) -> None:

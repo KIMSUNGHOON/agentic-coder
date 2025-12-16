@@ -91,11 +91,21 @@ export interface PromptInfo {
 export interface WorkflowInfo {
   workflow_id: string;
   workflow_type: string;
+  task_type?: string;
   nodes: string[];
   edges: Array<{ from: string; to: string; condition?: string }>;
   current_node?: string;
   max_iterations?: number;
   final_status?: string;
+  dynamically_created?: boolean;
+}
+
+// Task analysis from SupervisorAgent
+export interface TaskAnalysis {
+  task_type: string;
+  workflow_name: string;
+  agents: string[];
+  has_review_loop: boolean;
 }
 
 // Decision info for review decisions
@@ -140,6 +150,7 @@ export interface WorkflowUpdate {
   prompt_info?: PromptInfo;
   agent_spawn?: AgentSpawnInfo;
   workflow_info?: WorkflowInfo;
+  task_analysis?: TaskAnalysis;
   // Decision and iteration fields
   decision?: DecisionInfo;
   iteration_info?: IterationInfo;
