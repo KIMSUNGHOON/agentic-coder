@@ -1169,3 +1169,6 @@ class LangGraphWorkflowManager(BaseWorkflowManager):
 
 # Global workflow manager instance
 workflow_manager = LangGraphWorkflowManager()
+
+# Backward compatibility alias
+LangGraphWorkflow = DynamicLangGraphWorkflow
