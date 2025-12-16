@@ -6,14 +6,22 @@ agent framework implementations:
 - LangChain/LangGraph
 - DeepAgents (advanced LangChain)
 
+Also provides access to:
+- AgentSpawner for specialized agents (research, testing, etc.)
+- ToolRegistry for tool management
+
 Usage:
     from app.agent.factory import get_agent_manager, get_workflow_manager
+    from app.agent.factory import get_spawner, spawn_agent
 
     agent_manager = get_agent_manager()
     workflow_manager = get_workflow_manager()
+
+    # Spawn specialized agents
+    research_agent = spawn_agent("research", "session123")
 """
 import logging
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from app.core.config import settings
 from app.agent.base.interface import BaseAgentManager, BaseWorkflowManager
 
@@ -173,3 +181,134 @@ def create_workflow(session_id: str, framework: Optional[FrameworkType] = None):
     """
     manager = get_workflow_manager(framework)
     return manager.get_or_create_workflow(session_id)
+
+
+# ==================== Specialized Agent Spawning ====================
+
+
+def get_spawner():
+    """Get the global agent spawner for specialized agents.
+
+    Returns:
+        AgentSpawner instance
+    """
+    from app.agent.registry import get_spawner as _get_spawner
+    return _get_spawner()
+
+
+def spawn_agent(
+    agent_type: str,
+    session_id: str,
+    framework: Optional[FrameworkType] = None
+):
+    """Spawn a specialized agent.
+
+    Args:
+        agent_type: Type of agent (research, testing, etc.)
+        session_id: Session identifier
+        framework: Framework to use (optional, uses settings if None)
+
+    Returns:
+        Spawned agent instance
+
+    Example:
+        research_agent = spawn_agent("research", "session123")
+        result = await research_agent.process("Find all Python files", {})
+    """
+    spawner = get_spawner()
+    fw = framework
+    if fw is None:
+        fw = getattr(settings, 'agent_framework', 'microsoft')
+    if fw == 'deepagent':
+        fw = 'langchain'
+    return spawner.spawn(agent_type, session_id, fw)
+
+
+def list_agent_types(framework: Optional[FrameworkType] = None) -> List[str]:
+    """List available specialized agent types.
+
+    Args:
+        framework: Framework to list agents for (optional)
+
+    Returns:
+        List of agent type names
+    """
+    from app.agent.registry import AgentRegistry
+    registry = AgentRegistry()
+    return registry.list_agent_types(framework)
+
+
+def get_agent_type_info(agent_type: str, framework: Optional[FrameworkType] = None) -> dict:
+    """Get information about a specialized agent type.
+
+    Args:
+        agent_type: Type of agent
+        framework: Framework to use (optional)
+
+    Returns:
+        Dictionary with agent information
+    """
+    from app.agent.registry import AgentRegistry
+    registry = AgentRegistry()
+    return registry.get_agent_info(agent_type, framework)
+
+
+# ==================== Tool System Access ====================
+
+
+def get_tool_registry():
+    """Get the global tool registry.
+
+    Returns:
+        ToolRegistry instance
+    """
+    from app.tools.registry import get_registry
+    return get_registry()
+
+
+def get_tool_executor(timeout: int = 30):
+    """Get a tool executor instance.
+
+    Args:
+        timeout: Maximum execution time in seconds
+
+    Returns:
+        ToolExecutor instance
+    """
+    from app.tools.executor import ToolExecutor
+    return ToolExecutor(timeout=timeout)
+
+
+def list_tools(category: Optional[str] = None) -> List[str]:
+    """List available tools.
+
+    Args:
+        category: Optional category filter (file, code, git, web, search)
+
+    Returns:
+        List of tool names
+    """
+    registry = get_tool_registry()
+    if category:
+        from app.tools.base import ToolCategory
+        try:
+            cat = ToolCategory(category)
+            return registry.get_tool_names(cat)
+        except ValueError:
+            return []
+    return registry.get_tool_names()
+
+
+async def execute_tool(tool_name: str, params: dict, session_id: str = "default"):
+    """Execute a tool directly.
+
+    Args:
+        tool_name: Name of the tool
+        params: Tool parameters
+        session_id: Session identifier for logging
+
+    Returns:
+        ToolResult with execution results
+    """
+    executor = get_tool_executor()
+    return await executor.execute(tool_name, params, session_id)
