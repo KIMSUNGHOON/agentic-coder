@@ -28,7 +28,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
     scrollToBottom();
   }, [messages]);
 
-  // Load conversation history on mount or when session/initial messages change
+  // Load conversation history on mount or when session changes
   useEffect(() => {
     try {
       setError(null);
@@ -40,17 +40,19 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId, taskType, init
           content: msg.content,
         }));
         setMessages(convertedMessages);
+        console.log(`Loaded ${convertedMessages.length} messages for session ${sessionId}`);
       } else {
         // For new sessions, start with empty messages
-        // Don't call loadHistory as it fetches from agent memory, not DB
         setMessages([]);
+        console.log(`Starting new session ${sessionId} with empty messages`);
       }
     } catch (err) {
       console.error('Error loading messages:', err);
       setError(err instanceof Error ? err.message : 'Failed to load messages');
       setMessages([]);
     }
-  }, [sessionId, initialMessages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;

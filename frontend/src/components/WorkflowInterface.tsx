@@ -29,10 +29,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates }: WorkflowInterfaceProps
   useEffect(() => {
     if (initialUpdates && initialUpdates.length > 0) {
       setUpdates(initialUpdates);
+      console.log(`Loaded ${initialUpdates.length} workflow updates for session ${sessionId}`);
     } else {
       setUpdates([]);
+      console.log(`Starting new workflow session ${sessionId}`);
     }
-  }, [sessionId, initialUpdates]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Save workflow state after updates complete
   const saveWorkflowState = async (workflowUpdates: WorkflowUpdate[]) => {

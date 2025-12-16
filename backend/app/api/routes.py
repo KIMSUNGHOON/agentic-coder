@@ -714,3 +714,237 @@ async def cleanup_expired_cache():
     except Exception as e:
         logger.error(f"Error cleaning cache: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Tool Execution Endpoints ====================
+
+
+@router.post("/tools/execute")
+async def execute_tool(
+    tool_name: str,
+    params: dict,
+    session_id: str = "default"
+):
+    """Execute a tool with given parameters.
+
+    Args:
+        tool_name: Name of the tool to execute
+        params: Tool-specific parameters
+        session_id: Session identifier for logging
+
+    Returns:
+        Tool execution result
+    """
+    try:
+        from app.tools.executor import ToolExecutor
+
+        executor = ToolExecutor()
+        result = await executor.execute(tool_name, params, session_id)
+
+        return result.to_dict()
+
+    except Exception as e:
+        logger.error(f"Error executing tool {tool_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tools/execute/batch")
+async def execute_tools_batch(
+    tool_calls: list[dict],
+    session_id: str = "default"
+):
+    """Execute multiple tools in parallel.
+
+    Args:
+        tool_calls: List of {tool_name, params} dictionaries
+        session_id: Session identifier
+
+    Returns:
+        List of tool execution results
+    """
+    try:
+        from app.tools.executor import ToolExecutor
+
+        executor = ToolExecutor()
+        results = await executor.execute_batch(tool_calls, session_id)
+
+        return {
+            "results": [r.to_dict() for r in results],
+            "count": len(results)
+        }
+
+    except Exception as e:
+        logger.error(f"Error executing tool batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tools/list")
+async def list_tools(category: str = None):
+    """List available tools.
+
+    Args:
+        category: Optional category filter
+
+    Returns:
+        List of tool schemas
+    """
+    try:
+        from app.tools.registry import get_registry
+        from app.tools.base import ToolCategory
+
+        registry = get_registry()
+
+        if category:
+            try:
+                cat_enum = ToolCategory(category)
+                tools = registry.list_tools(cat_enum)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid category: {category}"
+                )
+        else:
+            tools = registry.list_tools()
+
+        return {
+            "tools": [tool.get_schema() for tool in tools],
+            "count": len(tools)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing tools: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tools/{tool_name}/schema")
+async def get_tool_schema(tool_name: str):
+    """Get schema for a specific tool.
+
+    Args:
+        tool_name: Name of the tool
+
+    Returns:
+        Tool schema
+    """
+    try:
+        from app.tools.registry import get_registry
+
+        registry = get_registry()
+        tool = registry.get_tool(tool_name)
+
+        if not tool:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tool '{tool_name}' not found"
+            )
+
+        return tool.get_schema()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting tool schema: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tools/categories")
+async def get_tool_categories():
+    """Get list of tool categories.
+
+    Returns:
+        List of category names
+    """
+    try:
+        from app.tools.registry import get_registry
+
+        registry = get_registry()
+        return {
+            "categories": registry.get_categories()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tools/stats")
+async def get_tool_stats():
+    """Get tool registry statistics.
+
+    Returns:
+        Tool statistics
+    """
+    try:
+        from app.tools.registry import get_registry
+
+        registry = get_registry()
+        return registry.get_statistics()
+
+    except Exception as e:
+        logger.error(f"Error getting tool stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Agent Spawning Endpoints ====================
+
+
+@router.post("/agents/spawn")
+async def spawn_agent(agent_type: str, session_id: str):
+    """Spawn a new specialized agent."""
+    try:
+        from app.agent.registry import get_spawner
+        spawner = get_spawner()
+        agent = spawner.spawn(agent_type, session_id)
+        return {"success": True, "agent_id": f"{agent_type}_{session_id}", "agent": agent.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error spawning agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/agents/types")
+async def list_agent_types():
+    """List available agent types."""
+    try:
+        from app.agent.registry import AgentRegistry
+        registry = AgentRegistry()
+        return {"agent_types": registry.list_agent_types()}
+    except Exception as e:
+        logger.error(f"Error listing agent types: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/agents/active")
+async def list_active_agents(session_id: str = None):
+    """List active agents."""
+    try:
+        from app.agent.registry import get_spawner
+        spawner = get_spawner()
+        if session_id:
+            agents = spawner.get_by_session(session_id)
+            return {"agents": [agent.to_dict() for agent in agents]}
+        return {"agent_ids": spawner.list_active()}
+    except Exception as e:
+        logger.error(f"Error listing agents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agents/{agent_id}/process")
+async def process_agent_task(agent_id: str, task: str, context: dict = None):
+    """Process a task with an agent."""
+    try:
+        from app.agent.registry import get_spawner
+        spawner = get_spawner()
+        agent = spawner.get_agent(agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+        result = await agent.process(task, context or {})
+        return {"success": True, "result": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

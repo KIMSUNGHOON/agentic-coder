@@ -18,3 +18,9 @@ redis==5.0.1
 # Additional dependencies not included in agent-framework
 python-jose[cryptography]==3.3.0
 structlog==24.4.0
+
+# Phase 1 DeepAgent dependencies
+aiofiles==24.1.0  # Async file I/O for tool system
+networkx==3.2.1   # Knowledge graph for memory system
+pytest==7.4.3     # Testing framework
+pytest-asyncio==0.21.1  # Async testing support

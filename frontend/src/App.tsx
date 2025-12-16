@@ -145,12 +145,14 @@ function App() {
           <div className="flex-1 p-4 overflow-hidden">
             {mode === 'chat' ? (
               <ChatInterface
+                key={sessionId}
                 sessionId={sessionId}
                 taskType={taskType}
                 initialMessages={loadedMessages}
               />
             ) : (
               <WorkflowInterface
+                key={sessionId}
                 sessionId={sessionId}
                 initialUpdates={loadedWorkflowState}
               />
