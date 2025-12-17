@@ -342,21 +342,29 @@ async def execute_workflow(request: ChatRequest):
             workflow = workflow_manager.get_or_create_workflow(request.session_id)
             logger.info(f"Using standard framework for session {request.session_id}")
 
-        # Store base workspace for this session if provided
-        base_workspace = request.workspace or _session_workspaces.get(request.session_id, "/home/user/workspace")
+        # Get or reuse workspace for this session
+        # This ensures workspace persists across framework switches (Standard <-> DeepAgents)
+        if request.session_id in _session_workspaces:
+            # Reuse existing workspace for this session
+            workspace = _session_workspaces[request.session_id]
+            logger.info(f"Reusing existing workspace for session {request.session_id}: {workspace}")
+        else:
+            # Create new workspace for first request in this session
+            base_workspace = request.workspace or "/home/user/workspace"
 
-        # Create project-specific directory within workspace
-        # Use timestamp to create unique project folder
-        from datetime import datetime
-        project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        workspace = os.path.join(base_workspace, project_name)
+            # Create project-specific directory within workspace
+            from datetime import datetime
+            project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            workspace = os.path.join(base_workspace, project_name)
 
-        _session_workspaces[request.session_id] = workspace
+            # Store workspace for this session
+            _session_workspaces[request.session_id] = workspace
+            logger.info(f"Created new workspace for session {request.session_id}: {workspace}")
 
         # Ensure project workspace exists
         if not os.path.exists(workspace):
             os.makedirs(workspace, exist_ok=True)
-            logger.info(f"Created project directory: {workspace}")
+            logger.info(f"Created workspace directory: {workspace}")
 
         # Build context-aware request
         context_str = ""
