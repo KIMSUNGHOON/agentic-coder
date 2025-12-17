@@ -42,8 +42,92 @@ const Terminal = ({ sessionId, workspace, isVisible, onClose }: TerminalProps) =
     }
   }, [isVisible]);
 
+  // Handle ESC key to close terminal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isVisible) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isVisible, onClose]);
+
   const executeCommand = useCallback(async (command: string) => {
     if (!command.trim()) return;
+
+    // Handle built-in help command
+    if (command.trim() === 'help' || command.trim() === '--help') {
+      setHistory(prev => [...prev, {
+        command,
+        stdout: `Available Commands (Ubuntu Bash):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 File & Directory Operations:
+  ls [path]              List files and directories
+  pwd                    Print working directory
+  cd <directory>         Change directory
+  mkdir <name>           Create directory
+  touch <file>           Create empty file
+  cp <src> <dst>         Copy files
+  mv <src> <dst>         Move/rename files
+  rm <file>              Remove file
+  cat <file>             Display file contents
+  head/tail <file>       Show first/last lines
+  find <path> -name      Find files by name
+  tree                   Display directory tree
+
+📝 Text Processing:
+  grep <pattern> <file>  Search text patterns
+  wc <file>              Count lines/words/bytes
+  sort <file>            Sort file contents
+  uniq <file>            Remove duplicate lines
+
+🔍 System Info:
+  df -h                  Disk usage
+  du -sh <path>          Directory size
+  ps aux                 Running processes
+  top                    System monitor
+  uname -a               System information
+
+🐍 Python:
+  python3 <script.py>    Run Python script
+  pip install <pkg>      Install package
+  pip list               List installed packages
+
+📦 Node.js/NPM:
+  node <script.js>       Run Node.js script
+  npm install            Install dependencies
+  npm run <script>       Run npm script
+
+🔧 Utilities:
+  echo <text>            Print text
+  env                    Show environment variables
+  which <command>        Locate command
+  history                Show command history (not implemented yet)
+  clear                  Clear terminal (use Clear button)
+
+⚠️  Security Notes:
+  - Dangerous commands are blocked (rm -rf /, wget, curl, etc.)
+  - Commands timeout after 30 seconds
+  - Working directory: ${workspace}
+
+💡 Tips:
+  - Use ↑↓ arrows to navigate command history
+  - Press Esc to close terminal
+  - Use Tab for auto-completion (not yet implemented)
+
+Type any bash command to execute in your workspace.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+        stderr: '',
+        returnCode: 0,
+        cwd: workspace,
+        timestamp: Date.now()
+      }]);
+      setInput('');
+      setHistoryIndex(-1);
+      return;
+    }
 
     setIsExecuting(true);
 
@@ -139,10 +223,37 @@ const Terminal = ({ sessionId, workspace, isVisible, onClose }: TerminalProps) =
         >
           {/* Welcome message */}
           {history.length === 0 && (
-            <div className="text-[#888888] mb-4">
-              <p>Welcome to the workspace terminal.</p>
-              <p>Current directory: {workspace}</p>
-              <p className="text-[#666666] mt-2">Type commands to execute in your workspace.</p>
+            <div className="text-[#D4D4D4] mb-4 space-y-2">
+              <div className="flex items-center gap-2 text-[#16A34A]">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                <span className="font-semibold">Welcome to Workspace Terminal</span>
+              </div>
+
+              <div className="border-l-2 border-[#3C3C3C] pl-3 space-y-1 text-sm">
+                <p className="text-[#888888]">Shell: <span className="text-[#D4D4D4]">Ubuntu Bash</span></p>
+                <p className="text-[#888888]">Working Directory: <span className="text-[#D4D4D4] font-mono">{workspace}</span></p>
+              </div>
+
+              <div className="mt-4 p-3 bg-[#2A2A2A] rounded border border-[#3C3C3C]">
+                <div className="flex items-center gap-2 mb-2 text-[#FEBC2E]">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
+                  </svg>
+                  <span className="font-medium text-sm">Quick Start</span>
+                </div>
+                <div className="space-y-1 text-xs text-[#888888]">
+                  <p>• Type <span className="text-[#16A34A] font-mono">help</span> or <span className="text-[#16A34A] font-mono">--help</span> to see available commands</p>
+                  <p>• Use <span className="text-white">↑↓</span> arrows to navigate command history</p>
+                  <p>• Press <span className="text-white">Esc</span> to close terminal</p>
+                  <p>• Try: <span className="text-[#16A34A] font-mono">ls</span>, <span className="text-[#16A34A] font-mono">pwd</span>, <span className="text-[#16A34A] font-mono">python3 --version</span></p>
+                </div>
+              </div>
+
+              <p className="text-[#666666] text-sm italic mt-3">
+                💡 All commands execute in your isolated workspace directory
+              </p>
             </div>
           )}
 

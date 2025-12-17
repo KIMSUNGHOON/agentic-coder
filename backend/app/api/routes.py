@@ -1189,6 +1189,7 @@ async def execute_shell_command(request: dict):
     """
     import asyncio
     import subprocess
+    import os
 
     session_id = request.get("session_id", "default")
     command = request.get("command", "")

@@ -576,27 +576,46 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
                 ))}
               </div>
 
-              {/* Project Structure Summary (if files generated) */}
+              {/* Project Structure Summary & File Operations */}
               {(() => {
                 const allArtifacts = updates.flatMap(u => u.artifacts || []);
                 if (allArtifacts.length === 0) return null;
 
-                // Build file tree structure
-                const fileTree: { [key: string]: string[] } = {};
-                allArtifacts.forEach(artifact => {
-                  const parts = artifact.filename.split('/');
-                  if (parts.length > 1) {
-                    const dir = parts.slice(0, -1).join('/');
-                    if (!fileTree[dir]) fileTree[dir] = [];
-                    fileTree[dir].push(parts[parts.length - 1]);
-                  } else {
-                    if (!fileTree['.']) fileTree['.'] = [];
-                    fileTree['.'].push(artifact.filename);
+                // Build file tree structure with metadata
+                const fileTree: { [key: string]: Array<{ name: string; artifact: Artifact; agent: string }> } = {};
+                updates.forEach(update => {
+                  if (update.artifacts) {
+                    update.artifacts.forEach(artifact => {
+                      const parts = artifact.filename.split('/');
+                      const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
+                      const filename = parts[parts.length - 1];
+
+                      if (!fileTree[dir]) fileTree[dir] = [];
+                      fileTree[dir].push({
+                        name: filename,
+                        artifact,
+                        agent: update.agent
+                      });
+                    });
                   }
                 });
 
+                // Get file icon based on extension
+                const getFileIcon = (filename: string) => {
+                  const ext = filename.split('.').pop()?.toLowerCase();
+                  switch (ext) {
+                    case 'py': return '🐍';
+                    case 'js': case 'ts': case 'jsx': case 'tsx': return '📜';
+                    case 'json': return '⚙️';
+                    case 'md': case 'txt': return '📝';
+                    case 'yml': case 'yaml': return '🔧';
+                    case 'html': case 'css': return '🎨';
+                    default: return '📄';
+                  }
+                };
+
                 return (
-                  <div className="px-4 py-3 bg-[#F5F4F2]">
+                  <div className="px-4 py-3 bg-[#F5F4F2] border-t border-[#E5E5E5]">
                     <button
                       onClick={() => {
                         const treeSection = document.getElementById('project-tree-section');
@@ -604,31 +623,88 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
                           treeSection.classList.toggle('hidden');
                         }
                       }}
-                      className="flex items-center gap-2 text-sm font-medium text-[#666666] hover:text-[#1A1A1A] w-full"
+                      className="flex items-center gap-2 text-sm font-medium text-[#666666] hover:text-[#1A1A1A] w-full transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
                       </svg>
-                      Project Structure
-                      <svg className="w-4 h-4 ml-auto" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <span>📁 Project Structure & File Operations</span>
+                      <span className="text-xs text-[#999999]">({allArtifacts.length} files)</span>
+                      <svg id="tree-chevron" className="w-4 h-4 ml-auto transition-transform" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                       </svg>
                     </button>
                     <div id="project-tree-section" className="mt-3 hidden">
-                      <div className="bg-white rounded-lg p-3 border border-[#E5E5E5] font-mono text-xs">
-                        {Object.entries(fileTree).map(([dir, files]) => (
-                          <div key={dir} className="mb-2">
-                            <div className="text-[#DA7756] font-semibold mb-1">
-                              {dir === '.' ? '📁 Root' : `📁 ${dir}`}
+                      <div className="bg-white rounded-lg p-4 border border-[#E5E5E5]">
+                        {/* File Operations Summary */}
+                        <div className="mb-4 pb-3 border-b border-[#E5E5E5]">
+                          <h4 className="text-xs font-semibold text-[#666666] mb-2">📋 File Operations Summary</h4>
+                          <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded p-2 text-center">
+                              <div className="text-lg font-bold text-[#16A34A]">{allArtifacts.length}</div>
+                              <div className="text-[#166534]">Files Created</div>
                             </div>
-                            {files.map((file, i) => (
-                              <div key={i} className="ml-4 text-[#666666] flex items-center gap-2">
-                                <span className="text-[#999999]">├─</span>
-                                <span>{file}</span>
+                            <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded p-2 text-center">
+                              <div className="text-lg font-bold text-[#D97706]">{Object.keys(fileTree).length}</div>
+                              <div className="text-[#92400E]">Directories</div>
+                            </div>
+                            <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded p-2 text-center">
+                              <div className="text-lg font-bold text-[#2563EB]">{updates.filter(u => u.artifacts?.length).length}</div>
+                              <div className="text-[#1E3A8A]">Agents Used</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* File Tree */}
+                        <div className="space-y-3">
+                          <h4 className="text-xs font-semibold text-[#666666]">🌳 File Tree</h4>
+                          <div className="font-mono text-xs">
+                            {Object.entries(fileTree).sort(([a], [b]) => a.localeCompare(b)).map(([dir, files]) => (
+                              <div key={dir} className="mb-3">
+                                <div className="flex items-center gap-2 text-[#DA7756] font-semibold mb-2 bg-[#DA775608] px-2 py-1 rounded">
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                                  </svg>
+                                  <span>{dir === '.' ? 'Root Directory' : dir}</span>
+                                </div>
+                                <div className="ml-4 space-y-1">
+                                  {files.map((fileInfo, i) => {
+                                    const isLast = i === files.length - 1;
+                                    return (
+                                      <div key={i} className="group">
+                                        <div className="flex items-start gap-2 hover:bg-[#F5F4F2] p-1 rounded transition-colors">
+                                          <span className="text-[#999999] flex-shrink-0">{isLast ? '└─' : '├─'}</span>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                              <span>{getFileIcon(fileInfo.name)}</span>
+                                              <span className="text-[#1A1A1A] font-medium">{fileInfo.name}</span>
+                                              <span className="text-[10px] text-[#999999] bg-[#F5F4F2] px-1.5 py-0.5 rounded">
+                                                {fileInfo.artifact.language}
+                                              </span>
+                                              <span className="text-[10px] text-[#16A34A] bg-[#F0FDF4] px-1.5 py-0.5 rounded border border-[#BBF7D0]">
+                                                by {fileInfo.agent}
+                                              </span>
+                                            </div>
+                                            {fileInfo.artifact.description && (
+                                              <div className="mt-1 ml-6 text-[11px] text-[#666666] italic">
+                                                💬 {fileInfo.artifact.description}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             ))}
                           </div>
-                        ))}
+                        </div>
+
+                        {/* Help text */}
+                        <div className="mt-4 pt-3 border-t border-[#E5E5E5] text-xs text-[#999999]">
+                          💡 All files have been created in your workspace. Expand individual file cards above to view, save, or execute code.
+                        </div>
                       </div>
                     </div>
                   </div>
