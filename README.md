@@ -381,12 +381,12 @@ Ensure all dependencies are installed and the virtual environment is activated.
 
 **DeepAgents Middleware Stack:**
 ```python
-# DeepAgents provides advanced middleware capabilities
+# Hybrid DeepAgents with Parallel Execution
 DeepAgentWorkflowManager(
-    enable_todos=True,          # TodoListMiddleware: Built-in task tracking
     enable_subagents=True,      # SubAgentMiddleware: Isolated sub-agent contexts
-    enable_summarization=True,  # SummarizationMiddleware: Auto-compress at 170k tokens
-    enable_filesystem=True      # FilesystemMiddleware: Persistent conversation state
+    enable_filesystem=True,     # FilesystemMiddleware: Persistent conversation state
+    enable_parallel=True,       # Parallel execution with SharedContext
+    max_parallel_agents=25      # H100 GPU optimization (25 concurrent agents)
 )
 ```
 
