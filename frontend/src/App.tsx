@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect } from 'react';
 import WorkflowInterface from './components/WorkflowInterface';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import Terminal from './components/Terminal';
+import ProjectSelector from './components/ProjectSelector';
 import { WorkflowUpdate } from './types/api';
 import apiClient from './api/client';
 
@@ -65,6 +66,18 @@ function App() {
       await apiClient.setWorkspace(sessionId, newWorkspace);
     } catch (err) {
       console.error('Failed to set workspace:', err);
+    }
+  };
+
+  const handleProjectSelect = async (projectPath: string) => {
+    setWorkspace(projectPath);
+    // Notify backend of workspace change
+    try {
+      await apiClient.setWorkspace(sessionId, projectPath);
+      // Optionally reload the interface to show project files
+      setLoadedWorkflowState([]);
+    } catch (err) {
+      console.error('Failed to select project:', err);
     }
   };
 
@@ -183,6 +196,13 @@ function App() {
                 {workspace.split('/').pop() || workspace}
               </span>
             </button>
+
+            {/* Project Selector */}
+            <ProjectSelector
+              currentWorkspace={workspace}
+              onProjectSelect={handleProjectSelect}
+              baseWorkspace="/home/user/workspace"
+            />
 
             {/* Terminal Button */}
             <button

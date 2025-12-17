@@ -322,14 +322,23 @@ async def execute_workflow(request: ChatRequest):
             # Create new workspace for first request in this session
             base_workspace = request.workspace or "/home/user/workspace"
 
-            # Create project-specific directory within workspace
+            # Check if the provided workspace is already a project directory
+            # to prevent nesting (e.g., /workspace/project_A/project_B)
+            import re
             from datetime import datetime
-            project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            workspace = os.path.join(base_workspace, project_name)
+
+            if re.match(r'.*project_\d{8}_\d{6}$', base_workspace):
+                # Already a project directory, use it directly
+                workspace = base_workspace
+                logger.info(f"Using existing project workspace for session {request.session_id}: {workspace}")
+            else:
+                # Create project-specific directory within base workspace
+                project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                workspace = os.path.join(base_workspace, project_name)
+                logger.info(f"Created new workspace for session {request.session_id}: {workspace}")
 
             # Store workspace for this session
             _session_workspaces[request.session_id] = workspace
-            logger.info(f"Created new workspace for session {request.session_id}: {workspace}")
 
         # Ensure project workspace exists
         if not os.path.exists(workspace):

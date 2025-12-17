@@ -491,6 +491,57 @@ class ApiClient {
     }
   }
 
+  /**
+   * List all projects in base workspace
+   */
+  async listProjects(baseWorkspace: string = '/home/user/workspace'): Promise<{
+    success: boolean;
+    projects?: Array<{
+      name: string;
+      path: string;
+      modified: string;
+      file_count: number;
+    }>;
+    error?: string;
+  }> {
+    try {
+      const response = await this.client.get('/workspace/projects', {
+        params: { base_workspace: baseWorkspace }
+      });
+      return response.data;
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to list projects'
+      };
+    }
+  }
+
+  /**
+   * Get file structure of a workspace
+   */
+  async getWorkspaceFiles(workspacePath: string): Promise<{
+    success: boolean;
+    workspace?: string;
+    has_files?: boolean;
+    file_count?: number;
+    files?: string[];
+    tree?: any;
+    error?: string;
+  }> {
+    try {
+      const response = await this.client.get('/workspace/files', {
+        params: { workspace_path: workspacePath }
+      });
+      return response.data;
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to get workspace files'
+      };
+    }
+  }
+
   // ==================== Shell/Terminal ====================
 
   /**
