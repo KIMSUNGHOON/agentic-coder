@@ -298,6 +298,54 @@ Always prioritize code quality, collaboration, and efficiency."""
             logger.error(f"Failed to create DeepAgent: {e}")
             raise
 
+    async def execute(
+        self,
+        user_request: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Execute the coding workflow (non-streaming).
+
+        Args:
+            user_request: User's coding request
+            context: Optional run context
+
+        Returns:
+            Final result from the workflow
+        """
+        final_result = ""
+        artifacts = []
+
+        try:
+            async for update in self.execute_stream(user_request, context, session_id="default"):
+                # Collect important information
+                if update.get("type") == "artifact":
+                    artifact = update.get("artifact", {})
+                    artifacts.append(f"Created: {artifact.get('filename', 'unknown')}")
+                elif update.get("type") == "response":
+                    final_result = update.get("message", "")
+                elif update.get("type") == "error":
+                    final_result = f"Error: {update.get('message', 'Unknown error')}"
+                    break
+
+            # Build final result
+            if artifacts:
+                result_parts = ["Workflow completed successfully!", ""]
+                result_parts.append("Generated files:")
+                result_parts.extend(f"- {artifact}" for artifact in artifacts)
+                if final_result:
+                    result_parts.append("")
+                    result_parts.append(final_result)
+                return "\n".join(result_parts)
+            elif final_result:
+                return final_result
+            else:
+                return "Workflow completed successfully!"
+
+        except Exception as e:
+            logger.exception(f"Error in execute: {e}")
+            return f"Error: {str(e)}"
+
     async def execute_stream(
         self,
         user_request: str,
