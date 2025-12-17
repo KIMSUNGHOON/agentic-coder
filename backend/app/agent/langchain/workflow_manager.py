@@ -819,7 +819,49 @@ PRIORITY: [high/medium/low for each]
         workflow_id = str(uuid.uuid4())[:8]
         max_iterations = settings.max_review_iterations
 
+        # Extract workspace from context
+        workspace = None
+        if context and isinstance(context, dict):
+            workspace = context.get("workspace")
+
         try:
+            # ========================================
+            # Phase 0: Workspace Exploration (if workspace exists)
+            # ========================================
+            if workspace and os.path.exists(workspace):
+                import glob
+                # Check for existing code files
+                code_patterns = ["*.py", "*.js", "*.ts", "*.tsx", "*.java", "*.cpp", "*.go", "*.rs"]
+                existing_files = []
+                for pattern in code_patterns:
+                    existing_files.extend(glob.glob(os.path.join(workspace, "**", pattern), recursive=True))
+
+                if existing_files:
+                    # Found existing code - notify user
+                    file_list = [os.path.basename(f) for f in existing_files[:10]]  # First 10 files
+                    more_count = len(existing_files) - 10
+
+                    yield {
+                        "agent": "WorkspaceExplorer",
+                        "type": "workspace_info",
+                        "status": "info",
+                        "message": f"📁 Found {len(existing_files)} existing file(s) in workspace",
+                        "workspace": workspace,
+                        "file_count": len(existing_files),
+                        "files": file_list + ([f"... and {more_count} more"] if more_count > 0 else []),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    yield {
+                        "agent": "WorkspaceExplorer",
+                        "type": "workspace_info",
+                        "status": "info",
+                        "message": "📂 Workspace is empty - starting fresh project",
+                        "workspace": workspace,
+                        "file_count": 0,
+                        "timestamp": datetime.now().isoformat()
+                    }
+
             # ========================================
             # Phase 1: Supervisor analyzes the task
             # ========================================

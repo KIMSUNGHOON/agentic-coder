@@ -426,19 +426,23 @@ async def execute_workflow(request: ChatRequest):
         async def generate():
             try:
                 # Use appropriate execution method based on framework
+                # Pass workspace context to both frameworks
+                workflow_context = {
+                    "session_id": request.session_id,
+                    "workspace": workspace
+                }
+
                 if selected_framework == "deepagents":
                     # DeepAgents uses execute_stream with context
                     execution_stream = workflow.execute_stream(
                         user_request=full_request,
-                        context={
-                            "session_id": request.session_id,
-                            "workspace": workspace
-                        }
+                        context=workflow_context
                     )
                 else:
-                    # Standard workflow uses execute_stream method
+                    # Standard workflow also uses context for workspace
                     execution_stream = workflow.execute_stream(
-                        user_request=full_request
+                        user_request=full_request,
+                        context=workflow_context
                     )
 
                 async for update in execution_stream:
@@ -1293,6 +1297,129 @@ async def read_workspace_file(session_id: str = "default", filename: str = ""):
 
     except Exception as e:
         logger.error(f"Error reading file: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/workspace/projects")
+async def list_projects(base_workspace: str = "/home/user/workspace"):
+    """List all project directories in the base workspace.
+
+    Args:
+        base_workspace: Base workspace directory path
+
+    Returns:
+        List of project directories with metadata
+    """
+    import os
+    from datetime import datetime
+
+    try:
+        if not os.path.exists(base_workspace):
+            return {"success": True, "projects": []}
+
+        projects = []
+        for item in os.listdir(base_workspace):
+            item_path = os.path.join(base_workspace, item)
+            if os.path.isdir(item_path) and item.startswith("project_"):
+                try:
+                    # Get directory stats
+                    stats = os.stat(item_path)
+                    modified_time = datetime.fromtimestamp(stats.st_mtime).isoformat()
+
+                    # Count files in project
+                    file_count = sum(len(files) for _, _, files in os.walk(item_path))
+
+                    projects.append({
+                        "name": item,
+                        "path": item_path,
+                        "modified": modified_time,
+                        "file_count": file_count
+                    })
+                except Exception as e:
+                    logger.warning(f"Error reading project {item}: {e}")
+                    continue
+
+        # Sort by modification time (most recent first)
+        projects.sort(key=lambda x: x["modified"], reverse=True)
+
+        return {"success": True, "projects": projects}
+
+    except Exception as e:
+        logger.error(f"Error listing projects: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/workspace/files")
+async def get_workspace_files(workspace_path: str):
+    """Get file structure of a workspace directory.
+
+    Args:
+        workspace_path: Workspace directory path
+
+    Returns:
+        Tree structure of files and directories
+    """
+    import os
+
+    try:
+        if not os.path.exists(workspace_path):
+            return {"success": False, "error": "Workspace does not exist"}
+
+        def build_tree(path, max_depth=3, current_depth=0):
+            """Recursively build directory tree"""
+            if current_depth >= max_depth:
+                return None
+
+            items = []
+            try:
+                for item in os.listdir(path):
+                    # Skip hidden files and common ignore patterns
+                    if item.startswith('.') or item in ['node_modules', '__pycache__', 'venv', '.git']:
+                        continue
+
+                    item_path = os.path.join(path, item)
+                    is_dir = os.path.isdir(item_path)
+
+                    item_info = {
+                        "name": item,
+                        "path": item_path,
+                        "is_directory": is_dir
+                    }
+
+                    if is_dir:
+                        children = build_tree(item_path, max_depth, current_depth + 1)
+                        if children:
+                            item_info["children"] = children
+
+                    items.append(item_info)
+            except PermissionError:
+                pass
+
+            return items
+
+        file_tree = build_tree(workspace_path)
+
+        # Also provide file list summary
+        files = []
+        for root, dirs, filenames in os.walk(workspace_path):
+            # Skip hidden and ignored directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv', '.git']]
+
+            for filename in filenames:
+                if not filename.startswith('.'):
+                    files.append(os.path.join(root, filename).replace(workspace_path + '/', ''))
+
+        return {
+            "success": True,
+            "workspace": workspace_path,
+            "has_files": len(files) > 0,
+            "file_count": len(files),
+            "files": files[:50],  # Limit to first 50 files
+            "tree": file_tree
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting workspace files: {e}")
         return {"success": False, "error": str(e)}
 
 
