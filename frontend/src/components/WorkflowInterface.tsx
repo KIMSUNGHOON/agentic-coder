@@ -44,7 +44,7 @@ interface WorkflowInterfaceProps {
   workspace?: string;
 }
 
-const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInterfaceProps) => {
+const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp }: WorkflowInterfaceProps) => {
   const [input, setInput] = useState('');
   const [updates, setUpdates] = useState<WorkflowUpdate[]>([]);
   const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
@@ -55,6 +55,15 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
   const [executionMode, setExecutionMode] = useState<'sequential' | 'parallel' | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Workspace configuration
+  const [workspace, setWorkspace] = useState<string>(() => {
+    return workspaceProp || localStorage.getItem('workflow_workspace') || '/home/user/workspace';
+  });
+  const [showWorkspaceDialog, setShowWorkspaceDialog] = useState<boolean>(() => {
+    return !localStorage.getItem('workflow_workspace'); // Show on first use
+  });
+  const [workspaceInput, setWorkspaceInput] = useState<string>(workspace);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -300,8 +309,80 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
     }
   };
 
+  // Handle workspace configuration save
+  const handleWorkspaceSave = () => {
+    const trimmedPath = workspaceInput.trim();
+    if (trimmedPath) {
+      setWorkspace(trimmedPath);
+      localStorage.setItem('workflow_workspace', trimmedPath);
+      setShowWorkspaceDialog(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#FAF9F7]">
+      {/* Workspace Configuration Dialog */}
+      {showWorkspaceDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 animate-in fade-in duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#DA7756] to-[#C86A4A] flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-[#1A1A1A]">Configure Workspace</h2>
+                <p className="text-sm text-[#666666]">Set your project directory</p>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-[#666666] mb-2">
+                Workspace Path
+              </label>
+              <input
+                type="text"
+                value={workspaceInput}
+                onChange={(e) => setWorkspaceInput(e.target.value)}
+                placeholder="/home/user/workspace"
+                className="w-full px-4 py-3 bg-[#F5F4F2] text-[#1A1A1A] placeholder-[#999999] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#DA7756] border border-[#E5E5E5]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleWorkspaceSave();
+                  }
+                }}
+              />
+              <p className="mt-2 text-xs text-[#999999]">
+                All generated files will be saved to this directory. You can change this later in settings.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleWorkspaceSave}
+                disabled={!workspaceInput.trim()}
+                className="flex-1 px-4 py-3 rounded-xl bg-[#DA7756] hover:bg-[#C86A4A] disabled:bg-[#E5E5E5] disabled:cursor-not-allowed text-white font-medium transition-colors"
+              >
+                Continue
+              </button>
+              <button
+                onClick={() => {
+                  // Use default if user skips
+                  const defaultPath = '/home/user/workspace';
+                  setWorkspace(defaultPath);
+                  localStorage.setItem('workflow_workspace', defaultPath);
+                  setShowWorkspaceDialog(false);
+                }}
+                className="px-4 py-3 rounded-xl bg-[#F5F4F2] hover:bg-[#E5E5E5] text-[#666666] font-medium transition-colors"
+              >
+                Use Default
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Fixed Workflow Progress Indicator */}
       {isRunning && updates.length > 0 && (
         <div className="sticky top-0 z-10 bg-white border-b border-[#E5E5E5] shadow-sm">
@@ -389,29 +470,43 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-semibold text-[#1A1A1A] mb-3">Multi-Agent Workflow</h2>
+              <h2 className="text-2xl font-semibold text-[#1A1A1A] mb-3">AI Code Assistant</h2>
               <p className="text-[#666666] max-w-md mb-6">
-                Enter a coding task and watch the agents collaborate to plan, code, and review your request.
+                Ask questions or request coding tasks. The system automatically determines whether to use chat mode or multi-agent workflow.
               </p>
-              <div className="flex items-center gap-4 text-sm text-[#999999]">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-[#DA7756]"></div>
-                  <span>Planning</span>
+              <div className="space-y-3 mb-6">
+                <div className="flex items-center gap-4 text-sm text-[#999999]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#DA7756]"></div>
+                    <span>Planning</span>
+                  </div>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#16A34A]"></div>
+                    <span>Coding</span>
+                  </div>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  </svg>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#2563EB]"></div>
+                    <span>Review</span>
+                  </div>
                 </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-[#999999] bg-[#F5F4F2] px-3 py-2 rounded-lg border border-[#E5E5E5]">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
                 </svg>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-[#16A34A]"></div>
-                  <span>Coding</span>
-                </div>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                </svg>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-[#2563EB]"></div>
-                  <span>Review</span>
-                </div>
+                <span>Workspace: <span className="font-mono font-medium text-[#666666]">{workspace}</span></span>
+                <button
+                  onClick={() => setShowWorkspaceDialog(true)}
+                  className="ml-2 text-[#DA7756] hover:text-[#C86A4A] transition-colors"
+                >
+                  Change
+                </button>
               </div>
             </div>
           )}
@@ -835,7 +930,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Describe your coding task..."
+                placeholder="Ask a question or describe a coding task..."
                 disabled={isRunning}
                 className="w-full px-4 py-3 pr-32 bg-[#F5F4F2] text-[#1A1A1A] placeholder-[#999999] rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#DA7756] focus:ring-opacity-50 border border-[#E5E5E5] disabled:opacity-50"
               />
@@ -863,9 +958,21 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
               </button>
             </div>
           </form>
-          <p className="mt-2 text-xs text-[#999999] text-center">
-            The workflow will automatically plan, implement, and review your request
-          </p>
+          <div className="mt-2 flex items-center justify-between text-xs text-[#999999]">
+            <p>
+              Automatically uses chat or workflow mode based on your request
+            </p>
+            <button
+              onClick={() => setShowWorkspaceDialog(true)}
+              className="flex items-center gap-1 text-[#DA7756] hover:text-[#C86A4A] transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Settings
+            </button>
+          </div>
         </div>
       </div>
     </div>
