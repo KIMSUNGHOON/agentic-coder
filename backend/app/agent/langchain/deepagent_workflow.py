@@ -318,7 +318,39 @@ Always prioritize code quality, collaboration, and efficiency."""
         try:
             # Workspace exploration
             if self.workspace and os.path.exists(self.workspace):
-                yield from self._explore_workspace()
+                import glob
+                code_patterns = ["*.py", "*.js", "*.ts", "*.tsx", "*.java", "*.cpp", "*.go", "*.rs"]
+                existing_files = []
+
+                for pattern in code_patterns:
+                    existing_files.extend(
+                        glob.glob(os.path.join(self.workspace, "**", pattern), recursive=True)
+                    )
+
+                if existing_files:
+                    file_list = [os.path.basename(f) for f in existing_files[:10]]
+                    more_count = len(existing_files) - 10
+
+                    yield {
+                        "agent": "WorkspaceExplorer",
+                        "type": "workspace_info",
+                        "status": "info",
+                        "message": f"📁 Found {len(existing_files)} existing file(s)",
+                        "workspace": self.workspace,
+                        "file_count": len(existing_files),
+                        "files": file_list + ([f"... and {more_count} more"] if more_count > 0 else []),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                else:
+                    yield {
+                        "agent": "WorkspaceExplorer",
+                        "type": "workspace_info",
+                        "status": "info",
+                        "message": "📂 Workspace is empty - starting fresh project",
+                        "workspace": self.workspace,
+                        "file_count": 0,
+                        "timestamp": datetime.now().isoformat()
+                    }
 
             # Phase 1: Supervisor Analysis
             yield {
@@ -380,42 +412,6 @@ Always prioritize code quality, collaboration, and efficiency."""
                 "status": "error",
                 "message": f"❌ Error: {str(e)}",
                 "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }
-
-    def _explore_workspace(self) -> AsyncGenerator[Dict[str, Any], None]:
-        """Explore workspace and report existing files."""
-        import glob
-        code_patterns = ["*.py", "*.js", "*.ts", "*.tsx", "*.java", "*.cpp", "*.go", "*.rs"]
-        existing_files = []
-
-        for pattern in code_patterns:
-            existing_files.extend(
-                glob.glob(os.path.join(self.workspace, "**", pattern), recursive=True)
-            )
-
-        if existing_files:
-            file_list = [os.path.basename(f) for f in existing_files[:10]]
-            more_count = len(existing_files) - 10
-
-            yield {
-                "agent": "WorkspaceExplorer",
-                "type": "workspace_info",
-                "status": "info",
-                "message": f"📁 Found {len(existing_files)} existing file(s)",
-                "workspace": self.workspace,
-                "file_count": len(existing_files),
-                "files": file_list + ([f"... and {more_count} more"] if more_count > 0 else []),
-                "timestamp": datetime.now().isoformat()
-            }
-        else:
-            yield {
-                "agent": "WorkspaceExplorer",
-                "type": "workspace_info",
-                "status": "info",
-                "message": "📂 Workspace is empty - starting fresh project",
-                "workspace": self.workspace,
-                "file_count": 0,
                 "timestamp": datetime.now().isoformat()
             }
 
