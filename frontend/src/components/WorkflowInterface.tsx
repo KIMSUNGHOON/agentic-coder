@@ -63,7 +63,11 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [showWorkspaceDialog, setShowWorkspaceDialog] = useState<boolean>(() => {
     return !localStorage.getItem('workflow_workspace'); // Show on first use
   });
-  const [workspaceInput, setWorkspaceInput] = useState<string>(workspace);
+  const [workspaceInput, setWorkspaceInput] = useState<string>(() => {
+    return localStorage.getItem('workflow_workspace') || '/home/user/workspace';
+  });
+  const [projectName, setProjectName] = useState<string>('');
+  const [workspaceStep, setWorkspaceStep] = useState<'project' | 'path'>('project'); // Two-step dialog
 
   // Save conversation confirmation
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -348,11 +352,24 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
 
   // Handle workspace configuration save
   const handleWorkspaceSave = () => {
-    const trimmedPath = workspaceInput.trim();
-    if (trimmedPath) {
-      setWorkspace(trimmedPath);
-      localStorage.setItem('workflow_workspace', trimmedPath);
-      setShowWorkspaceDialog(false);
+    if (workspaceStep === 'project') {
+      // Move to path step
+      if (projectName.trim()) {
+        setWorkspaceStep('path');
+      }
+    } else {
+      // Save workspace with project directory
+      const trimmedPath = workspaceInput.trim();
+      const trimmedProject = projectName.trim();
+      if (trimmedPath && trimmedProject) {
+        // Create full path: workspace/projectName
+        const fullPath = `${trimmedPath}/${trimmedProject}`;
+        setWorkspace(fullPath);
+        localStorage.setItem('workflow_workspace', fullPath);
+        setShowWorkspaceDialog(false);
+        setWorkspaceStep('project'); // Reset for next time
+        setProjectName('');
+      }
     }
   };
 
@@ -369,52 +386,97 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                 </svg>
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-[#1A1A1A]">Configure Workspace</h2>
-                <p className="text-sm text-[#666666]">Set your project directory</p>
+                <h2 className="text-xl font-semibold text-[#1A1A1A]">
+                  {workspaceStep === 'project' ? 'New Project' : 'Workspace Path'}
+                </h2>
+                <p className="text-sm text-[#666666]">
+                  {workspaceStep === 'project' ? 'Step 1 of 2' : 'Step 2 of 2'}
+                </p>
               </div>
             </div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-[#666666] mb-2">
-                Workspace Path
-              </label>
-              <input
-                type="text"
-                value={workspaceInput}
-                onChange={(e) => setWorkspaceInput(e.target.value)}
-                placeholder="/home/user/workspace"
-                className="w-full px-4 py-3 bg-[#F5F4F2] text-[#1A1A1A] placeholder-[#999999] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#DA7756] border border-[#E5E5E5]"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleWorkspaceSave();
-                  }
-                }}
-              />
-              <p className="mt-2 text-xs text-[#999999]">
-                All generated files will be saved to this directory. You can change this later in settings.
-              </p>
-            </div>
+            {workspaceStep === 'project' ? (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-[#666666] mb-2">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  placeholder="my-awesome-project"
+                  className="w-full px-4 py-3 bg-[#F5F4F2] text-[#1A1A1A] placeholder-[#999999] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#DA7756] border border-[#E5E5E5]"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && projectName.trim()) {
+                      handleWorkspaceSave();
+                    }
+                  }}
+                  autoFocus
+                />
+                <p className="mt-2 text-xs text-[#999999]">
+                  A directory will be created with this name in your workspace.
+                </p>
+              </div>
+            ) : (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-[#666666] mb-2">
+                  Base Workspace Path
+                </label>
+                <input
+                  type="text"
+                  value={workspaceInput}
+                  onChange={(e) => setWorkspaceInput(e.target.value)}
+                  placeholder="/home/user/workspace"
+                  className="w-full px-4 py-3 bg-[#F5F4F2] text-[#1A1A1A] placeholder-[#999999] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#DA7756] border border-[#E5E5E5]"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleWorkspaceSave();
+                    }
+                  }}
+                  autoFocus
+                />
+                <div className="mt-3 p-3 bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg">
+                  <p className="text-xs text-[#166534]">
+                    <span className="font-medium">Full path:</span><br />
+                    <code className="font-mono">{workspaceInput}/{projectName}</code>
+                  </p>
+                </div>
+                <p className="mt-2 text-xs text-[#999999]">
+                  All generated files will be saved here. You can change this later in settings.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center gap-3">
+              {workspaceStep === 'path' && (
+                <button
+                  onClick={() => setWorkspaceStep('project')}
+                  className="px-4 py-3 rounded-xl border border-[#E5E5E5] hover:bg-[#F5F4F2] text-[#666666] font-medium transition-colors"
+                >
+                  Back
+                </button>
+              )}
               <button
                 onClick={handleWorkspaceSave}
-                disabled={!workspaceInput.trim()}
+                disabled={workspaceStep === 'project' ? !projectName.trim() : !workspaceInput.trim()}
                 className="flex-1 px-4 py-3 rounded-xl bg-[#DA7756] hover:bg-[#C86A4A] disabled:bg-[#E5E5E5] disabled:cursor-not-allowed text-white font-medium transition-colors"
               >
-                Continue
+                {workspaceStep === 'project' ? 'Next' : 'Continue'}
               </button>
-              <button
-                onClick={() => {
-                  // Use default if user skips
-                  const defaultPath = '/home/user/workspace';
-                  setWorkspace(defaultPath);
-                  localStorage.setItem('workflow_workspace', defaultPath);
-                  setShowWorkspaceDialog(false);
-                }}
-                className="px-4 py-3 rounded-xl bg-[#F5F4F2] hover:bg-[#E5E5E5] text-[#666666] font-medium transition-colors"
-              >
-                Use Default
-              </button>
+              {workspaceStep === 'project' && (
+                <button
+                  onClick={() => {
+                    // Use default if user skips
+                    const defaultPath = '/home/user/workspace/new-project';
+                    setWorkspace(defaultPath);
+                    localStorage.setItem('workflow_workspace', defaultPath);
+                    setShowWorkspaceDialog(false);
+                  }}
+                  className="px-4 py-3 rounded-xl bg-[#F5F4F2] hover:bg-[#E5E5E5] text-[#666666] font-medium transition-colors"
+                >
+                  Skip
+                </button>
+              )}
             </div>
           </div>
         </div>

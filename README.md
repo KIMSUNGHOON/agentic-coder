@@ -67,10 +67,13 @@ A full-stack coding agent powered by **dual agent frameworks** (Microsoft Agent 
 - 🌊 **Streaming Responses**: Real-time token streaming support
 
 ### User Interface
-- 🎨 **Claude.ai Inspired UI**: Modern, clean design with warm color palette
-- 💬 **Chat Mode**: Interactive conversation with the coding agent
-- 🔄 **Workflow Mode**: Multi-agent pipeline (Planning → Coding → Review)
+- 🎨 **Unified AI Assistant**: Single interface with automatic chat/workflow detection
+- 💬 **Intelligent Routing**: Automatically chooses chat or workflow based on request type
+- 🔄 **Multi-Agent Workflow**: Planning → Coding (Parallel) → Review pipeline
 - 📱 **Responsive Design**: Works on desktop and mobile
+- 📝 **Streaming Code Preview**: Real-time code generation with 6-line previews
+- 💾 **Conversation Management**: Auto-save with user preferences, conversation history
+- 📁 **Project Setup**: Guided project name and workspace configuration
 
 ### Infrastructure
 - 🐳 **Docker Support**: Easy deployment with Docker Compose
@@ -332,6 +335,42 @@ curl http://localhost:8002/v1/models
 
 ### Import Errors
 Ensure all dependencies are installed and the virtual environment is activated.
+
+## 🚀 Recent Improvements
+
+### v2.0 - Unified AI Assistant (December 2025)
+
+**Major UX Overhaul:**
+- ✅ **Unified Interface**: Removed separate Chat/Workflow modes - single interface with intelligent routing
+- ✅ **Context-Aware Routing**: Supervisor automatically detects if request needs workflow or simple chat
+- ✅ **Streaming Code Preview**: Real-time code generation with 6-line previews during parallel execution
+- ✅ **Project Setup Wizard**: Two-step guided setup (Project Name → Workspace Path)
+- ✅ **Conversation Management**: User-configurable auto-save with localStorage persistence
+
+**Backend Improvements:**
+- 🔧 **Fixed Task Type Parsing**: Improved regex-based TASK_TYPE extraction from supervisor
+- 🔧 **Default to Code Generation**: Changed fallback from "general" to "code_generation" for better UX
+- 🔧 **Progress Callbacks**: Added streaming progress for code generation tasks
+- 🔧 **Async Queue System**: Real-time code preview delivery via asyncio.Queue
+
+**Frontend Improvements:**
+- 🎨 **Code Preview Component**: New `code_preview` type in WorkflowStep with syntax highlighting
+- 🎨 **Two-Step Project Dialog**: Guided project name and workspace path configuration
+- 🎨 **Save Confirmation Dialog**: Three options (Save Once / Always Save / Don't Save)
+- 🎨 **Auto-Refresh Conversations**: Conversation list refreshes every 5 seconds
+- 🎨 **Improved Type Safety**: Added `CodePreview` interface to TypeScript types
+
+**Context Awareness:**
+```python
+# Supervisor now checks context before routing
+<context_awareness>
+1. Is there EXISTING CODE in the context?
+2. Is the user asking HOW TO USE/RUN existing code?
+3. Is the user asking for EXPLANATIONS/DOCUMENTATION?
+→ Route to chat mode (general)
+→ Route to workflow (code_generation, bug_fix, etc.)
+</context_awareness>
+```
 
 ## 📚 References
 

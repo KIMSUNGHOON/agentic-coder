@@ -179,11 +179,19 @@ export interface SharedContextData {
   access_log: SharedContextAccessLog[];
 }
 
+export interface CodePreview {
+  task_idx: number;
+  agent_id: string;
+  filename: string;
+  preview: string;
+  chars: number;
+}
+
 export interface WorkflowUpdate {
   agent: string;
   agent_label?: string;  // Custom display name for the agent (task-based)
   task_description?: string;  // Description of what this agent is doing
-  type: 'thinking' | 'artifact' | 'task_completed' | 'completed' | 'error' | 'agent_spawn' | 'workflow_created' | 'decision' | 'mode_selection' | 'parallel_start' | 'parallel_batch' | 'parallel_complete' | 'shared_context';
+  type: 'thinking' | 'artifact' | 'task_completed' | 'completed' | 'error' | 'agent_spawn' | 'workflow_created' | 'decision' | 'mode_selection' | 'parallel_start' | 'parallel_batch' | 'parallel_complete' | 'shared_context' | 'code_preview';
   status: 'running' | 'completed' | 'error' | 'finished';
   message?: string;
   content?: string;
@@ -193,6 +201,7 @@ export interface WorkflowUpdate {
   checklist?: ChecklistItem[];
   completed_tasks?: CompletedTask[];
   task_result?: TaskResult;
+  code_preview?: CodePreview;
   // Review fields - can be string[] (old format) or structured (new format)
   analysis?: string;
   issues?: (string | ReviewIssue)[];

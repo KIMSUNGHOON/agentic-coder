@@ -756,6 +756,34 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
         </div>
       );
     }
+
+    if (update.type === 'code_preview' && update.code_preview) {
+      return (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+            <p className="text-[#16A34A] text-sm font-medium">
+              {update.message || 'Generating code...'}
+            </p>
+            <span className="text-xs text-[#999999]">
+              ({update.code_preview.chars} chars)
+            </span>
+          </div>
+          <div className="mt-2 p-3 rounded-lg bg-[#1E1E1E] border border-[#333333]">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-gray-400 font-mono">
+                {update.code_preview.filename}
+              </span>
+            </div>
+            <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">
+              {update.code_preview.preview}
+              <span className="text-gray-500 animate-pulse">▊</span>
+            </pre>
+          </div>
+        </div>
+      );
+    }
+
     if (update.type === 'task_completed') {
       return (
         <div>

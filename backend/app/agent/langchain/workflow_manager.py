@@ -461,23 +461,43 @@ def parse_review(text: str) -> Dict[str, Any]:
 
 
 def parse_task_type(text: str) -> TaskType:
-    """Parse task type from supervisor analysis."""
+    """Parse task type from supervisor analysis.
+
+    First tries to find explicit TASK_TYPE: declaration,
+    then falls back to keyword matching.
+    """
+    import re
+
+    # Try to find explicit TASK_TYPE declaration
+    task_type_match = re.search(r'TASK_TYPE:\s*(\w+)', text, re.IGNORECASE)
+    if task_type_match:
+        task_type_str = task_type_match.group(1).lower()
+        # Validate it's a known type
+        if task_type_str in ["code_generation", "bug_fix", "refactoring", "test_generation", "code_review", "documentation", "general"]:
+            return task_type_str  # type: ignore
+        logger.warning(f"Found TASK_TYPE but unknown value: {task_type_str}, falling back to keyword matching")
+
+    # Fallback to keyword matching
     text_lower = text.lower()
 
-    if any(kw in text_lower for kw in ["code_generation", "create", "implement", "build", "make"]):
+    if any(kw in text_lower for kw in ["code_generation", "create new", "implement new", "build new"]):
         return "code_generation"
-    elif any(kw in text_lower for kw in ["bug_fix", "fix", "debug", "error", "issue"]):
+    elif any(kw in text_lower for kw in ["bug_fix", "fix bug", "fix error", "debug"]):
         return "bug_fix"
-    elif any(kw in text_lower for kw in ["refactor", "improve", "optimize", "clean"]):
+    elif any(kw in text_lower for kw in ["refactor", "improve code", "optimize", "clean up"]):
         return "refactoring"
-    elif any(kw in text_lower for kw in ["test", "unit test", "testing"]):
+    elif any(kw in text_lower for kw in ["test_generation", "unit test", "write tests"]):
         return "test_generation"
-    elif any(kw in text_lower for kw in ["review", "check", "analyze code"]):
+    elif any(kw in text_lower for kw in ["code_review", "review code", "check code"]):
         return "code_review"
-    elif any(kw in text_lower for kw in ["document", "doc", "readme", "comment"]):
+    elif any(kw in text_lower for kw in ["documentation", "write docs", "readme"]):
         return "documentation"
-    else:
+    elif any(kw in text_lower for kw in ["general", "question", "explain", "how to"]):
         return "general"
+    else:
+        # Default to code_generation for unknown patterns (better than general for first request)
+        logger.warning(f"Could not determine task type from text, defaulting to code_generation")
+        return "code_generation"
 
 
 class DynamicLangGraphWorkflow(BaseWorkflow):
@@ -1443,9 +1463,10 @@ PRIORITY: [high/medium/low for each]
         user_request: str,
         plan_text: str,
         coding_prompt: str,
-        agent_id: str
+        agent_id: str,
+        progress_callback: Optional[callable] = None
     ) -> Dict[str, Any]:
-        """Execute a single coding task - used for parallel execution."""
+        """Execute a single coding task - used for parallel execution with streaming preview."""
         task_description = task_item["task"]
 
         context_parts = [f"Original request: {user_request}"]
@@ -1461,9 +1482,38 @@ PRIORITY: [high/medium/low for each]
 
         start_time = time.time()
         task_code = ""
+        chunk_count = 0
+
         async for chunk in self.coding_llm.astream(messages):
             if chunk.content:
                 task_code += chunk.content
+                chunk_count += 1
+
+                # Send streaming preview every 10 chunks (to avoid spam)
+                if progress_callback and chunk_count % 10 == 0:
+                    # Extract last 6 lines for preview
+                    lines = task_code.split('\n')
+                    preview_lines = lines[-6:] if len(lines) >= 6 else lines
+                    preview = '\n'.join(preview_lines)
+
+                    # Try to extract filename from current code
+                    filename = "generating..."
+                    if '```' in task_code:
+                        # Look for filename after ```
+                        for line in lines:
+                            if line.strip().startswith('```') and len(line.strip()) > 3:
+                                parts = line.strip()[3:].split()
+                                filename = parts[0] if parts else "code"
+                                break
+
+                    await progress_callback({
+                        "task_idx": task_idx,
+                        "agent_id": agent_id,
+                        "filename": filename,
+                        "preview": preview,
+                        "total_chars": len(task_code)
+                    })
+
         latency_ms = int((time.time() - start_time) * 1000)
 
         artifacts = parse_code_blocks(task_code)
@@ -1604,8 +1654,14 @@ PRIORITY: [high/medium/low for each]
         for batch_start in range(0, len(grouped_checklist), optimal_parallel):
             batch_end = min(batch_start + optimal_parallel, len(grouped_checklist))
 
-            # Create tasks for this batch
+            # Create tasks for this batch with progress callback
             pending_tasks = {}  # task_object -> (idx, task_item)
+            preview_queue = asyncio.Queue()
+
+            # Progress callback to send streaming previews
+            async def on_progress(preview_data):
+                await preview_queue.put(preview_data)
+
             for idx in range(batch_start, batch_end):
                 agent_id = f"coding-{uuid.uuid4().hex[:6]}"
                 task_item = grouped_checklist[idx]
@@ -1617,7 +1673,8 @@ PRIORITY: [high/medium/low for each]
                     user_request=user_request,
                     plan_text=plan_text,
                     coding_prompt=coding_prompt,
-                    agent_id=agent_id
+                    agent_id=agent_id,
+                    progress_callback=on_progress
                 )
                 task_obj = asyncio.create_task(task_coro)
                 pending_tasks[task_obj] = (idx, task_item, agent_id)
@@ -1655,11 +1712,33 @@ PRIORITY: [high/medium/low for each]
             # Process tasks as they complete (streaming results)
             completed_count = 0
             while pending_tasks:
-                # Wait for any task to complete
+                # Check for streaming previews first
+                while not preview_queue.empty():
+                    preview_data = await preview_queue.get()
+                    yield {
+                        "agent": "CodingAgent",
+                        "agent_label": f"Implementing {len(grouped_checklist)} Tasks",
+                        "type": "code_preview",
+                        "status": "running",
+                        "message": f"📝 Generating {preview_data['filename']}...",
+                        "code_preview": {
+                            "task_idx": preview_data['task_idx'],
+                            "agent_id": preview_data['agent_id'],
+                            "filename": preview_data['filename'],
+                            "preview": preview_data['preview'],
+                            "chars": preview_data['total_chars']
+                        }
+                    }
+
+                # Wait for any task to complete (with timeout to check previews)
                 done, pending = await asyncio.wait(
                     pending_tasks.keys(),
+                    timeout=0.5,  # Check every 0.5s for previews
                     return_when=asyncio.FIRST_COMPLETED
                 )
+
+                if not done:
+                    continue  # No task completed, check previews again
 
                 # Process completed tasks immediately
                 for task_obj in done:
