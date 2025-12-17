@@ -434,7 +434,7 @@ Always prioritize code quality, maintainability, and best practices."""
             async for chunk in self.agent.astream([
                 SystemMessage(content=coding_prompt),
                 HumanMessage(content=f"Implement: {task.get('description')}")
-            ], context_isolation=True):  # SubAgentMiddleware feature
+            ]):  # Context isolation handled by SubAgentMiddleware
                 if chunk.content:
                     code_output += chunk.content
 
