@@ -512,12 +512,128 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
             </div>
           )}
 
-          {/* Current Workflow Updates */}
+          {/* Current Workflow Updates - Unified Message Box */}
           {updates.length > 0 && (
-            <div className="space-y-4">
-              {updates.map((update, index) => (
-                <WorkflowStep key={`${update.agent}-${index}`} update={update} />
-              ))}
+            <div className="bg-white rounded-xl border border-[#E5E5E5] shadow-sm overflow-hidden">
+              {/* Header showing overall progress */}
+              <div className="px-4 py-3 bg-gradient-to-r from-[#DA775610] to-[#16A34A10] border-b border-[#E5E5E5]">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      isRunning
+                        ? 'bg-blue-500 animate-pulse'
+                        : updates.some(u => u.status === 'error')
+                          ? 'bg-red-500'
+                          : 'bg-green-500'
+                    }`}>
+                      {isRunning ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : updates.some(u => u.status === 'error') ? (
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-[#1A1A1A]">
+                        {isRunning ? 'Workflow In Progress' : 'Workflow Completed'}
+                      </h3>
+                      <p className="text-sm text-[#666666]">
+                        {updates.length} agent{updates.length > 1 ? 's' : ''} • {
+                          (() => {
+                            const allArtifacts = updates.flatMap(u => u.artifacts || []);
+                            const uniqueFiles = new Set(allArtifacts.map(a => a.filename));
+                            return uniqueFiles.size;
+                          })()
+                        } file{(() => {
+                          const allArtifacts = updates.flatMap(u => u.artifacts || []);
+                          const uniqueFiles = new Set(allArtifacts.map(a => a.filename));
+                          return uniqueFiles.size;
+                        })() !== 1 ? 's' : ''} generated
+                      </p>
+                    </div>
+                  </div>
+                  {/* Show SharedContext indicator if available */}
+                  {updates.some(u => u.shared_context_refs) && (
+                    <div className="flex items-center gap-2 text-xs text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                      </svg>
+                      Using Shared Context
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Agent Updates as Sections */}
+              <div className="divide-y divide-[#E5E5E5]">
+                {updates.map((update, index) => (
+                  <WorkflowStep key={`${update.agent}-${index}`} update={update} />
+                ))}
+              </div>
+
+              {/* Project Structure Summary (if files generated) */}
+              {(() => {
+                const allArtifacts = updates.flatMap(u => u.artifacts || []);
+                if (allArtifacts.length === 0) return null;
+
+                // Build file tree structure
+                const fileTree: { [key: string]: string[] } = {};
+                allArtifacts.forEach(artifact => {
+                  const parts = artifact.filename.split('/');
+                  if (parts.length > 1) {
+                    const dir = parts.slice(0, -1).join('/');
+                    if (!fileTree[dir]) fileTree[dir] = [];
+                    fileTree[dir].push(parts[parts.length - 1]);
+                  } else {
+                    if (!fileTree['.']) fileTree['.'] = [];
+                    fileTree['.'].push(artifact.filename);
+                  }
+                });
+
+                return (
+                  <div className="px-4 py-3 bg-[#F5F4F2]">
+                    <button
+                      onClick={() => {
+                        const treeSection = document.getElementById('project-tree-section');
+                        if (treeSection) {
+                          treeSection.classList.toggle('hidden');
+                        }
+                      }}
+                      className="flex items-center gap-2 text-sm font-medium text-[#666666] hover:text-[#1A1A1A] w-full"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
+                      </svg>
+                      Project Structure
+                      <svg className="w-4 h-4 ml-auto" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+                    <div id="project-tree-section" className="mt-3 hidden">
+                      <div className="bg-white rounded-lg p-3 border border-[#E5E5E5] font-mono text-xs">
+                        {Object.entries(fileTree).map(([dir, files]) => (
+                          <div key={dir} className="mb-2">
+                            <div className="text-[#DA7756] font-semibold mb-1">
+                              {dir === '.' ? '📁 Root' : `📁 ${dir}`}
+                            </div>
+                            {files.map((file, i) => (
+                              <div key={i} className="ml-4 text-[#666666] flex items-center gap-2">
+                                <span className="text-[#999999]">├─</span>
+                                <span>{file}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

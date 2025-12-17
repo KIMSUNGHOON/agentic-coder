@@ -1,7 +1,7 @@
 /**
  * WorkflowStep component - Claude.ai inspired workflow step display
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { WorkflowUpdate, Artifact, ChecklistItem, CompletedTask } from '../types/api';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -84,76 +84,85 @@ const ArtifactDisplay = ({ artifact, defaultExpanded }: ArtifactDisplayProps) =>
   return (
     <div className="mt-3 rounded-xl overflow-hidden border border-[#E5E5E5] bg-white">
       <div
-        className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-[#F5F4F2] transition-colors"
+        className="px-4 py-3 cursor-pointer hover:bg-[#F5F4F2] transition-colors"
         onClick={() => setArtifactExpanded(!artifactExpanded)}
       >
-        <div className="flex items-center gap-3">
-          <svg className={`w-4 h-4 text-[#666666] transition-transform ${artifactExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-          </svg>
-          <span className="text-sm font-medium text-[#1A1A1A] font-mono">{artifact.filename}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-[#999999] uppercase bg-[#F5F4F2] px-2 py-0.5 rounded">{artifact.language}</span>
-
-          {/* Copy Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigator.clipboard.writeText(artifact.content);
-            }}
-            className="text-xs text-[#666666] hover:text-[#1A1A1A] px-2 py-0.5 rounded hover:bg-[#F5F4F2]"
-          >
-            Copy
-          </button>
-
-          {/* Save Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowSaveDialog(true);
-            }}
-            disabled={saveStatus === 'saving'}
-            className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${
-              saveStatus === 'saved' ? 'text-green-600 bg-green-50' :
-              saveStatus === 'saving' ? 'text-blue-600 bg-blue-50' :
-              saveStatus === 'error' ? 'text-red-600 bg-red-50' :
-              'text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F5F4F2]'
-            }`}
-          >
-            {saveStatus === 'saving' && (
-              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            )}
-            {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving...' : 'Save'}
-          </button>
-
-          {/* Execute Button (Python only) */}
-          {isPython && (
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3 flex-1">
+            <svg className={`w-4 h-4 text-[#666666] transition-transform ${artifactExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-[#1A1A1A] font-mono">{artifact.filename}</span>
+                <span className="text-xs text-[#999999] uppercase bg-[#F5F4F2] px-2 py-0.5 rounded">{artifact.language}</span>
+              </div>
+              {/* File description if available */}
+              {artifact.description && (
+                <p className="text-xs text-[#666666] mt-1 italic">{artifact.description}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+            {/* Copy Button */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleExecute();
+                navigator.clipboard.writeText(artifact.content);
               }}
-              disabled={executeStatus === 'running'}
+              className="text-xs text-[#666666] hover:text-[#1A1A1A] px-2 py-0.5 rounded hover:bg-[#F5F4F2]"
+            >
+              Copy
+            </button>
+
+            {/* Save Button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSaveDialog(true);
+              }}
+              disabled={saveStatus === 'saving'}
               className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${
-                executeStatus === 'done' ? 'text-green-600 bg-green-50' :
-                executeStatus === 'running' ? 'text-blue-600 bg-blue-50' :
-                executeStatus === 'error' ? 'text-red-600 bg-red-50' :
-                'text-[#16A34A] hover:text-[#15803D] hover:bg-green-50'
+                saveStatus === 'saved' ? 'text-green-600 bg-green-50' :
+                saveStatus === 'saving' ? 'text-blue-600 bg-blue-50' :
+                saveStatus === 'error' ? 'text-red-600 bg-red-50' :
+                'text-[#666666] hover:text-[#1A1A1A] hover:bg-[#F5F4F2]'
               }`}
             >
-              {executeStatus === 'running' && (
+              {saveStatus === 'saving' && (
                 <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               )}
-              {executeStatus === 'running' ? 'Running...' : '▶ Run'}
+              {saveStatus === 'saved' ? '✓ Saved' : saveStatus === 'saving' ? 'Saving...' : 'Save'}
             </button>
-          )}
+
+            {/* Execute Button (Python only) */}
+            {isPython && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExecute();
+                }}
+                disabled={executeStatus === 'running'}
+                className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${
+                  executeStatus === 'done' ? 'text-green-600 bg-green-50' :
+                  executeStatus === 'running' ? 'text-blue-600 bg-blue-50' :
+                  executeStatus === 'error' ? 'text-red-600 bg-red-50' :
+                  'text-[#16A34A] hover:text-[#15803D] hover:bg-green-50'
+                }`}
+              >
+                {executeStatus === 'running' && (
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+                {executeStatus === 'running' ? 'Running...' : '▶ Run'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -239,6 +248,23 @@ const ArtifactDisplay = ({ artifact, defaultExpanded }: ArtifactDisplayProps) =>
 
 const WorkflowStep = ({ update }: WorkflowStepProps) => {
   const [isExpanded, setIsExpanded] = useState(update.status === 'running');
+
+  // Auto-collapse when status changes from running to completed/error
+  useEffect(() => {
+    if (update.status !== 'running' && isExpanded) {
+      // Keep expanded if there's important content to show
+      const hasImportantContent =
+        update.artifacts?.length ||
+        update.issues?.length ||
+        update.suggestions?.length ||
+        update.items?.length ||
+        update.content;
+
+      if (!hasImportantContent) {
+        setIsExpanded(false);
+      }
+    }
+  }, [update.status, update.artifacts, update.issues, update.suggestions, update.items, update.content, isExpanded]);
 
   const getAgentConfig = () => {
     switch (update.agent) {
@@ -907,35 +933,46 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
   const canExpand = hasExpandableContent();
 
   return (
-    <div className="bg-white rounded-xl border border-[#E5E5E5] overflow-hidden shadow-sm">
-      {/* Header */}
+    <div className="overflow-hidden">
+      {/* Header - Section style instead of card */}
       <div
-        className={`flex items-center justify-between p-4 ${canExpand ? 'cursor-pointer hover:bg-[#FAFAFA]' : ''}`}
+        className={`flex items-center justify-between p-4 ${canExpand ? 'cursor-pointer hover:bg-[#FAFAFA]' : ''} transition-colors`}
         style={{ backgroundColor: config.bgColor }}
         onClick={() => canExpand && setIsExpanded(!isExpanded)}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1">
           {/* Step indicator */}
           {config.icon && (
             <div
-              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+              className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
               style={{ backgroundColor: config.color }}
             >
               {config.icon}
             </div>
           )}
-          {getStatusIcon()}
-          <div>
-            <h3 className="font-semibold text-[#1A1A1A]">{config.label}</h3>
+          <div className="flex-shrink-0">{getStatusIcon()}</div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold text-[#1A1A1A]">{config.label}</h3>
+              {/* Show SharedContext indicator if this agent used shared context */}
+              {update.shared_context_refs && update.shared_context_refs.length > 0 && (
+                <div className="flex items-center gap-1 text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                  </svg>
+                  {update.shared_context_refs.length} ref{update.shared_context_refs.length > 1 ? 's' : ''}
+                </div>
+              )}
+            </div>
             {!isExpanded && (
-              <p className="text-sm text-[#666666]">{getSummaryInfo()}</p>
+              <p className="text-sm text-[#666666] truncate">{getSummaryInfo()}</p>
             )}
           </div>
         </div>
 
         {canExpand && (
           <svg
-            className={`w-5 h-5 text-[#666666] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-[#666666] transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2}
@@ -948,7 +985,29 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="p-4 border-t border-[#E5E5E5]">
+        <div className="px-4 pb-4">
+          {/* Show SharedContext references if available */}
+          {update.shared_context_refs && update.shared_context_refs.length > 0 && (
+            <div className="mb-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <svg className="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                </svg>
+                <span className="text-sm font-medium text-indigo-700">Shared Context References:</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {update.shared_context_refs.map((ref: any, i: number) => (
+                  <div key={i} className="text-xs bg-white border border-indigo-200 rounded px-2 py-1">
+                    <span className="font-mono text-indigo-600">{ref.key || ref}</span>
+                    {ref.from_agent && (
+                      <span className="text-gray-500 ml-1">from {ref.from_agent}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {renderExpandedContent()}
         </div>
       )}

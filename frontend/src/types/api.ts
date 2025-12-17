@@ -54,6 +54,7 @@ export interface Artifact {
   language: string;
   filename: string;
   content: string;
+  description?: string;  // Optional description of the file's purpose
 }
 
 export interface CompletedTask {
@@ -234,6 +235,7 @@ export interface WorkflowUpdate {
   code_text?: string;
   // Shared context
   shared_context?: SharedContextData;
+  shared_context_refs?: Array<{ key: string; from_agent?: string } | string>;
 }
 
 export interface WorkflowRequest {
