@@ -1515,74 +1515,115 @@ PRIORITY: [high/medium/low for each]
         batch_count = (len(grouped_checklist) + optimal_parallel - 1) // optimal_parallel
         for batch_start in range(0, len(grouped_checklist), optimal_parallel):
             batch_end = min(batch_start + optimal_parallel, len(grouped_checklist))
-            batch_tasks = []
 
-            # Create tasks for this batch (without spawning separate agents in UI)
+            # Create tasks for this batch
+            pending_tasks = {}  # task_object -> (idx, task_item)
             for idx in range(batch_start, batch_end):
                 agent_id = f"coding-{uuid.uuid4().hex[:6]}"
+                task_item = grouped_checklist[idx]
 
-                batch_tasks.append(
-                    self._execute_single_coding_task(
-                        task_idx=idx,
-                        task_item=grouped_checklist[idx],
-                        user_request=user_request,
-                        plan_text=plan_text,
-                        coding_prompt=coding_prompt,
-                        agent_id=agent_id
-                    )
+                # Start task and immediately notify user
+                task_coro = self._execute_single_coding_task(
+                    task_idx=idx,
+                    task_item=task_item,
+                    user_request=user_request,
+                    plan_text=plan_text,
+                    coding_prompt=coding_prompt,
+                    agent_id=agent_id
                 )
+                task_obj = asyncio.create_task(task_coro)
+                pending_tasks[task_obj] = (idx, task_item, agent_id)
 
-            # Execute batch in parallel (update unified CodingAgent with progress)
+                # Immediately show what task is starting
+                yield {
+                    "agent": "CodingAgent",
+                    "agent_label": f"Implementing {len(grouped_checklist)} Tasks",
+                    "type": "thinking",
+                    "status": "running",
+                    "message": f"🔄 Starting: {task_item['task'][:80]}...",
+                    "task_info": {
+                        "task_num": idx + 1,
+                        "total_tasks": len(grouped_checklist),
+                        "description": task_item['task']
+                    }
+                }
+
+            # Execute batch with real-time streaming (process as tasks complete)
             current_batch = batch_start // optimal_parallel + 1
             yield {
                 "agent": "CodingAgent",
                 "agent_label": f"Implementing {len(grouped_checklist)} Tasks",
                 "type": "thinking",
                 "status": "running",
-                "message": f"Batch {current_batch}/{batch_count}: Processing {len(batch_tasks)} tasks in parallel ({batch_start + 1}-{batch_end} of {len(grouped_checklist)})",
+                "message": f"Batch {current_batch}/{batch_count}: Processing {len(pending_tasks)} tasks in parallel ({batch_start + 1}-{batch_end} of {len(grouped_checklist)})",
                 "batch_info": {
                     "batch_num": current_batch,
                     "total_batches": batch_count,
                     "tasks": list(range(batch_start + 1, batch_end + 1)),
-                    "parallel_count": len(batch_tasks)
+                    "parallel_count": len(pending_tasks)
                 }
             }
 
-            # Run tasks in parallel with asyncio.gather
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            # Process tasks as they complete (streaming results)
+            completed_count = 0
+            while pending_tasks:
+                # Wait for any task to complete
+                done, pending = await asyncio.wait(
+                    pending_tasks.keys(),
+                    return_when=asyncio.FIRST_COMPLETED
+                )
 
-            # Process results
-            for result in batch_results:
-                if isinstance(result, Exception):
-                    logger.error(f"Parallel task failed: {result}")
-                    yield {
-                        "agent": "CodingAgent",
-                        "agent_label": f"Implementing {len(checklist)} Tasks",
-                        "type": "error",
-                        "status": "error",
-                        "message": f"Task failed: {str(result)}"
-                    }
-                    continue
+                # Process completed tasks immediately
+                for task_obj in done:
+                    idx, task_item, agent_id = pending_tasks.pop(task_obj)
+                    completed_count += 1
 
-                task_idx = result["task_idx"]
-                all_results.append(result)
+                    try:
+                        result = await task_obj
+                        task_idx = result["task_idx"]
+                        all_results.append(result)
 
-                # Emit artifacts under unified CodingAgent
-                for artifact in result["artifacts"]:
-                    all_artifacts.append(artifact)
-                    yield {
-                        "agent": "CodingAgent",
-                        "agent_label": f"Implementing {len(checklist)} Tasks",
-                        "type": "artifact",
-                        "status": "running",
-                        "message": f"Created {artifact['filename']}",
-                        "artifact": artifact,
-                        "parallel_agent_id": result["agent_id"]
-                    }
+                        # Show completion status
+                        artifact_names = [a['filename'] for a in result["artifacts"]]
+                        yield {
+                            "agent": "CodingAgent",
+                            "agent_label": f"Implementing {len(grouped_checklist)} Tasks",
+                            "type": "thinking",
+                            "status": "running",
+                            "message": f"✓ Completed ({completed_count}/{len(pending_tasks) + completed_count}): {', '.join(artifact_names)}",
+                            "task_info": {
+                                "task_num": idx + 1,
+                                "completed": True,
+                                "artifacts": artifact_names
+                            }
+                        }
 
-                # Mark task completed
-                checklist[task_idx]["completed"] = True
-                checklist[task_idx]["artifacts"] = [a["filename"] for a in result["artifacts"]]
+                        # Emit artifacts immediately
+                        for artifact in result["artifacts"]:
+                            all_artifacts.append(artifact)
+                            yield {
+                                "agent": "CodingAgent",
+                                "agent_label": f"Implementing {len(grouped_checklist)} Tasks",
+                                "type": "artifact",
+                                "status": "running",
+                                "message": f"Created {artifact['filename']}",
+                                "artifact": artifact,
+                                "parallel_agent_id": agent_id
+                            }
+
+                        # Mark task completed
+                        grouped_checklist[task_idx]["completed"] = True
+                        grouped_checklist[task_idx]["artifacts"] = artifact_names
+
+                    except Exception as e:
+                        logger.error(f"Parallel task failed: {e}")
+                        yield {
+                            "agent": "CodingAgent",
+                            "agent_label": f"Implementing {len(grouped_checklist)} Tasks",
+                            "type": "error",
+                            "status": "error",
+                            "message": f"❌ Failed ({completed_count}/{len(pending_tasks) + completed_count}): {task_item['task'][:50]}... - {str(e)}"
+                        }
 
         # Emit shared context summary
         yield {
