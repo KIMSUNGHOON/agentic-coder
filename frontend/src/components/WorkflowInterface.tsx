@@ -301,6 +301,82 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace }: WorkflowInt
 
   return (
     <div className="flex flex-col h-full bg-[#FAF9F7]">
+      {/* Fixed Workflow Progress Indicator */}
+      {isRunning && updates.length > 0 && (
+        <div className="sticky top-0 z-10 bg-white border-b border-[#E5E5E5] shadow-sm">
+          <div className="max-w-4xl mx-auto px-4 py-3">
+            <div className="flex items-center gap-3">
+              {/* Animated spinner */}
+              <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center animate-pulse flex-shrink-0">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              </div>
+
+              {/* Current status */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="text-sm font-semibold text-[#1A1A1A]">
+                    Workflow In Progress
+                  </h4>
+                  {(() => {
+                    const runningAgent = updates.slice().reverse().find(u => u.status === 'running');
+                    if (runningAgent) {
+                      const agentLabel = runningAgent.agent_label || runningAgent.agent;
+                      return (
+                        <span className="text-xs text-[#666666] bg-[#F5F4F2] px-2 py-0.5 rounded truncate">
+                          {agentLabel}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-[#E5E5E5] rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-blue-500 h-full transition-all duration-300 ease-out"
+                      style={{
+                        width: `${Math.max(10, (updates.filter(u => u.status === 'completed' || u.status === 'finished').length / Math.max(updates.length, 1)) * 100)}%`
+                      }}
+                    />
+                  </div>
+                  <span className="text-xs text-[#666666] font-mono whitespace-nowrap">
+                    {updates.filter(u => u.status === 'completed' || u.status === 'finished').length}/{updates.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Files count */}
+              {(() => {
+                const allArtifacts = updates.flatMap(u => u.artifacts || []);
+                const uniqueFiles = new Set(allArtifacts.map(a => a.filename));
+                if (uniqueFiles.size > 0) {
+                  return (
+                    <div className="flex items-center gap-1.5 text-xs text-[#16A34A] bg-[#F0FDF4] px-2.5 py-1.5 rounded-lg border border-[#BBF7D0] flex-shrink-0">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                      <span className="font-semibold">{uniqueFiles.size}</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Scroll to bottom button */}
+              <button
+                onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                className="p-1.5 rounded-lg bg-[#F5F4F2] hover:bg-[#E5E5E5] transition-colors flex-shrink-0"
+                title="Scroll to current step"
+              >
+                <svg className="w-4 h-4 text-[#666666]" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Workflow Steps Area */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-4 py-6">
