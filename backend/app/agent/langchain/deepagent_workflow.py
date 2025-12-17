@@ -13,11 +13,15 @@ Supports the same interface as the standard LangChain workflow manager.
 import asyncio
 import json
 import os
+import logging
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from datetime import datetime
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 try:
     from deepagents import create_deep_agent, SubAgentMiddleware, FilesystemMiddleware
@@ -91,15 +95,25 @@ class DeepAgentWorkflowManager(BaseWorkflow):
         )
 
         # Build middleware stack (only using available middleware)
+        # Note: FilesystemMiddleware will be initialized lazily in execute_stream
+        # when the actual workspace path is provided via context
         self.middleware_stack = []
+        self.enable_filesystem = enable_filesystem
+        self.enable_subagents = enable_subagents
 
+        # Try to initialize FilesystemMiddleware with default workspace
+        # If this fails (e.g., permission denied), it will be re-initialized in execute_stream
         if enable_filesystem:
-            # Persistent conversation backend
-            fs_path = os.path.join(workspace, '.deepagents', agent_id)
-            os.makedirs(fs_path, exist_ok=True)
-            self.middleware_stack.append(
-                FilesystemMiddleware(base_path=fs_path)
-            )
+            try:
+                fs_path = os.path.join(workspace, '.deepagents', agent_id)
+                os.makedirs(fs_path, exist_ok=True)
+                self.middleware_stack.append(
+                    FilesystemMiddleware(base_path=fs_path)
+                )
+                logger.info(f"Initialized FilesystemMiddleware with path: {fs_path}")
+            except Exception as e:
+                logger.warning(f"Could not initialize FilesystemMiddleware in __init__: {e}")
+                logger.info("FilesystemMiddleware will be initialized in execute_stream")
 
         if enable_subagents:
             # Isolated sub-agent execution
@@ -107,6 +121,7 @@ class DeepAgentWorkflowManager(BaseWorkflow):
             self.middleware_stack.append(
                 SubAgentMiddleware()
             )
+            logger.info("Initialized SubAgentMiddleware")
 
         # Create DeepAgent - Note: This may not work as expected
         # DeepAgents framework may have different API than documented
@@ -170,8 +185,38 @@ class DeepAgentWorkflowManager(BaseWorkflow):
             session_id = context.get("session_id", self.agent_id)
             workspace = context.get("workspace", self.workspace)
 
+        # Update workspace and ensure it exists
         if workspace:
             self.workspace = workspace
+            # Create workspace directory if it doesn't exist
+            if not os.path.exists(workspace):
+                try:
+                    os.makedirs(workspace, exist_ok=True)
+                    logger.info(f"Created workspace directory: {workspace}")
+                except Exception as e:
+                    logger.error(f"Failed to create workspace {workspace}: {e}")
+                    # Fallback to a safe default
+                    self.workspace = "/tmp/deepagent_workspace"
+                    os.makedirs(self.workspace, exist_ok=True)
+                    logger.warning(f"Using fallback workspace: {self.workspace}")
+
+            # Re-initialize FilesystemMiddleware with updated workspace
+            # This ensures file operations use the correct workspace
+            if self.enable_filesystem:
+                fs_path = os.path.join(self.workspace, '.deepagents', session_id)
+                try:
+                    os.makedirs(fs_path, exist_ok=True)
+                    # Remove old FilesystemMiddleware if exists
+                    self.middleware_stack = [
+                        m for m in self.middleware_stack
+                        if not isinstance(m, FilesystemMiddleware)
+                    ]
+                    # Add new FilesystemMiddleware at the beginning
+                    self.middleware_stack.insert(0, FilesystemMiddleware(base_path=fs_path))
+                    logger.info(f"Updated FilesystemMiddleware with path: {fs_path}")
+                except Exception as e:
+                    logger.error(f"Failed to initialize FilesystemMiddleware: {e}")
+                    raise RuntimeError(f"Cannot create workspace directory: {fs_path}") from e
 
         try:
             # Phase 1: Supervisor Analysis
