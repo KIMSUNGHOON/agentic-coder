@@ -1435,30 +1435,32 @@ PRIORITY: [high/medium/low for each]
         all_artifacts = []
         all_results = []
 
+        # Spawn single unified CodingAgent for all tasks (shown once in UI)
+        yield {
+            "agent": "CodingAgent",
+            "agent_label": f"Implementing {len(checklist)} Tasks",
+            "task_description": f"Creating {len(checklist)} files in parallel",
+            "type": "agent_spawn",
+            "status": "running",
+            "message": f"Starting implementation of {len(checklist)} tasks",
+            "workflow_info": build_workflow_info("CodingAgent"),
+            "agent_spawn": {
+                "agent_id": f"coding-unified-{uuid.uuid4().hex[:6]}",
+                "agent_type": "CodingAgent",
+                "parent_agent": "Orchestrator",
+                "spawn_reason": f"Implement {len(checklist)} tasks in parallel",
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+
         # Process tasks in batches
         for batch_start in range(0, len(checklist), self.max_parallel_agents):
             batch_end = min(batch_start + self.max_parallel_agents, len(checklist))
             batch_tasks = []
 
-            # Spawn agents for this batch
+            # Create tasks for this batch (without spawning separate agents in UI)
             for idx in range(batch_start, batch_end):
                 agent_id = f"coding-{uuid.uuid4().hex[:6]}"
-
-                yield {
-                    "agent": f"CodingAgent-{idx + 1}",
-                    "type": "agent_spawn",
-                    "status": "running",
-                    "message": f"Spawning parallel agent for task {idx + 1}",
-                    "workflow_info": build_workflow_info(f"CodingAgent-{idx + 1}"),
-                    "agent_spawn": {
-                        "agent_id": agent_id,
-                        "agent_type": "CodingAgent",
-                        "parent_agent": "Orchestrator",
-                        "spawn_reason": f"Parallel task: {checklist[idx]['task'][:50]}...",
-                        "timestamp": datetime.now().isoformat(),
-                        "parallel_batch": batch_start // self.max_parallel_agents + 1
-                    }
-                }
 
                 batch_tasks.append(
                     self._execute_single_coding_task(
@@ -1471,12 +1473,13 @@ PRIORITY: [high/medium/low for each]
                     )
                 )
 
-            # Execute batch in parallel
+            # Execute batch in parallel (update unified CodingAgent with progress)
             yield {
-                "agent": "Orchestrator",
-                "type": "parallel_batch",
+                "agent": "CodingAgent",
+                "agent_label": f"Implementing {len(checklist)} Tasks",
+                "type": "thinking",
                 "status": "running",
-                "message": f"Executing batch {batch_start // self.max_parallel_agents + 1}: tasks {batch_start + 1}-{batch_end}",
+                "message": f"Processing tasks {batch_start + 1}-{batch_end} of {len(checklist)}",
                 "batch_info": {
                     "batch_num": batch_start // self.max_parallel_agents + 1,
                     "tasks": list(range(batch_start + 1, batch_end + 1))
@@ -1492,6 +1495,7 @@ PRIORITY: [high/medium/low for each]
                     logger.error(f"Parallel task failed: {result}")
                     yield {
                         "agent": "CodingAgent",
+                        "agent_label": f"Implementing {len(checklist)} Tasks",
                         "type": "error",
                         "status": "error",
                         "message": f"Task failed: {str(result)}"
@@ -1501,11 +1505,12 @@ PRIORITY: [high/medium/low for each]
                 task_idx = result["task_idx"]
                 all_results.append(result)
 
-                # Emit artifacts
+                # Emit artifacts under unified CodingAgent
                 for artifact in result["artifacts"]:
                     all_artifacts.append(artifact)
                     yield {
-                        "agent": f"CodingAgent-{task_idx + 1}",
+                        "agent": "CodingAgent",
+                        "agent_label": f"Implementing {len(checklist)} Tasks",
                         "type": "artifact",
                         "status": "running",
                         "message": f"Created {artifact['filename']}",
@@ -1516,21 +1521,6 @@ PRIORITY: [high/medium/low for each]
                 # Mark task completed
                 checklist[task_idx]["completed"] = True
                 checklist[task_idx]["artifacts"] = [a["filename"] for a in result["artifacts"]]
-
-                yield {
-                    "agent": f"CodingAgent-{task_idx + 1}",
-                    "type": "task_completed",
-                    "status": "running",
-                    "message": f"Task {task_idx + 1}/{len(checklist)} completed (parallel)",
-                    "task_result": {
-                        "task_num": task_idx + 1,
-                        "task": result["task_description"],
-                        "artifacts": result["artifacts"]
-                    },
-                    "checklist": checklist,
-                    "prompt_info": result["prompt_info"],
-                    "parallel_agent_id": result["agent_id"]
-                }
 
         # Emit shared context summary
         yield {
@@ -1549,6 +1539,17 @@ PRIORITY: [high/medium/low for each]
         for result in sorted(all_results, key=lambda x: x["task_idx"]):
             code_text += result["code"] + "\n"
 
+        # Mark CodingAgent as completed
+        yield {
+            "agent": "CodingAgent",
+            "agent_label": f"Implementing {len(checklist)} Tasks",
+            "type": "completed",
+            "status": "completed",
+            "message": f"Successfully created {len(all_artifacts)} files",
+            "artifacts": all_artifacts,
+            "checklist": checklist
+        }
+
         yield {
             "agent": "Orchestrator",
             "type": "parallel_complete",
@@ -1558,7 +1559,7 @@ PRIORITY: [high/medium/low for each]
                 "total_tasks": len(checklist),
                 "completed_tasks": len(all_results),
                 "total_artifacts": len(all_artifacts),
-                "agents_used": len(all_results)
+                "agents_used": 1  # Now using unified agent
             },
             "artifacts": all_artifacts,
             "checklist": checklist,

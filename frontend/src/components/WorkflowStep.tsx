@@ -267,46 +267,80 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
   }, [update.status, update.artifacts, update.issues, update.suggestions, update.items, update.content, isExpanded]);
 
   const getAgentConfig = () => {
-    switch (update.agent) {
+    // Use custom label if provided in update
+    const customLabel = update.agent_label || update.task_description;
+
+    // Determine agent type from name or fall back to analyzing content
+    const agentType = update.agent;
+
+    // If custom label is provided, use task-based naming
+    if (customLabel) {
+      // Determine color based on task type keywords
+      if (customLabel.toLowerCase().includes('plan') || customLabel.toLowerCase().includes('analyz')) {
+        return { color: '#DA7756', bgColor: '#DA775610', icon: '📋', label: customLabel };
+      } else if (customLabel.toLowerCase().includes('code') || customLabel.toLowerCase().includes('implement') || customLabel.toLowerCase().includes('creat')) {
+        return { color: '#16A34A', bgColor: '#16A34A10', icon: '💻', label: customLabel };
+      } else if (customLabel.toLowerCase().includes('review') || customLabel.toLowerCase().includes('check')) {
+        return { color: '#2563EB', bgColor: '#2563EB10', icon: '🔍', label: customLabel };
+      } else if (customLabel.toLowerCase().includes('fix') || customLabel.toLowerCase().includes('debug')) {
+        return { color: '#F59E0B', bgColor: '#F59E0B10', icon: '🔧', label: customLabel };
+      } else if (customLabel.toLowerCase().includes('test')) {
+        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '🧪', label: customLabel };
+      } else if (customLabel.toLowerCase().includes('doc')) {
+        return { color: '#6366F1', bgColor: '#6366F110', icon: '📝', label: customLabel };
+      }
+      // Default for custom labels
+      return { color: '#666666', bgColor: '#66666610', icon: '⚙️', label: customLabel };
+    }
+
+    // Fall back to agent type-based naming
+    switch (agentType) {
       // Orchestration agents
       case 'SupervisorAgent':
-        return { color: '#9333EA', bgColor: '#9333EA10', icon: '🎯', label: 'Supervisor' };
+        return { color: '#9333EA', bgColor: '#9333EA10', icon: '🎯', label: 'Task Analysis' };
       case 'Orchestrator':
-        return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '', label: 'Orchestrator' };
+        return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '🎼', label: 'Orchestrator' };
       // Planning/Analysis agents
       case 'PlanningAgent':
-        return { color: '#DA7756', bgColor: '#DA775610', icon: '1', label: 'Planning' };
+        return { color: '#DA7756', bgColor: '#DA775610', icon: '📋', label: 'Planning Tasks' };
       case 'AnalysisAgent':
-        return { color: '#EC4899', bgColor: '#EC489910', icon: '🔍', label: 'Analysis' };
-      // Coding agents
+        return { color: '#EC4899', bgColor: '#EC489910', icon: '🔍', label: 'Code Analysis' };
+      // Coding agents - use generic task-based names
       case 'CodingAgent':
-        return { color: '#16A34A', bgColor: '#16A34A10', icon: '2', label: 'Coding' };
+        // Try to get more specific name from content
+        const taskCount = update.items?.length || update.artifacts?.length || 0;
+        if (taskCount > 1) {
+          return { color: '#16A34A', bgColor: '#16A34A10', icon: '💻', label: `Implementing ${taskCount} Tasks` };
+        }
+        return { color: '#16A34A', bgColor: '#16A34A10', icon: '💻', label: 'Code Implementation' };
       case 'RefactorAgent':
-        return { color: '#14B8A6', bgColor: '#14B8A610', icon: '♻', label: 'Refactor' };
+        return { color: '#14B8A6', bgColor: '#14B8A610', icon: '♻️', label: 'Code Refactoring' };
       case 'DebugAgent':
-        return { color: '#EF4444', bgColor: '#EF444410', icon: '🐛', label: 'Debug' };
+        return { color: '#EF4444', bgColor: '#EF444410', icon: '🐛', label: 'Debugging' };
       // Review/Fix agents
       case 'ReviewAgent':
-        return { color: '#2563EB', bgColor: '#2563EB10', icon: '3', label: 'Review' };
+        return { color: '#2563EB', bgColor: '#2563EB10', icon: '🔍', label: 'Code Review' };
       case 'FixCodeAgent':
-        return { color: '#F59E0B', bgColor: '#F59E0B10', icon: '⟳', label: 'Fix Code' };
+        return { color: '#F59E0B', bgColor: '#F59E0B10', icon: '🔧', label: 'Applying Fixes' };
       // Test/Validation agents
       case 'TestGenAgent':
-        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '🧪', label: 'Test Gen' };
+        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '🧪', label: 'Generating Tests' };
       case 'TestAgent':
-        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '✓', label: 'Test' };
+        return { color: '#06B6D4', bgColor: '#06B6D410', icon: '✅', label: 'Running Tests' };
       case 'ValidationAgent':
         return { color: '#8B5CF6', bgColor: '#8B5CF610', icon: '✅', label: 'Validation' };
       // Documentation agents
       case 'DocGenAgent':
-        return { color: '#6366F1', bgColor: '#6366F110', icon: '📝', label: 'Doc Gen' };
+        return { color: '#6366F1', bgColor: '#6366F110', icon: '📝', label: 'Writing Documentation' };
       case 'SuggestionAgent':
         return { color: '#F97316', bgColor: '#F9731610', icon: '💡', label: 'Suggestions' };
       // Workflow completion
       case 'Workflow':
-        return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '', label: 'Complete' };
+        return { color: '#7C3AED', bgColor: '#7C3AED10', icon: '✨', label: 'Workflow Complete' };
+      // Generic agent - use agent name as-is but make it readable
       default:
-        return { color: '#666666', bgColor: '#66666610', icon: '', label: update.agent };
+        const readableName = agentType.replace(/Agent$/, '').replace(/([A-Z])/g, ' $1').trim();
+        return { color: '#666666', bgColor: '#66666610', icon: '⚙️', label: readableName || 'Agent Task' };
     }
   };
 

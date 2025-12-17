@@ -177,6 +177,8 @@ export interface SharedContextData {
 
 export interface WorkflowUpdate {
   agent: string;
+  agent_label?: string;  // Custom display name for the agent (task-based)
+  task_description?: string;  // Description of what this agent is doing
   type: 'thinking' | 'artifact' | 'task_completed' | 'completed' | 'error' | 'agent_spawn' | 'workflow_created' | 'decision' | 'mode_selection' | 'parallel_start' | 'parallel_batch' | 'parallel_complete' | 'shared_context';
   status: 'running' | 'completed' | 'error' | 'finished';
   message?: string;
