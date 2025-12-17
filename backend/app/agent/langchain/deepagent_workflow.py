@@ -33,7 +33,7 @@ except ImportError:
     print("Warning: DeepAgents not available. Install with: pip install deepagents tavily-python")
 
 from app.core.config import settings
-from .base_workflow import BaseWorkflow
+from app.agent.base.interface import BaseWorkflow
 
 
 class DeepAgentWorkflowManager(BaseWorkflow):
