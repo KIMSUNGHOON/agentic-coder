@@ -195,10 +195,15 @@ Examples:
         # Check which framework to use for this session
         selected_framework = await self.session_store.get_framework(session_id)
 
+        # FORCE STANDARD WORKFLOW: DeepAgents has issues with streaming
+        # Always use standard workflow regardless of selection
         if selected_framework == "deepagents":
-            return await self._get_deepagent_workflow(session_id, workspace)
-        else:
-            return self._get_standard_workflow(session_id, workflow_manager)
+            logger.warning(
+                f"Session {session_id} selected DeepAgents, but forcing Standard workflow "
+                "due to streaming issues. DeepAgents will be re-enabled after fixes."
+            )
+
+        return self._get_standard_workflow(session_id, workflow_manager)
 
     async def _get_deepagent_workflow(self, session_id: str, workspace: str) -> Any:
         """
