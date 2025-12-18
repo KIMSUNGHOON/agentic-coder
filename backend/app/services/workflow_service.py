@@ -244,8 +244,8 @@ Examples:
                     agent_id=unique_agent_id,
                     model_name="gpt-4o",
                     temperature=0.7,
-                    enable_subagents=True,
-                    enable_filesystem=True,  # Re-enabled with unique agent_id
+                    enable_subagents=False,     # DISABLED: Causes duplication error
+                    enable_filesystem=False,    # DISABLED: Not needed (we save files directly)
                     enable_parallel=True,
                     max_parallel_agents=25,
                     workspace=workspace
