@@ -359,9 +359,10 @@ async def execute_workflow(request: ChatRequest):
         if context_str:
             full_request = f"{context_str}\n<current_request>\n{request.message}\n</current_request>"
 
-        # Helper to write artifact to workspace
-        def write_artifact_to_workspace(artifact: dict) -> dict:
+        # Helper to write artifact to workspace (async)
+        async def write_artifact_to_workspace(artifact: dict) -> dict:
             """Write artifact to workspace and return save status."""
+            import aiofiles
             from datetime import datetime
             try:
                 filename = artifact.get("filename", "code.py")
@@ -373,8 +374,9 @@ async def execute_workflow(request: ChatRequest):
                 # Create parent directories if needed
                 file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Write file using Path object
-                file_path.write_text(content, encoding='utf-8')
+                # Write file asynchronously
+                async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                    await f.write(content)
 
                 logger.info(f"Auto-saved artifact to: {file_path}")
                 return {
@@ -439,13 +441,13 @@ async def execute_workflow(request: ChatRequest):
                 async for update in execution_stream:
                     # Auto-save artifacts to workspace
                     if update.get("type") == "artifact" and update.get("artifact"):
-                        save_result = write_artifact_to_workspace(update["artifact"])
+                        save_result = await write_artifact_to_workspace(update["artifact"])
                         update["artifact"].update(save_result)
 
                     # Also save artifacts from completed updates
                     if update.get("type") == "completed" and update.get("artifacts"):
                         for artifact in update["artifacts"]:
-                            save_result = write_artifact_to_workspace(artifact)
+                            save_result = await write_artifact_to_workspace(artifact)
                             artifact.update(save_result)
 
                     # Send update as JSON
@@ -1241,6 +1243,8 @@ async def write_workspace_file(request: dict):
         return {"success": False, "error": "Filename is required"}
 
     try:
+        import aiofiles
+
         workspace = await session_store.get_workspace(session_id)
 
         # Sanitize file path to prevent path traversal
@@ -1249,8 +1253,9 @@ async def write_workspace_file(request: dict):
         # Create parent directories if needed
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Write file
-        file_path.write_text(content, encoding='utf-8')
+        # Write file asynchronously
+        async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+            await f.write(content)
 
         logger.info(f"Wrote file: {file_path}")
         return {"success": True, "path": str(file_path)}
@@ -1278,6 +1283,8 @@ async def read_workspace_file(session_id: str = "default", filename: str = ""):
         return {"success": False, "error": "Filename is required"}
 
     try:
+        import aiofiles
+
         workspace = await session_store.get_workspace(session_id)
 
         # Sanitize file path to prevent path traversal
@@ -1286,7 +1293,9 @@ async def read_workspace_file(session_id: str = "default", filename: str = ""):
         if not file_path.exists():
             return {"success": False, "error": f"File not found: {filename}"}
 
-        content = file_path.read_text(encoding='utf-8')
+        # Read file asynchronously
+        async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+            content = await f.read()
 
         return {"success": True, "content": content}
 
