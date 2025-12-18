@@ -237,7 +237,7 @@ Examples:
                     model_name="gpt-4o",
                     temperature=0.7,
                     enable_subagents=True,
-                    enable_filesystem=True,
+                    enable_filesystem=False,  # Disabled to prevent middleware duplication
                     enable_parallel=True,
                     max_parallel_agents=25,
                     workspace=workspace
