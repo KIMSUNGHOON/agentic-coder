@@ -482,7 +482,8 @@ Always prioritize code quality, collaboration, and efficiency."""
         supervisor_prompt = self._build_supervisor_prompt()
 
         analysis_result = ""
-        async for chunk in self.agent.astream([
+        # Use direct LLM instead of self.agent to avoid LangGraph state issues
+        async for chunk in self.llm.astream([
             SystemMessage(content=supervisor_prompt),
             HumanMessage(content=user_request)
         ]):
@@ -694,7 +695,7 @@ Always prioritize code quality, collaboration, and efficiency."""
 
         # Execute with DeepAgent (SubAgentMiddleware provides isolation)
         code_output = ""
-        async for chunk in self.agent.astream([
+        async for chunk in self.llm.astream([
             SystemMessage(content=coding_prompt),
             HumanMessage(content=f"Implement: {task.get('description')}")
         ]):
@@ -743,7 +744,7 @@ Always prioritize code quality, collaboration, and efficiency."""
             coding_prompt = self._build_coding_prompt(task, user_request, plan_text)
 
             code_output = ""
-            async for chunk in self.agent.astream([
+            async for chunk in self.llm.astream([
                 SystemMessage(content=coding_prompt),
                 HumanMessage(content=f"Implement: {task.get('description')}")
             ]):
@@ -785,7 +786,7 @@ Always prioritize code quality, collaboration, and efficiency."""
         review_prompt = self._build_review_prompt(shared_context, user_request)
 
         review_text = ""
-        async for chunk in self.agent.astream([
+        async for chunk in self.llm.astream([
             SystemMessage(content=review_prompt),
             HumanMessage(content="Review the implementation")
         ]):
@@ -853,7 +854,7 @@ Always prioritize code quality, collaboration, and efficiency."""
         }
 
         response = ""
-        async for chunk in self.agent.astream([
+        async for chunk in self.llm.astream([
             HumanMessage(content=user_request)
         ]):
             if chunk.content:
@@ -876,7 +877,7 @@ Always prioritize code quality, collaboration, and efficiency."""
         planning_prompt = self._build_planning_prompt(user_request, analysis)
 
         plan_text = ""
-        async for chunk in self.agent.astream([
+        async for chunk in self.llm.astream([
             SystemMessage(content=planning_prompt),
             HumanMessage(content=user_request)
         ]):
