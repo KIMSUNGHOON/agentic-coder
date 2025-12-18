@@ -254,29 +254,33 @@ class DeepAgentWorkflowManager(BaseWorkflow):
         # Build middleware stack
         self.middleware_stack = []
 
-        if enable_filesystem:
-            try:
-                fs_path = os.path.join(workspace, '.deepagents', agent_id)
-                os.makedirs(fs_path, exist_ok=True)
-                fs_backend = FilesystemBackend(root_dir=fs_path)
-                self.middleware_stack.append(
-                    FilesystemMiddleware(backend=fs_backend)
-                )
-                logger.info(f"Initialized FilesystemMiddleware: {fs_path}")
-            except Exception as e:
-                logger.warning(f"Could not initialize FilesystemMiddleware: {e}")
+        # TEMPORARY: Disable middleware to diagnose duplication issue
+        # TODO: Re-enable after finding root cause
+        logger.warning(f"⚠️  Middleware temporarily disabled for debugging")
 
-        if enable_subagents:
-            try:
-                self.middleware_stack.append(
-                    SubAgentMiddleware(
-                        default_model=self.llm,
-                        default_tools=[]
-                    )
-                )
-                logger.info("Initialized SubAgentMiddleware")
-            except Exception as e:
-                logger.warning(f"Could not initialize SubAgentMiddleware: {e}")
+        # if enable_filesystem:
+        #     try:
+        #         fs_path = os.path.join(workspace, '.deepagents', agent_id)
+        #         os.makedirs(fs_path, exist_ok=True)
+        #         fs_backend = FilesystemBackend(root_dir=fs_path)
+        #         self.middleware_stack.append(
+        #             FilesystemMiddleware(backend=fs_backend)
+        #         )
+        #         logger.info(f"Initialized FilesystemMiddleware: {fs_path}")
+        #     except Exception as e:
+        #         logger.warning(f"Could not initialize FilesystemMiddleware: {e}")
+
+        # if enable_subagents:
+        #     try:
+        #         self.middleware_stack.append(
+        #             SubAgentMiddleware(
+        #                 default_model=self.llm,
+        #                 default_tools=[]
+        #             )
+        #         )
+        #         logger.info("Initialized SubAgentMiddleware")
+        #     except Exception as e:
+        #         logger.warning(f"Could not initialize SubAgentMiddleware: {e}")
 
         # Create DeepAgent
         try:
