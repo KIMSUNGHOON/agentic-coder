@@ -406,12 +406,19 @@ def parse_task_type(text: str) -> TaskType:
 
 
 class DynamicLangGraphWorkflow(BaseWorkflow):
-    """Dynamic multi-agent workflow that creates workflow based on task analysis."""
+    """Dynamic multi-agent workflow that creates workflow based on task analysis.
 
-    def __init__(self):
-        """Initialize the dynamic workflow."""
+    Supports optional DeepAgents middleware integration for enhanced capabilities.
+    """
+
+    def __init__(self, enable_deepagents: bool = False):
+        """Initialize the dynamic workflow.
+
+        Args:
+            enable_deepagents: Whether to use DeepAgents middleware (if available)
+        """
         # Initialize LLM clients
-        self.reasoning_llm = ChatOpenAI(
+        base_reasoning_llm = ChatOpenAI(
             base_url=settings.vllm_reasoning_endpoint,
             model=settings.reasoning_model,
             temperature=0.7,
@@ -419,13 +426,66 @@ class DynamicLangGraphWorkflow(BaseWorkflow):
             api_key="not-needed",
         )
 
-        self.coding_llm = ChatOpenAI(
+        base_coding_llm = ChatOpenAI(
             base_url=settings.vllm_coding_endpoint,
             model=settings.coding_model,
             temperature=0.7,
             max_tokens=2048,
             api_key="not-needed",
         )
+
+        # Try to wrap with DeepAgents if requested and available
+        if enable_deepagents and DEEPAGENTS_AVAILABLE:
+            try:
+                # Use singleton middleware from global cache
+                from app.agent.langchain.deepagent_workflow import _global_middleware_cache
+                import os
+
+                middleware_list = []
+
+                # SubAgentMiddleware only (FilesystemMiddleware causes issues)
+                if "subagent" not in _global_middleware_cache:
+                    SubAgentMiddleware = deepagents_middleware.get("SubAgentMiddleware")
+                    if SubAgentMiddleware:
+                        _global_middleware_cache["subagent"] = SubAgentMiddleware(
+                            default_model=base_reasoning_llm,
+                            default_tools=[]
+                        )
+                        logger.info("✅ Created SINGLETON SubAgentMiddleware for Standard workflow")
+                else:
+                    logger.info("♻️  Reusing SubAgentMiddleware singleton for Standard workflow")
+
+                if "subagent" in _global_middleware_cache:
+                    middleware_list.append(_global_middleware_cache["subagent"])
+
+                # Wrap LLMs with DeepAgents
+                if middleware_list:
+                    self.reasoning_llm = create_deep_agent(
+                        model=base_reasoning_llm,
+                        tools=[],
+                        middleware=middleware_list,
+                        system_prompt="You are a reasoning agent for task analysis."
+                    )
+                    self.coding_llm = create_deep_agent(
+                        model=base_coding_llm,
+                        tools=[],
+                        middleware=middleware_list,
+                        system_prompt="You are a coding agent for implementation."
+                    )
+                    logger.info("✅ Standard workflow using DeepAgents with SubAgentMiddleware")
+                else:
+                    self.reasoning_llm = base_reasoning_llm
+                    self.coding_llm = base_coding_llm
+                    logger.info("⚠️  DeepAgents enabled but no middleware available")
+            except Exception as e:
+                logger.warning(f"Failed to enable DeepAgents, using standard LLMs: {e}")
+                self.reasoning_llm = base_reasoning_llm
+                self.coding_llm = base_coding_llm
+        else:
+            self.reasoning_llm = base_reasoning_llm
+            self.coding_llm = base_coding_llm
+            if enable_deepagents:
+                logger.info("DeepAgents requested but not available, using standard LLMs")
 
         # Shared context for parallel agent execution
         self.shared_context: Optional[SharedContext] = None
@@ -2320,11 +2380,19 @@ class LangGraphWorkflowManager(BaseWorkflowManager):
         self.workflows: Dict[str, DynamicLangGraphWorkflow] = {}
         logger.info("LangGraphWorkflowManager initialized with dynamic workflow support")
 
-    def get_or_create_workflow(self, session_id: str) -> DynamicLangGraphWorkflow:
-        """Get existing workflow or create new one for session."""
+    def get_or_create_workflow(self, session_id: str, enable_deepagents: bool = False) -> DynamicLangGraphWorkflow:
+        """Get existing workflow or create new one for session.
+
+        Args:
+            session_id: Session identifier
+            enable_deepagents: Whether to enable DeepAgents middleware
+
+        Returns:
+            DynamicLangGraphWorkflow instance
+        """
         if session_id not in self.workflows:
-            self.workflows[session_id] = DynamicLangGraphWorkflow()
-            logger.info(f"Created new dynamic workflow for session {session_id}")
+            self.workflows[session_id] = DynamicLangGraphWorkflow(enable_deepagents=enable_deepagents)
+            logger.info(f"Created new dynamic workflow for session {session_id} (deepagents={enable_deepagents})")
         return self.workflows[session_id]
 
     def delete_workflow(self, session_id: str) -> None:

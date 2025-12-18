@@ -195,15 +195,20 @@ Examples:
         # Check which framework to use for this session
         selected_framework = await self.session_store.get_framework(session_id)
 
-        # FORCE STANDARD WORKFLOW: DeepAgents has issues with streaming
-        # Always use standard workflow regardless of selection
-        if selected_framework == "deepagents":
-            logger.warning(
-                f"Session {session_id} selected DeepAgents, but forcing Standard workflow "
-                "due to streaming issues. DeepAgents will be re-enabled after fixes."
+        # Use Standard workflow with optional DeepAgents middleware
+        # This maintains Standard's proven scenario while enabling DeepAgents features
+        enable_deepagents = (selected_framework == "deepagents")
+
+        if enable_deepagents:
+            logger.info(
+                f"Session {session_id} using Standard workflow WITH DeepAgents middleware"
+            )
+        else:
+            logger.info(
+                f"Session {session_id} using Standard workflow WITHOUT DeepAgents"
             )
 
-        return self._get_standard_workflow(session_id, workflow_manager)
+        return self._get_standard_workflow(session_id, workflow_manager, enable_deepagents)
 
     async def _get_deepagent_workflow(self, session_id: str, workspace: str) -> Any:
         """
@@ -266,19 +271,23 @@ Examples:
 
         return self._deepagent_workflows[session_id]
 
-    def _get_standard_workflow(self, session_id: str, workflow_manager: Any) -> Any:
+    def _get_standard_workflow(self, session_id: str, workflow_manager: Any, enable_deepagents: bool = False) -> Any:
         """
         Get or create standard workflow.
 
         Args:
             session_id: Session identifier
             workflow_manager: Standard workflow manager instance
+            enable_deepagents: Whether to enable DeepAgents middleware
 
         Returns:
             Standard workflow instance
         """
-        workflow = workflow_manager.get_or_create_workflow(session_id)
-        logger.info(f"Using standard framework for session {session_id}")
+        workflow = workflow_manager.get_or_create_workflow(session_id, enable_deepagents=enable_deepagents)
+        if enable_deepagents:
+            logger.info(f"Using Standard workflow WITH DeepAgents middleware for session {session_id}")
+        else:
+            logger.info(f"Using Standard workflow for session {session_id}")
         return workflow
 
     def build_context_string(
