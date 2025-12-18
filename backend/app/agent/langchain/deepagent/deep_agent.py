@@ -36,6 +36,13 @@ except ImportError:
     FilesystemBackend = None
     ChatOpenAI = None
 
+# Import global middleware cache to prevent duplication errors
+try:
+    from app.agent.langchain.deepagent_workflow import _global_middleware_cache
+except ImportError:
+    # Fallback if deepagent_workflow not available
+    _global_middleware_cache = {}
+
 
 class DeepCodingAgent(BaseAgent):
     """Advanced coding agent using DeepAgents framework.
@@ -65,12 +72,14 @@ class DeepCodingAgent(BaseAgent):
         logger.info("DeepCodingAgent initialized")
 
     def _init_deep_agent(self):
-        """Initialize the DeepAgents agent with middleware.
+        """Initialize the DeepAgents agent with SINGLETON middleware.
 
         Note: DeepAgents 0.3.0 API differences:
         - TodoListMiddleware is not available
         - FilesystemMiddleware requires a backend parameter
         - SubAgentMiddleware requires default_model parameter
+
+        IMPORTANT: Uses global singleton middleware to prevent duplication errors
         """
         try:
             # Create LLM for middleware
@@ -82,14 +91,33 @@ class DeepCodingAgent(BaseAgent):
                 api_key="EMPTY"
             )
 
-            # Create filesystem backend for workspace operations
-            fs_backend = FilesystemBackend(root_dir="./workspace")
+            # Build middleware list using SINGLETON pattern
+            middleware_list = []
+
+            # FilesystemMiddleware - use singleton
+            if "filesystem" not in _global_middleware_cache:
+                fs_backend = FilesystemBackend(root_dir="./workspace/.deepagents/shared")
+                _global_middleware_cache["filesystem"] = FilesystemMiddleware(backend=fs_backend)
+                logger.info("✅ Created SINGLETON FilesystemMiddleware for DeepCodingAgent")
+            else:
+                logger.info("♻️  Reusing FilesystemMiddleware singleton for DeepCodingAgent")
+            middleware_list.append(_global_middleware_cache["filesystem"])
+
+            # SubAgentMiddleware - use singleton
+            if "subagent" not in _global_middleware_cache:
+                _global_middleware_cache["subagent"] = SubAgentMiddleware(
+                    default_model=llm,
+                    default_tools=[]
+                )
+                logger.info("✅ Created SINGLETON SubAgentMiddleware for DeepCodingAgent")
+            else:
+                logger.info("♻️  Reusing SubAgentMiddleware singleton for DeepCodingAgent")
+            middleware_list.append(_global_middleware_cache["subagent"])
 
             # Create deep agent with coding-focused configuration
-            # Note: First parameter must be 'model', not as keyword argument 'tools'
             self.agent = create_deep_agent(
-                model=llm,  # First parameter: the LLM model to use
-                tools=[],   # Tools will be added based on requirements
+                model=llm,
+                tools=[],
                 system_prompt="""You are an advanced coding assistant with the ability to:
 1. Read and write files
 2. Execute shell commands safely
@@ -102,16 +130,9 @@ For each coding request:
 4. Report completion status
 
 Always prioritize code quality and safety.""",
-                # Enable built-in middleware (only those available in v0.3.0)
-                middleware=[
-                    FilesystemMiddleware(backend=fs_backend),  # File operations
-                    SubAgentMiddleware(
-                        default_model=llm,  # Required in v0.3.0
-                        default_tools=[]    # Use parent's tools
-                    ),
-                ],
+                middleware=middleware_list,
             )
-            logger.info("DeepAgents agent created with middleware (v0.3.0 compatible)")
+            logger.info("DeepAgents agent created with SINGLETON middleware (v0.3.0 compatible)")
         except Exception as e:
             logger.error(f"Failed to initialize DeepAgents: {e}")
             logger.exception("Full traceback:")

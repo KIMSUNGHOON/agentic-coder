@@ -51,6 +51,18 @@ from app.agent.base.interface import BaseWorkflow
 from app.agent.langchain.shared_context import SharedContext, ContextEntry
 
 
+# ==================== Global Middleware Singleton ====================
+# ROOT CAUSE: DeepAgents uses a global registry for middleware.
+# Creating multiple agents with new middleware instances causes:
+# "Please remove duplicate middleware instance" error
+#
+# SOLUTION: Share singleton middleware instances across all agents
+# in the same process to prevent duplication in global registry.
+
+_global_middleware_cache = {}
+_middleware_lock = asyncio.Lock()
+
+
 # ==================== Dynamic Workflow Templates ====================
 
 TaskType = Literal[
@@ -164,30 +176,40 @@ class DeepAgentWorkflowManager(BaseWorkflow):
             streaming=True
         )
 
-        # Build middleware stack
+        # Build middleware stack using SINGLETON pattern
+        # This prevents "duplicate middleware instance" errors from DeepAgents
         self.middleware_stack = []
 
         if enable_filesystem:
             try:
-                fs_path = os.path.join(workspace, '.deepagents', agent_id)
-                os.makedirs(fs_path, exist_ok=True)
-                fs_backend = FilesystemBackend(root_dir=fs_path)
-                self.middleware_stack.append(
-                    FilesystemMiddleware(backend=fs_backend)
-                )
-                logger.info(f"✅ Initialized FilesystemMiddleware: {fs_path}")
+                # Use global singleton FilesystemMiddleware
+                if "filesystem" not in _global_middleware_cache:
+                    # Create shared workspace for all agents
+                    fs_path = os.path.join(workspace, '.deepagents', 'shared')
+                    os.makedirs(fs_path, exist_ok=True)
+                    fs_backend = FilesystemBackend(root_dir=fs_path)
+                    _global_middleware_cache["filesystem"] = FilesystemMiddleware(backend=fs_backend)
+                    logger.info(f"✅ Created SINGLETON FilesystemMiddleware: {fs_path}")
+                else:
+                    logger.info("♻️  Reusing existing FilesystemMiddleware singleton")
+
+                self.middleware_stack.append(_global_middleware_cache["filesystem"])
             except Exception as e:
                 logger.warning(f"⚠️  Could not initialize FilesystemMiddleware: {e}")
 
         if enable_subagents:
             try:
-                self.middleware_stack.append(
-                    SubAgentMiddleware(
+                # Use global singleton SubAgentMiddleware
+                if "subagent" not in _global_middleware_cache:
+                    _global_middleware_cache["subagent"] = SubAgentMiddleware(
                         default_model=self.llm,
                         default_tools=[]
                     )
-                )
-                logger.info("✅ Initialized SubAgentMiddleware")
+                    logger.info("✅ Created SINGLETON SubAgentMiddleware")
+                else:
+                    logger.info("♻️  Reusing existing SubAgentMiddleware singleton")
+
+                self.middleware_stack.append(_global_middleware_cache["subagent"])
             except Exception as e:
                 logger.warning(f"⚠️  Could not initialize SubAgentMiddleware: {e}")
 
