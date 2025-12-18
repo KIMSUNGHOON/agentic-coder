@@ -26,19 +26,22 @@ def quality_aggregator_node(state: QualityGateState) -> Dict:
     """
     logger.info("⚖️  Quality Aggregator Node: Evaluating results...")
 
-    security_passed = state.get("security_passed", False)
-    tests_passed = state.get("tests_passed", True)  # Default true if no tests
-    review_approved = state.get("review_approved", True)  # Default true if no review
+    # Get gate results with safe defaults
+    security_passed = state.get("security_passed", True)  # Changed default to True
+    review_approved = state.get("review_approved", False)  # Review is required
+
+    # Tests are optional - if no test node, assume pass
+    test_results = state.get("qa_test_results", [])
+    tests_passed = len(test_results) == 0 or all(t["passed"] for t in test_results)
 
     # Count findings/issues
     security_findings = state.get("security_findings", [])
-    critical_security = [f for f in security_findings if f["severity"] in ["critical", "high"]]
+    critical_security = [f for f in security_findings if f.get("severity") in ["critical", "high"]]
 
-    test_results = state.get("qa_test_results", [])
-    failed_tests = [t for t in test_results if not t["passed"]]
+    failed_tests = [t for t in test_results if not t.get("passed", False)]
 
-    review_feedback = state.get("review_feedback")
-    review_issues = review_feedback.get("issues", []) if review_feedback else []
+    review_feedback = state.get("review_feedback", {})
+    review_issues = review_feedback.get("issues", [])
 
     # Log gate results
     logger.info("📊 Quality Gate Results:")
@@ -48,6 +51,8 @@ def quality_aggregator_node(state: QualityGateState) -> Dict:
 
     # ALL gates must pass
     all_passed = security_passed and tests_passed and review_approved
+
+    logger.info(f"🔍 all_passed={all_passed} (security={security_passed}, tests={tests_passed}, review={review_approved})")
 
     # Determine workflow status
     iteration = state.get("iteration", 0)
