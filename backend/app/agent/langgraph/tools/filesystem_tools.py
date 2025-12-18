@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
-from langchain.tools import StructuredTool
+from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
