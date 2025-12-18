@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.session_store import get_session_store
 from app.db import get_db, ConversationRepository
 from app.utils.security import sanitize_path, SecurityError
+from app.services import WorkflowService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,8 +33,8 @@ workflow_manager = get_workflow_manager()
 # Thread-safe session storage
 session_store = get_session_store()
 
-# Cache for DeepAgent workflows (to prevent middleware duplication)
-_deepagent_workflows: Dict[str, Any] = {}  # session_id -> DeepAgentWorkflowManager
+# Workflow service for business logic
+workflow_service = WorkflowService(session_store)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -260,11 +261,8 @@ async def select_framework(
     try:
         await session_store.set_framework(session_id, framework)
 
-        # Clear cached DeepAgent workflow when switching frameworks
-        # This prevents middleware duplication if switching back to deepagents
-        if session_id in _deepagent_workflows:
-            del _deepagent_workflows[session_id]
-            logger.info(f"Cleared cached DeepAgent workflow for session {session_id}")
+        # Clear cached workflows when switching frameworks
+        await workflow_service.clear_workflow_cache(session_id)
 
         return {
             "success": True,
@@ -328,178 +326,33 @@ async def execute_workflow(request: ChatRequest):
     import re
     from datetime import datetime
 
-    async def suggest_project_name(user_message: str) -> str:
-        """Use LLM to suggest a project name based on user's prompt."""
-        try:
-            from langchain_openai import ChatOpenAI
-            from langchain_core.messages import HumanMessage, SystemMessage
+    try:
+        # Use service layer for workspace and workflow management
+        workspace = await workflow_service.get_or_create_workspace(
+            session_id=request.session_id,
+            user_message=request.message,
+            base_workspace=request.workspace
+        )
 
-            # Use fast model for project name suggestion
-            llm = ChatOpenAI(
-                base_url=settings.vllm_coding_endpoint,
-                model=settings.coding_model,
-                temperature=0.3,
-                api_key="EMPTY",
-                max_tokens=50
+        # Get appropriate workflow based on framework selection
+        selected_framework = await session_store.get_framework(request.session_id)
+        try:
+            workflow = await workflow_service.get_workflow(
+                session_id=request.session_id,
+                workspace=workspace,
+                workflow_manager=workflow_manager
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=503 if "not available" in str(e) else 500,
+                detail=str(e)
             )
 
-            messages = [
-                SystemMessage(content="""You are a project naming assistant. Given a user's request, suggest a concise, descriptive project name.
-
-Rules:
-- Use lowercase with underscores (e.g., todo_app, blog_system, user_auth)
-- Keep it short (2-4 words max)
-- Make it descriptive of the main feature/purpose
-- Return ONLY the project name, nothing else
-
-Examples:
-"Create a todo list app" -> todo_app
-"Build a blog system with authentication" -> blog_system
-"Make a REST API for users" -> user_api
-"Implement user authentication" -> user_auth
-"Create a chat application" -> chat_app"""),
-                HumanMessage(content=f"Suggest a project name for: {user_message[:200]}")
-            ]
-
-            response = await llm.ainvoke(messages)
-            project_name = response.content.strip().lower()
-
-            # Clean up the project name
-            project_name = re.sub(r'[^a-z0-9_]', '_', project_name)
-            project_name = re.sub(r'_+', '_', project_name)
-            project_name = project_name.strip('_')
-
-            # Fallback if empty or too long
-            if not project_name or len(project_name) > 50:
-                project_name = f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-            logger.info(f"Suggested project name: {project_name}")
-            return project_name
-        except Exception as e:
-            logger.warning(f"Failed to suggest project name: {e}, using timestamp")
-            return f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-    try:
-        # Get or reuse workspace for this session FIRST (before creating workflow)
-        # This ensures workspace persists across framework switches (Standard <-> DeepAgents)
-        existing_workspace = await session_store.get_workspace(request.session_id, default=None)
-        if existing_workspace:
-            # Reuse existing workspace for this session
-            workspace = existing_workspace
-            logger.info(f"Reusing existing workspace for session {request.session_id}: {workspace}")
-        else:
-            # Create new workspace for first request in this session
-            base_workspace = request.workspace or "/home/user/workspace"
-
-            # Check if base_workspace is already a project directory
-            # A project directory is: /some/path/workspace/project_name
-            # where project_name is NOT "workspace"
-            def is_project_directory(path: str) -> bool:
-                """Check if path is already a project directory (direct child of workspace)"""
-                if not os.path.exists(path):
-                    return False
-                basename = os.path.basename(path)
-                parent = os.path.dirname(path)
-                parent_basename = os.path.basename(parent)
-                # It's a project if parent is named "workspace" and basename is not "workspace"
-                return parent_basename == "workspace" and basename != "workspace"
-
-            if is_project_directory(base_workspace):
-                # Already a project directory, use it directly
-                workspace = base_workspace
-                logger.info(f"Using existing project directory: {workspace}")
-            else:
-                # Need to create a new project directory
-                # If base_workspace is not a workspace root, treat it as one
-                if not base_workspace.endswith("/workspace"):
-                    # Ensure we're creating projects in a workspace folder
-                    workspace_root = base_workspace if os.path.basename(base_workspace) == "workspace" else base_workspace
-                else:
-                    workspace_root = base_workspace
-
-                # Let LLM suggest a project name based on the user's request
-                project_name = await suggest_project_name(request.message)
-
-                # Check if project already exists, add suffix if needed
-                candidate_workspace = os.path.join(workspace_root, project_name)
-                counter = 1
-                while os.path.exists(candidate_workspace):
-                    candidate_workspace = os.path.join(workspace_root, f"{project_name}_{counter}")
-                    counter += 1
-
-                workspace = candidate_workspace
-                logger.info(f"Created new project workspace '{os.path.basename(workspace)}' in {workspace_root}")
-
-            # Store workspace for this session
-            await session_store.set_workspace(request.session_id, workspace)
-
-        # Ensure project workspace exists
-        if not os.path.exists(workspace):
-            os.makedirs(workspace, exist_ok=True)
-            logger.info(f"Created workspace directory: {workspace}")
-
-        # Check which framework to use for this session
-        selected_framework = await session_store.get_framework(request.session_id)
-
-        # Get or create appropriate workflow based on framework selection
-        if selected_framework == "deepagents":
-            # Use DeepAgents workflow manager
-            from app.agent.langchain.deepagent_workflow import DeepAgentWorkflowManager, DEEPAGENTS_AVAILABLE
-
-            if not DEEPAGENTS_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="DeepAgents framework not available. Install with: pip install deepagents tavily-python"
-                )
-
-            # Get or create DeepAgent workflow (cached to prevent middleware duplication)
-            if request.session_id not in _deepagent_workflows:
-                try:
-                    logger.info(f"Creating new DeepAgents workflow for session {request.session_id} with workspace {workspace}")
-                    _deepagent_workflows[request.session_id] = DeepAgentWorkflowManager(
-                        agent_id=request.session_id,
-                        model_name="gpt-4o",
-                        temperature=0.7,
-                        enable_subagents=True,
-                        enable_filesystem=True,
-                        enable_parallel=True,
-                        max_parallel_agents=25,
-                        workspace=workspace
-                    )
-                    logger.info(f"✅ Successfully created DeepAgents workflow for session {request.session_id}")
-                except Exception as e:
-                    # If creation fails, ensure it's not in cache so next attempt can retry cleanly
-                    _deepagent_workflows.pop(request.session_id, None)
-                    logger.error(f"❌ Failed to create DeepAgents workflow for session {request.session_id}: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Failed to initialize DeepAgents workflow: {str(e)}"
-                    )
-            else:
-                logger.info(f"♻️  Reusing cached DeepAgents workflow for session {request.session_id}")
-
-            workflow = _deepagent_workflows[request.session_id]
-        else:
-            # Use standard workflow manager
-            workflow = workflow_manager.get_or_create_workflow(request.session_id)
-            logger.info(f"Using standard framework for session {request.session_id}")
-
-        # Build context-aware request
-        context_str = ""
-        if request.context:
-            # Add previous messages as context
-            if request.context.messages:
-                context_str += "\n<previous_conversation>\n"
-                for msg in request.context.messages[-5:]:  # Last 5 messages
-                    context_str += f"{msg.role.upper()}: {msg.content}\n"
-                context_str += "</previous_conversation>\n"
-
-            # Add existing artifacts as context
-            if request.context.artifacts:
-                context_str += "\n<existing_code>\n"
-                for artifact in request.context.artifacts:
-                    context_str += f"```{artifact.language} {artifact.filename}\n{artifact.content}\n```\n\n"
-                context_str += "</existing_code>\n"
+        # Build context-aware request using service
+        context_str = workflow_service.build_context_string(
+            messages=request.context.messages if request.context else None,
+            artifacts=request.context.artifacts if request.context else None
+        )
 
         # Combine context with user message
         full_request = request.message
