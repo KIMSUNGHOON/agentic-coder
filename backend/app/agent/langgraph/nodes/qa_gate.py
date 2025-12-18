@@ -36,7 +36,6 @@ def qa_gate_node(state: QualityGateState) -> Dict:
     if not coder_output or not coder_output.get("artifacts"):
         logger.warning("⚠️  No code to check")
         return {
-            "current_node": "qa_gate",
             "qa_results": {
                 "passed": False,
                 "checks": {},
@@ -85,7 +84,6 @@ def qa_gate_node(state: QualityGateState) -> Dict:
             ))
 
         return {
-            "current_node": "qa_gate",
             "qa_results": qa_results,
             "qa_passed": passed,
             "debug_logs": debug_logs,
@@ -106,7 +104,6 @@ def qa_gate_node(state: QualityGateState) -> Dict:
             ))
 
         return {
-            "current_node": "qa_gate",
             "qa_results": {
                 "passed": False,
                 "checks": {},

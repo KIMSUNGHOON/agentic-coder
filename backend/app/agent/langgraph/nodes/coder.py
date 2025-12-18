@@ -112,7 +112,6 @@ def coder_node(state: QualityGateState) -> Dict:
             ))
 
         return {
-            "current_node": "coder",
             "coder_output": {
                 "artifacts": artifacts,
                 "status": "completed" if artifacts else "failed",
@@ -137,7 +136,6 @@ def coder_node(state: QualityGateState) -> Dict:
             ))
 
         return {
-            "current_node": "coder",
             "coder_output": {
                 "artifacts": [],
                 "status": "error",

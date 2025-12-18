@@ -36,7 +36,6 @@ def reviewer_node(state: QualityGateState) -> Dict:
     if not coder_output or not coder_output.get("artifacts"):
         logger.warning("⚠️  No code to review")
         return {
-            "current_node": "reviewer",
             "review_feedback": {
                 "approved": False,
                 "issues": ["No code artifacts found to review"],
@@ -95,7 +94,6 @@ def reviewer_node(state: QualityGateState) -> Dict:
             ))
 
         return {
-            "current_node": "reviewer",
             "review_feedback": review_result,
             "review_approved": approved,
             "debug_logs": debug_logs,
@@ -116,7 +114,6 @@ def reviewer_node(state: QualityGateState) -> Dict:
             ))
 
         return {
-            "current_node": "reviewer",
             "review_feedback": {
                 "approved": False,
                 "issues": [f"Review error: {str(e)}"],
