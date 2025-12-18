@@ -5,9 +5,26 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import router as api_router
 from app.api.routes.langgraph_routes import router as langgraph_router
-from app.db import init_db
+
+# Lazy import of optional dependencies
+try:
+    from app.api import router as api_router
+    API_ROUTER_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"API router not available (missing dependencies): {e}")
+    API_ROUTER_AVAILABLE = False
+    api_router = None
+
+try:
+    from app.db import init_db
+    DB_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Database not available (missing dependencies): {e}")
+    DB_AVAILABLE = False
+    init_db = None
 
 # Configure logging
 logging.basicConfig(
@@ -24,10 +41,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"Reasoning model endpoint: {settings.vllm_reasoning_endpoint}")
     logger.info(f"Coding model endpoint: {settings.vllm_coding_endpoint}")
 
-    # Initialize database
-    logger.info("Initializing database...")
-    init_db()
-    logger.info("Database initialized successfully")
+    # Initialize database (if available)
+    if DB_AVAILABLE and init_db:
+        logger.info("Initializing database...")
+        init_db()
+        logger.info("Database initialized successfully")
+    else:
+        logger.warning("Database initialization skipped (not available)")
 
     yield
     logger.info("Shutting down Coding Agent API...")
@@ -51,8 +71,15 @@ app.add_middleware(
 )
 
 # Include API routes
-app.include_router(api_router, prefix="/api")
-app.include_router(langgraph_router)  # LangGraph routes already have /api/langgraph prefix
+if API_ROUTER_AVAILABLE and api_router:
+    app.include_router(api_router, prefix="/api")
+    logger.info("✅ Standard API routes registered")
+else:
+    logger.warning("⚠️  Standard API routes not registered (dependencies missing)")
+
+# Always include LangGraph routes (no external dependencies)
+app.include_router(langgraph_router)
+logger.info("✅ LangGraph routes registered")
 
 
 @app.get("/")
@@ -67,5 +94,57 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+    """Enhanced health check endpoint with component status."""
+    health_status = {
+        "status": "healthy",
+        "version": "1.0.0",
+        "components": {}
+    }
+
+    # Check LangGraph workflow
+    try:
+        from app.agent.langgraph.unified_workflow import unified_workflow
+        health_status["components"]["langgraph_workflow"] = {
+            "status": "operational",
+            "graph_compiled": unified_workflow.graph is not None,
+            "tools_available": len(unified_workflow.tools)
+        }
+    except Exception as e:
+        health_status["components"]["langgraph_workflow"] = {
+            "status": "error",
+            "error": str(e)
+        }
+
+    # Check filesystem tools
+    try:
+        from app.agent.langgraph.tools.filesystem_tools import FILESYSTEM_TOOLS
+        health_status["components"]["filesystem_tools"] = {
+            "status": "operational",
+            "tools_count": len(FILESYSTEM_TOOLS),
+            "tools": [tool.name for tool in FILESYSTEM_TOOLS]
+        }
+    except Exception as e:
+        health_status["components"]["filesystem_tools"] = {
+            "status": "error",
+            "error": str(e)
+        }
+
+    # Check routes
+    langgraph_routes = [r.path for r in app.routes if '/langgraph' in r.path]
+    health_status["components"]["langgraph_routes"] = {
+        "status": "operational",
+        "count": len(langgraph_routes),
+        "endpoints": langgraph_routes
+    }
+
+    # Overall status
+    failed_components = [
+        name for name, comp in health_status["components"].items()
+        if comp.get("status") == "error"
+    ]
+
+    if failed_components:
+        health_status["status"] = "degraded"
+        health_status["failed_components"] = failed_components
+
+    return health_status
