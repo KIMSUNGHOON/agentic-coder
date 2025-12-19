@@ -1,7 +1,7 @@
 /**
  * WorkflowInterface component - Claude.ai inspired multi-agent workflow UI
  * Supports conversation context for iterative refinement
- * Now with parallel execution and shared context visualization
+ * Now with split layout: Conversation (left) + Workflow Status (right)
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { WorkflowUpdate, Artifact, WorkflowInfo, HITLRequest, HITLCheckpointType } from '../types/api';
@@ -11,8 +11,7 @@ import WorkflowGraph from './WorkflowGraph';
 import WorkspaceProjectSelector from './WorkspaceProjectSelector';
 import DebugPanel from './DebugPanel';
 import HITLModal from './HITLModal';
-import WorkflowProgress from './WorkflowProgress';
-import AgentCard from './AgentCard';
+import WorkflowStatusPanel from './WorkflowStatusPanel';
 import apiClient from '../api/client';
 
 // Agent status for progress tracking
@@ -22,6 +21,7 @@ interface AgentProgressStatus {
   description: string;
   status: 'pending' | 'running' | 'completed' | 'error';
   executionTime?: number;
+  streamingContent?: string;
 }
 
 interface DebugLog {
@@ -136,6 +136,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [workflowStartTime, setWorkflowStartTime] = useState<number | null>(null);
   const [currentStreamingFile, setCurrentStreamingFile] = useState<string | null>(null);
   const [currentStreamingContent, setCurrentStreamingContent] = useState<string>('');
+  const [savedFiles, setSavedFiles] = useState<Artifact[]>([]);
+  const [showStatusPanel, setShowStatusPanel] = useState(true);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -171,6 +173,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     setWorkflowStartTime(Date.now());
     setCurrentStreamingFile(null);
     setCurrentStreamingContent('');
+    setSavedFiles([]);
   };
 
   // Update agent progress from event
@@ -180,6 +183,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     const executionTime = event.updates?.execution_time;
     const agentTitle = event.agent_title;
     const agentDescription = event.agent_description;
+    const streamingContent = event.updates?.streaming_content;
 
     setAgentProgress(prev => {
       const updated = prev.map(agent => {
@@ -198,6 +202,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             description: agentDescription || agent.description,
             status: newStatus,
             executionTime: executionTime !== undefined ? executionTime : agent.executionTime,
+            streamingContent: streamingContent || agent.streamingContent,
           };
         }
         return agent;
@@ -225,6 +230,22 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     }
     if (event.updates?.streaming_content) {
       setCurrentStreamingContent(event.updates.streaming_content);
+    }
+
+    // Capture saved files from persistence
+    if (nodeName === 'persistence' && status === 'completed') {
+      const files = event.updates?.saved_files || event.updates?.final_artifacts || [];
+      if (files.length > 0) {
+        setSavedFiles(files);
+      }
+    }
+
+    // Also capture final artifacts from workflow completion
+    if (nodeName === 'workflow' && status === 'completed') {
+      const files = event.updates?.final_artifacts || [];
+      if (files.length > 0) {
+        setSavedFiles(prev => prev.length > 0 ? prev : files);
+      }
     }
   };
 
@@ -612,7 +633,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#FAF9F7]">
+    <div className="flex h-full bg-[#FAF9F7]">
+      {/* LEFT PANEL - Conversation Area */}
+      <div className="flex flex-col flex-1 min-w-0">
       {/* Workspace Configuration Dialog */}
       {showWorkspaceDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -764,80 +787,20 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
         </div>
       )}
 
-      {/* DeepSeek-R1 Thinking Indicator */}
+      {/* DeepSeek-R1 Thinking Indicator - Compact version for left panel */}
       {isThinking && thinkingStream.length > 0 && (
-        <div className="sticky top-0 z-20 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-200">
-          <div className="max-w-4xl mx-auto px-4 py-3">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0 animate-pulse">
-                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold text-purple-800">DeepSeek-R1 Thinking</span>
-                  <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded">
-                    {thinkingStream.length} block{thinkingStream.length !== 1 ? 's' : ''}
-                  </span>
-                </div>
-                <div className="text-xs text-purple-700 font-mono bg-white/50 rounded-lg p-2 max-h-20 overflow-y-auto">
-                  {thinkingStream[thinkingStream.length - 1]?.slice(0, 200)}
-                  {thinkingStream[thinkingStream.length - 1]?.length > 200 && '...'}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Enhanced Workflow Progress Indicator */}
-      {(isRunning || totalProgress > 0) && (
-        <div className="sticky top-0 z-10 shadow-sm">
-          <div className="max-w-5xl mx-auto px-4 py-3">
-            <WorkflowProgress
-              agents={agentProgress}
-              currentAgent={agentProgress.find(a => a.status === 'running')?.name}
-              totalProgress={totalProgress}
-              estimatedTimeRemaining={estimatedTimeRemaining}
-              elapsedTime={elapsedTime}
-              isRunning={isRunning}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Real-time Streaming Content Display */}
-      {isRunning && currentStreamingContent && (
-        <div className="sticky top-[140px] z-10 bg-gradient-to-r from-gray-900 to-gray-800 shadow-lg mx-4 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="px-4 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-              </span>
-              <span className="text-sm font-medium text-gray-200">
-                {agentProgress.find(a => a.status === 'running')?.title || 'Agent'} - Live Output
-              </span>
-              {currentStreamingFile && (
-                <span className="text-xs text-gray-400 font-mono bg-gray-700 px-2 py-0.5 rounded">
-                  {currentStreamingFile}
-                </span>
-              )}
-            </div>
-            <button
-              onClick={() => setCurrentStreamingContent('')}
-              className="text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-200 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0 animate-pulse">
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
               </svg>
-            </button>
+            </div>
+            <span className="text-sm font-semibold text-purple-800">DeepSeek-R1 Thinking</span>
+            <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded">
+              {thinkingStream.length} block{thinkingStream.length !== 1 ? 's' : ''}
+            </span>
           </div>
-          <pre className="p-4 text-sm font-mono text-gray-300 max-h-48 overflow-auto whitespace-pre-wrap">
-            {currentStreamingContent}
-            <span className="inline-block w-2 h-4 bg-green-400 animate-pulse ml-0.5" />
-          </pre>
         </div>
       )}
 
@@ -1300,35 +1263,6 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
         </div>
       </div>
 
-      {/* SharedContext Viewer Modal */}
-      <SharedContextViewer
-        data={sharedContext}
-        isVisible={showSharedContext}
-        onClose={() => setShowSharedContext(false)}
-      />
-
-      {/* HITL (Human-in-the-Loop) Modal */}
-      {hitlRequest && (
-        <HITLModal
-          request={hitlRequest}
-          isOpen={isHitlModalOpen}
-          onClose={handleHitlClose}
-          onApprove={(feedback) => handleHitlResponse('approve', feedback)}
-          onReject={(feedback) => handleHitlResponse('reject', feedback)}
-          onEdit={(modifiedContent, feedback) => handleHitlResponse('edit', feedback, modifiedContent)}
-          onRetry={(instructions) => handleHitlResponse('retry', instructions)}
-          onSelect={(optionId, feedback) => handleHitlResponse('select', `Selected: ${optionId}. ${feedback || ''}`)}
-          onConfirm={(feedback) => handleHitlResponse('confirm', feedback)}
-        />
-      )}
-
-      {/* Debug Panel - Fixed Position */}
-      <DebugPanel
-        logs={debugLogs}
-        isOpen={isDebugOpen}
-        onToggle={() => setIsDebugOpen(!isDebugOpen)}
-      />
-
       {/* Input Area */}
       <div className="border-t border-[#E5E5E5] bg-white">
         <div className="max-w-4xl mx-auto px-4 py-4">
@@ -1392,9 +1326,65 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             <p>
               Automatically uses chat or workflow mode based on your request
             </p>
+            {/* Toggle Status Panel Button */}
+            <button
+              onClick={() => setShowStatusPanel(!showStatusPanel)}
+              className="flex items-center gap-1 text-[#666666] hover:text-[#1A1A1A] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+              <span>{showStatusPanel ? 'Hide' : 'Show'} Status</span>
+            </button>
           </div>
         </div>
       </div>
+      </div>{/* End of LEFT PANEL */}
+
+      {/* RIGHT PANEL - Workflow Status */}
+      {showStatusPanel && (isRunning || savedFiles.length > 0 || totalProgress > 0) && (
+        <div className="w-96 border-l border-gray-200 flex-shrink-0">
+          <WorkflowStatusPanel
+            isRunning={isRunning}
+            agents={agentProgress}
+            currentAgent={agentProgress.find(a => a.status === 'running')?.name}
+            totalProgress={totalProgress}
+            elapsedTime={elapsedTime}
+            estimatedTimeRemaining={estimatedTimeRemaining}
+            streamingContent={currentStreamingContent}
+            streamingFile={currentStreamingFile || undefined}
+            savedFiles={savedFiles}
+            workspaceRoot={workspace}
+          />
+        </div>
+      )}
+
+      {/* Modals - Positioned outside panels */}
+      <SharedContextViewer
+        data={sharedContext}
+        isVisible={showSharedContext}
+        onClose={() => setShowSharedContext(false)}
+      />
+
+      {hitlRequest && (
+        <HITLModal
+          request={hitlRequest}
+          isOpen={isHitlModalOpen}
+          onClose={handleHitlClose}
+          onApprove={(feedback) => handleHitlResponse('approve', feedback)}
+          onReject={(feedback) => handleHitlResponse('reject', feedback)}
+          onEdit={(modifiedContent, feedback) => handleHitlResponse('edit', feedback, modifiedContent)}
+          onRetry={(instructions) => handleHitlResponse('retry', instructions)}
+          onSelect={(optionId, feedback) => handleHitlResponse('select', `Selected: ${optionId}. ${feedback || ''}`)}
+          onConfirm={(feedback) => handleHitlResponse('confirm', feedback)}
+        />
+      )}
+
+      <DebugPanel
+        logs={debugLogs}
+        isOpen={isDebugOpen}
+        onToggle={() => setIsDebugOpen(!isDebugOpen)}
+      />
     </div>
   );
 };

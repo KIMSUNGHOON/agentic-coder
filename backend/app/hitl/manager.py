@@ -176,6 +176,10 @@ class HITLManager:
         # Update request status
         request.status = self._action_to_status(response.action)
 
+        # Store response details on request for workflow to read
+        request.response_action = response.action.value if hasattr(response.action, 'value') else response.action
+        request.response_feedback = response.feedback
+
         # Store response
         self._responses[request_id] = response
 

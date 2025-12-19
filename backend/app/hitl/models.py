@@ -111,6 +111,10 @@ class HITLRequest(BaseModel):
     # Status tracking
     status: HITLStatus = Field(default=HITLStatus.PENDING)
 
+    # Response details (populated after response is submitted)
+    response_action: Optional[str] = Field(None, description="Action taken by user")
+    response_feedback: Optional[str] = Field(None, description="User's feedback")
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()

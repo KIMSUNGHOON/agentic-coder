@@ -365,6 +365,8 @@ class EnhancedWorkflow:
             })
 
             # ==================== PHASE 6: HITL FINAL APPROVAL ====================
+            hitl_approved = True  # Default to approved if no HITL needed
+
             if complexity in ["complex", "critical"] or not all_passed:
                 hitl_request_id = f"final_review_{workflow_id}"
 
@@ -395,8 +397,48 @@ class EnhancedWorkflow:
                     "streaming_content": f"Human Review Required\n{hitl_request.title}\n\nPlease approve or provide feedback.",
                 })
 
-                # Wait briefly for UI to show
-                await asyncio.sleep(1)
+                # Wait for HITL response with timeout
+                max_wait_time = 300  # 5 minutes max wait
+                poll_interval = 1  # Check every second
+                waited = 0
+                hitl_approved = False
+                hitl_action = None
+                hitl_feedback = None
+
+                while waited < max_wait_time:
+                    await asyncio.sleep(poll_interval)
+                    waited += poll_interval
+
+                    # Check if response was submitted
+                    if hitl_request_id in self.hitl_manager._pending_requests:
+                        request = self.hitl_manager._pending_requests[hitl_request_id]
+                        # Check if status is no longer pending (enum comparison)
+                        status_value = request.status.value if hasattr(request.status, 'value') else str(request.status)
+                        if status_value != "pending":
+                            hitl_action = request.response_action
+                            hitl_feedback = request.response_feedback
+                            hitl_approved = hitl_action in ["approve", "confirm"]
+
+                            yield self._create_update("hitl", "completed", {
+                                "action": hitl_action,
+                                "feedback": hitl_feedback,
+                                "approved": hitl_approved,
+                                "streaming_content": f"Human Response: {hitl_action.upper()}\n{hitl_feedback or 'No feedback provided'}",
+                            })
+                            break
+                    else:
+                        # Request might have been removed after processing
+                        break
+
+                # Handle rejection/retry
+                if not hitl_approved and hitl_action in ["reject", "retry"]:
+                    yield self._create_update("workflow", "stopped", {
+                        "reason": "rejected_by_user",
+                        "feedback": hitl_feedback,
+                        "streaming_content": f"⚠️ Workflow stopped by user\nAction: {hitl_action}\nFeedback: {hitl_feedback or 'None'}",
+                        "message": "Workflow stopped - user requested changes",
+                    })
+                    return  # Stop workflow execution
 
             # ==================== PHASE 7: PERSISTENCE ====================
             yield self._create_update("persistence", "starting", {
