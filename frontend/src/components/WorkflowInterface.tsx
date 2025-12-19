@@ -120,7 +120,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [thinkingStream, setThinkingStream] = useState<string[]>([]);
   const [isThinking, setIsThinking] = useState(false);
 
-  // Enhanced progress tracking
+  // Enhanced progress tracking (including refiner for refinement loop)
   const [agentProgress, setAgentProgress] = useState<AgentProgressStatus[]>([
     { name: 'supervisor', title: '🧠 Supervisor', description: 'Task Analysis', status: 'pending' },
     { name: 'architect', title: '🏗️ Architect', description: 'Project Design', status: 'pending' },
@@ -128,6 +128,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     { name: 'reviewer', title: '👀 Reviewer', description: 'Code Review', status: 'pending' },
     { name: 'qa_gate', title: '🧪 QA Tester', description: 'Testing', status: 'pending' },
     { name: 'security_gate', title: '🔒 Security', description: 'Security Audit', status: 'pending' },
+    { name: 'refiner', title: '🔧 Refiner', description: 'Code Refinement', status: 'pending' },
     { name: 'aggregator', title: '📊 Aggregator', description: 'Results Aggregation', status: 'pending' },
     { name: 'hitl', title: '👤 Human Review', description: 'Awaiting Approval', status: 'pending' },
     { name: 'persistence', title: '💾 Persistence', description: 'Saving Files', status: 'pending' },
@@ -169,6 +170,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       { name: 'reviewer', title: '👀 Reviewer', description: 'Code Review', status: 'pending' },
       { name: 'qa_gate', title: '🧪 QA Tester', description: 'Testing', status: 'pending' },
       { name: 'security_gate', title: '🔒 Security', description: 'Security Audit', status: 'pending' },
+      { name: 'refiner', title: '🔧 Refiner', description: 'Code Refinement', status: 'pending' },
       { name: 'aggregator', title: '📊 Aggregator', description: 'Results Aggregation', status: 'pending' },
       { name: 'hitl', title: '👤 Human Review', description: 'Awaiting Approval', status: 'pending' },
       { name: 'persistence', title: '💾 Persistence', description: 'Saving Files', status: 'pending' },
@@ -184,6 +186,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     setCurrentProjectDir(undefined);
   };
 
+  // Refinement loop state
+  const [refinementIteration, setRefinementIteration] = useState(0);
+
   // Update agent progress from event
   const updateAgentProgress = (event: any) => {
     const nodeName = event.node;
@@ -192,6 +197,45 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     const agentTitle = event.agent_title;
     const agentDescription = event.agent_description;
     const streamingContent = event.updates?.streaming_content;
+    const currentRefinementIteration = event.updates?.refinement_iteration || event.updates?.iteration;
+
+    // Track refinement iteration
+    if (currentRefinementIteration !== undefined && currentRefinementIteration > 0) {
+      setRefinementIteration(currentRefinementIteration);
+    }
+
+    // Handle refinement loop specific statuses
+    if (nodeName === 'refiner') {
+      if (status === 'iteration_start') {
+        // Re-run quality gates, reset their status
+        setAgentProgress(prev => prev.map(agent => {
+          if (['reviewer', 'qa_gate', 'security_gate'].includes(agent.name)) {
+            return {
+              ...agent,
+              status: 'pending',
+              description: `Re-evaluating (iteration ${currentRefinementIteration + 1})`,
+              streamingContent: undefined,
+            };
+          }
+          return agent;
+        }));
+      }
+      if (status === 'max_iterations_reached') {
+        // Mark refiner as completed even if max iterations reached
+        setAgentProgress(prev => prev.map(agent => {
+          if (agent.name === 'refiner') {
+            return {
+              ...agent,
+              status: 'completed',
+              description: `Max iterations (${event.updates?.max_iterations}) reached`,
+              streamingContent: streamingContent,
+            };
+          }
+          return agent;
+        }));
+        return;
+      }
+    }
 
     // Handle workflow-level status updates (retry_requested, rejected, etc.)
     if (nodeName === 'workflow') {
@@ -263,10 +307,22 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           } else if (status === 'error' || status === 'rejected' || status === 'timeout') {
             newStatus = 'error';
           }
+
+          // Build description with refinement iteration info
+          let description = agentDescription || agent.description;
+          if (currentRefinementIteration && currentRefinementIteration > 0) {
+            // Add iteration info for quality gates and refiner
+            if (['reviewer', 'qa_gate', 'security_gate'].includes(nodeName)) {
+              description = `${description} (iter ${currentRefinementIteration + 1})`;
+            } else if (nodeName === 'refiner') {
+              description = `Iteration ${currentRefinementIteration}/${event.updates?.max_iterations || 3}`;
+            }
+          }
+
           return {
             ...agent,
             title: agentTitle || agent.title,
-            description: agentDescription || agent.description,
+            description: description,
             status: newStatus,
             executionTime: executionTime !== undefined ? executionTime : agent.executionTime,
             streamingContent: streamingContent || agent.streamingContent,

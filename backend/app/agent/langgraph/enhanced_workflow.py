@@ -456,34 +456,143 @@ class EnhancedWorkflow:
                 "streaming_content": coder_summary,
             })
 
-            # ==================== PHASE 4: QUALITY GATES ====================
+            # ==================== PHASE 4: QUALITY GATES WITH REFINEMENT LOOP ====================
             complexity = supervisor_analysis.get("complexity", "moderate")
+            max_refinement_iterations = 3
+            refinement_iteration = 0
+            all_gates_passed = False
 
-            # Run quality gates
-            for gate_name, gate_func in [
-                ("reviewer", reviewer_node),
-                ("qa_gate", qa_gate_node),
-                ("security_gate", security_gate_node),
-            ]:
-                yield self._create_update(gate_name, "starting", {
-                    "message": f"Running {self._get_agent_info(gate_name)['title']}...",
-                })
+            while not all_gates_passed and refinement_iteration <= max_refinement_iterations:
+                # Show refinement iteration info if this is a refinement pass
+                if refinement_iteration > 0:
+                    yield self._create_update("refiner", "iteration_start", {
+                        "iteration": refinement_iteration,
+                        "max_iterations": max_refinement_iterations,
+                        "message": f"Refinement iteration {refinement_iteration}/{max_refinement_iterations}",
+                        "streaming_content": f"🔄 Refinement Loop - Iteration {refinement_iteration}/{max_refinement_iterations}\n\nRe-evaluating code quality after fixes...",
+                    })
 
-                gate_start = time.time()
-                gate_result = gate_func(state)
-                agent_times[gate_name] = time.time() - gate_start
-                completed_agents.append(gate_name)
-                state.update(gate_result)
+                # Run all quality gates
+                gate_results = {}
+                for gate_name, gate_func in [
+                    ("reviewer", reviewer_node),
+                    ("qa_gate", qa_gate_node),
+                    ("security_gate", security_gate_node),
+                ]:
+                    gate_display = gate_name if refinement_iteration == 0 else f"{gate_name}_r{refinement_iteration}"
 
-                # Create streaming content for gate results
-                gate_content = self._format_gate_result(gate_name, gate_result)
+                    yield self._create_update(gate_name, "starting", {
+                        "message": f"Running {self._get_agent_info(gate_name)['title']}..." + (f" (iteration {refinement_iteration + 1})" if refinement_iteration > 0 else ""),
+                        "refinement_iteration": refinement_iteration,
+                    })
 
-                yield self._create_update(gate_name, "completed", {
-                    "result": gate_result,
-                    "execution_time": agent_times[gate_name],
-                    "completed_agents": completed_agents.copy(),
-                    "streaming_content": gate_content,
-                })
+                    gate_start = time.time()
+                    gate_result = gate_func(state)
+                    gate_time = time.time() - gate_start
+
+                    # Track time only for first iteration
+                    if refinement_iteration == 0:
+                        agent_times[gate_name] = gate_time
+                        completed_agents.append(gate_name)
+                    else:
+                        agent_times[gate_name] = agent_times.get(gate_name, 0) + gate_time
+
+                    state.update(gate_result)
+                    gate_results[gate_name] = gate_result
+
+                    # Create streaming content for gate results
+                    gate_content = self._format_gate_result(gate_name, gate_result)
+                    if refinement_iteration > 0:
+                        gate_content = f"[Iteration {refinement_iteration + 1}]\n" + gate_content
+
+                    yield self._create_update(gate_name, "completed", {
+                        "result": gate_result,
+                        "execution_time": gate_time,
+                        "completed_agents": completed_agents.copy(),
+                        "streaming_content": gate_content,
+                        "refinement_iteration": refinement_iteration,
+                    })
+
+                # Check if all gates passed
+                review_approved = state.get("review_approved", True)
+                qa_passed = state.get("qa_passed", True)
+                security_passed = state.get("security_passed", True)
+                review_quality_score = state.get("review_feedback", {}).get("quality_score", 1.0)
+
+                all_gates_passed = review_approved and qa_passed and security_passed and review_quality_score >= 0.7
+
+                if all_gates_passed:
+                    logger.info(f"✅ All quality gates passed at iteration {refinement_iteration}")
+                    break
+
+                # If not all passed and we have iterations left, run refiner
+                if refinement_iteration < max_refinement_iterations:
+                    refinement_iteration += 1
+
+                    # Collect combined feedback for refiner
+                    combined_feedback = self._collect_quality_feedback(state, gate_results)
+
+                    yield self._create_update("refiner", "starting", {
+                        "message": f"Fixing issues based on quality gate feedback (iteration {refinement_iteration})...",
+                        "iteration": refinement_iteration,
+                        "max_iterations": max_refinement_iterations,
+                        "issues_to_fix": combined_feedback.get("all_issues", []),
+                        "streaming_content": f"🔧 Refiner - Iteration {refinement_iteration}/{max_refinement_iterations}\n\nFixes needed:\n" + "\n".join(f"  • {issue}" for issue in combined_feedback.get("all_issues", [])[:5]),
+                    })
+
+                    # Update state with combined feedback for refiner
+                    state["review_feedback"] = {
+                        "approved": False,
+                        "issues": combined_feedback.get("all_issues", []),
+                        "suggestions": combined_feedback.get("all_suggestions", []),
+                        "quality_score": review_quality_score,
+                        "critique": f"Quality gates failed. Security: {security_passed}, QA: {qa_passed}, Review: {review_approved}"
+                    }
+                    state["refinement_iteration"] = refinement_iteration
+
+                    # Run refiner
+                    refiner_start = time.time()
+                    refiner_result = refiner_node(state)
+                    refiner_time = time.time() - refiner_start
+
+                    if refinement_iteration == 1:
+                        agent_times["refiner"] = refiner_time
+                        completed_agents.append("refiner")
+                    else:
+                        agent_times["refiner"] = agent_times.get("refiner", 0) + refiner_time
+
+                    state.update(refiner_result)
+
+                    # Show refiner result
+                    refiner_output = refiner_result.get("refiner_output", {})
+                    diffs_count = refiner_output.get("diffs_generated", 0)
+
+                    yield self._create_update("refiner", "completed", {
+                        "refiner_output": refiner_output,
+                        "diffs_count": diffs_count,
+                        "iteration": refinement_iteration,
+                        "execution_time": refiner_time,
+                        "streaming_content": f"✅ Refiner Completed (Iteration {refinement_iteration})\n\n• {diffs_count} fixes applied\n• Re-running quality gates...",
+                    })
+
+                    logger.info(f"🔧 Refiner iteration {refinement_iteration}: {diffs_count} fixes applied")
+                else:
+                    # Max iterations reached
+                    logger.warning(f"⚠️ Max refinement iterations ({max_refinement_iterations}) reached")
+                    yield self._create_update("refiner", "max_iterations_reached", {
+                        "message": f"Max refinement iterations ({max_refinement_iterations}) reached",
+                        "iteration": refinement_iteration,
+                        "max_iterations": max_refinement_iterations,
+                        "streaming_content": f"⚠️ Refinement Loop Complete\n\n• Max iterations ({max_refinement_iterations}) reached\n• Some issues may remain\n• Proceeding to human review",
+                    })
+                    break
+
+            # Log final quality gate status
+            logger.info(f"📊 Quality Gates Final Status:")
+            logger.info(f"   Review: {'✅' if state.get('review_approved', True) else '❌'}")
+            logger.info(f"   QA: {'✅' if state.get('qa_passed', True) else '❌'}")
+            logger.info(f"   Security: {'✅' if state.get('security_passed', True) else '❌'}")
+            logger.info(f"   Refinement iterations: {refinement_iteration}")
 
             # ==================== PHASE 5: AGGREGATION ====================
             yield self._create_update("aggregator", "starting", {
@@ -502,10 +611,15 @@ class EnhancedWorkflow:
                 state.get("review_approved", True)
             )
 
+            # Include refinement iteration info in aggregation summary
             agg_content = f"Quality Gate Results:\n"
             agg_content += f"  • Security: {'✅ Passed' if state.get('security_passed', True) else '❌ Failed'}\n"
             agg_content += f"  • QA Tests: {'✅ Passed' if state.get('qa_passed', True) else '❌ Failed'}\n"
-            agg_content += f"  • Review: {'✅ Approved' if state.get('review_approved', True) else '❌ Rejected'}"
+            agg_content += f"  • Review: {'✅ Approved' if state.get('review_approved', True) else '❌ Rejected'}\n"
+            if refinement_iteration > 0:
+                agg_content += f"\n🔄 Refinement Loop:\n"
+                agg_content += f"  • Iterations: {refinement_iteration}\n"
+                agg_content += f"  • Final Quality Score: {state.get('review_feedback', {}).get('quality_score', 0):.0%}"
 
             yield self._create_update("aggregator", "completed", {
                 "all_gates_passed": all_passed,
@@ -513,6 +627,7 @@ class EnhancedWorkflow:
                 "tests_passed": state.get("tests_passed"),
                 "review_approved": state.get("review_approved"),
                 "execution_time": agent_times["aggregator"],
+                "refinement_iterations": refinement_iteration,
                 "streaming_content": agg_content,
             })
 
@@ -927,6 +1042,58 @@ export function main() {{
 }}'''
         else:
             return f"# {file_path}\n# {purpose}"
+
+    def _collect_quality_feedback(self, state: Dict, gate_results: Dict) -> Dict:
+        """Collect combined feedback from all quality gates for the refiner
+
+        Args:
+            state: Current workflow state
+            gate_results: Results from quality gates
+
+        Returns:
+            Combined feedback with all issues and suggestions
+        """
+        all_issues = []
+        all_suggestions = []
+
+        # Collect from reviewer
+        review_feedback = state.get("review_feedback", {})
+        if review_feedback.get("issues"):
+            all_issues.extend(review_feedback["issues"])
+        if review_feedback.get("suggestions"):
+            all_suggestions.extend(review_feedback["suggestions"])
+
+        # Collect from QA gate
+        qa_results = state.get("qa_results", {})
+        qa_checks = qa_results.get("checks", {})
+        for check_name, check_result in qa_checks.items():
+            if not check_result.get("passed", True):
+                all_issues.append(f"[QA] {check_name}: {check_result.get('message', 'Failed')}")
+
+        # Collect from security gate
+        security_findings = state.get("security_findings", [])
+        for finding in security_findings:
+            severity = finding.get("severity", "medium")
+            category = finding.get("category", "unknown")
+            description = finding.get("description", "Security issue")
+            recommendation = finding.get("recommendation", "")
+
+            all_issues.append(f"[Security:{severity}] {category}: {description}")
+            if recommendation:
+                all_suggestions.append(f"[Security] {recommendation}")
+
+        # Deduplicate
+        all_issues = list(dict.fromkeys(all_issues))
+        all_suggestions = list(dict.fromkeys(all_suggestions))
+
+        return {
+            "all_issues": all_issues,
+            "all_suggestions": all_suggestions,
+            "review_quality_score": review_feedback.get("quality_score", 0.0),
+            "qa_passed": state.get("qa_passed", False),
+            "security_passed": state.get("security_passed", False),
+            "review_approved": state.get("review_approved", False),
+        }
 
     def _format_gate_result(self, gate_name: str, result: Dict) -> str:
         """Format quality gate result for streaming display"""
