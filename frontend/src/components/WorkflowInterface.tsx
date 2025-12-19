@@ -447,12 +447,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
 
             // Convert unified format to WorkflowUpdate format
             const update: WorkflowUpdate = {
-              agent: event.node || 'Workflow',
+              agent: event.agent_title || event.node || 'Workflow',
               type: event.status === 'completed' ? 'completed' :
                     event.status === 'error' ? 'error' : 'update',
               status: event.status,
-              message: event.updates?.current_node ? `Processing: ${event.updates.current_node}` :
-                      event.updates?.error || event.node,
+              message: event.updates?.message || event.updates?.streaming_content?.split('\n')[0] || event.node,
+              streaming_content: event.updates?.streaming_content,
+              execution_time: event.updates?.execution_time,
               ...event.updates,
             };
 
@@ -803,6 +804,40 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
               isRunning={isRunning}
             />
           </div>
+        </div>
+      )}
+
+      {/* Real-time Streaming Content Display */}
+      {isRunning && currentStreamingContent && (
+        <div className="sticky top-[140px] z-10 bg-gradient-to-r from-gray-900 to-gray-800 shadow-lg mx-4 rounded-lg border border-gray-700 overflow-hidden">
+          <div className="px-4 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+              </span>
+              <span className="text-sm font-medium text-gray-200">
+                {agentProgress.find(a => a.status === 'running')?.title || 'Agent'} - Live Output
+              </span>
+              {currentStreamingFile && (
+                <span className="text-xs text-gray-400 font-mono bg-gray-700 px-2 py-0.5 rounded">
+                  {currentStreamingFile}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setCurrentStreamingContent('')}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <pre className="p-4 text-sm font-mono text-gray-300 max-h-48 overflow-auto whitespace-pre-wrap">
+            {currentStreamingContent}
+            <span className="inline-block w-2 h-4 bg-green-400 animate-pulse ml-0.5" />
+          </pre>
         </div>
       )}
 

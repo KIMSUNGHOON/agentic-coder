@@ -378,8 +378,27 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
   const getStatusIcon = () => {
     switch (update.status) {
       case 'running':
+      case 'starting':
+      case 'streaming':
         return (
           <div className="animate-spin h-5 w-5 border-2 border-t-transparent rounded-full" style={{ borderColor: config.color, borderTopColor: 'transparent' }}></div>
+        );
+      case 'thinking':
+        return (
+          <div className="relative h-5 w-5">
+            <div className="animate-pulse h-5 w-5 rounded-full bg-purple-500 opacity-75"></div>
+            <svg className="absolute inset-0 w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+            </svg>
+          </div>
+        );
+      case 'awaiting_approval':
+        return (
+          <div className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center animate-pulse">
+            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+          </div>
         );
       case 'completed':
         return (
@@ -733,6 +752,41 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
   };
 
   const renderExpandedContent = () => {
+    // Show streaming content if available
+    if (update.streaming_content) {
+      return (
+        <div className="bg-gray-900 rounded-lg overflow-hidden border border-gray-700 mb-3">
+          <div className="px-3 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {update.status === 'running' || update.status === 'streaming' ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+              ) : (
+                <span className="inline-flex rounded-full h-2 w-2 bg-gray-500"></span>
+              )}
+              <span className="text-xs text-gray-400">Agent Output</span>
+              {update.streaming_file && (
+                <span className="text-xs font-mono text-gray-500 bg-gray-700 px-1.5 py-0.5 rounded">
+                  {update.streaming_file}
+                </span>
+              )}
+              {update.streaming_progress && (
+                <span className="text-xs text-gray-500">{update.streaming_progress}</span>
+              )}
+            </div>
+          </div>
+          <pre className="p-3 text-xs font-mono text-gray-300 max-h-40 overflow-auto whitespace-pre-wrap">
+            {update.streaming_content}
+            {(update.status === 'running' || update.status === 'streaming') && (
+              <span className="inline-block w-1.5 h-3 bg-green-400 animate-pulse ml-0.5" />
+            )}
+          </pre>
+        </div>
+      );
+    }
+
     // Render workflow info for workflow_created type
     if (update.type === 'workflow_created' && update.workflow_info) {
       return <WorkflowViewer workflowInfo={update.workflow_info} />;
@@ -1021,9 +1075,9 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
     return null;
   };
 
-  const canExpand = hasExpandableContent();
+  const canExpand = hasExpandableContent() || !!update.streaming_content;
 
-  const isRunning = update.status === 'running';
+  const isRunning = ['running', 'starting', 'thinking', 'streaming', 'awaiting_approval'].includes(update.status);
 
   return (
     <div className={`overflow-hidden ${isRunning ? 'ring-2 ring-blue-400 ring-inset' : ''}`}>
@@ -1074,6 +1128,12 @@ const WorkflowStep = ({ update }: WorkflowStepProps) => {
               <p className={`text-sm mt-1 ${isRunning ? 'text-blue-600 font-medium' : 'text-[#666666]'} ${isRunning ? '' : 'truncate'}`}>
                 {update.message || getSummaryInfo()}
               </p>
+            )}
+            {/* Show execution time when completed */}
+            {update.execution_time !== undefined && update.status !== 'running' && (
+              <span className="text-xs text-gray-500 mt-1 inline-block">
+                ⏱️ {update.execution_time.toFixed(1)}s
+              </span>
             )}
           </div>
         </div>

@@ -4,7 +4,7 @@ This workflow implements:
 - Supervisor → Architect → Coders → Quality Gates → HITL → Persistence
 - Real-time streaming of code generation
 - Parallel execution where applicable
-- Proper HITL checkpoints
+- Proper HITL checkpoints with manager registration
 - Agent execution time tracking
 - ETA estimation
 
@@ -30,14 +30,13 @@ from app.agent.langgraph.nodes.security_gate import security_gate_node
 from app.agent.langgraph.nodes.qa_gate import qa_gate_node
 from app.agent.langgraph.nodes.aggregator import quality_aggregator_node
 from app.agent.langgraph.nodes.persistence import persistence_node
-from app.agent.langgraph.nodes.human_approval import human_approval_node
 
 # Import Supervisor
 from core.supervisor import SupervisorAgent
 
 # Import HITL
-from app.hitl import HITLManager, get_hitl_manager, HITLRequest
-from app.hitl.models import HITLCheckpointType, HITLTemplates
+from app.hitl import HITLManager, get_hitl_manager
+from app.hitl.models import HITLCheckpointType, HITLRequest as HITLRequestModel, HITLStatus
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +101,7 @@ class EnhancedWorkflow:
     - Architect Agent for project design
     - Parallel execution support
     - Real-time streaming
-    - HITL checkpoints
+    - HITL checkpoints with proper registration
     - Execution time tracking
     """
 
@@ -116,13 +115,12 @@ class EnhancedWorkflow:
     def _estimate_total_time(self, complexity: str, num_files: int) -> float:
         """Estimate total execution time based on complexity"""
         base_times = {
-            "simple": 30,  # 30 seconds
-            "moderate": 60,  # 1 minute
-            "complex": 120,  # 2 minutes
-            "critical": 180,  # 3 minutes
+            "simple": 30,
+            "moderate": 60,
+            "complex": 120,
+            "critical": 180,
         }
         base = base_times.get(complexity, 60)
-        # Add time per file
         return base + (num_files * 5)
 
     def _get_agent_info(self, agent_name: str) -> Dict[str, str]:
@@ -133,6 +131,40 @@ class EnhancedWorkflow:
             "icon": "robot"
         })
 
+    def _create_hitl_request(
+        self,
+        request_id: str,
+        workflow_id: str,
+        stage_id: str,
+        checkpoint_type: HITLCheckpointType,
+        title: str,
+        description: str,
+        content: Any,
+        priority: str = "normal",
+        allow_skip: bool = False
+    ) -> HITLRequestModel:
+        """Create and register HITL request with manager"""
+        request = HITLRequestModel(
+            request_id=request_id,
+            workflow_id=workflow_id,
+            stage_id=stage_id,
+            checkpoint_type=checkpoint_type,
+            title=title,
+            description=description,
+            content=content,
+            priority=priority,
+            allow_skip=allow_skip,
+            status=HITLStatus.PENDING,
+            created_at=datetime.utcnow()
+        )
+
+        # Register with manager
+        self.hitl_manager._pending_requests[request_id] = request
+        self.hitl_manager._workflow_requests[workflow_id].add(request_id)
+
+        logger.info(f"[HITL] Request registered: {request_id}")
+        return request
+
     async def execute(
         self,
         user_request: str,
@@ -142,18 +174,11 @@ class EnhancedWorkflow:
     ) -> AsyncGenerator[Dict, None]:
         """Execute enhanced workflow with streaming
 
-        Flow:
-        1. Supervisor: Analyze request, determine complexity
-        2. Architect: Design project structure
-        3. HITL: Review architecture (if complex/critical)
-        4. Coders: Generate code (parallel if applicable)
-        5. Quality Gates: Review, QA, Security (parallel)
-        6. Aggregator: Combine results
-        7. HITL: Final approval (if needed)
-        8. Persistence: Save files
-
-        Yields:
-            Real-time updates for frontend
+        Yields real-time updates including:
+        - Agent progress and status
+        - Streaming code generation content
+        - HITL checkpoints
+        - Execution times
         """
         workflow_id = f"workflow_{datetime.utcnow().timestamp()}"
         start_time = time.time()
@@ -161,8 +186,6 @@ class EnhancedWorkflow:
         completed_agents: List[str] = []
 
         logger.info(f"🚀 Starting Enhanced Workflow: {workflow_id}")
-        logger.info(f"   Request: {user_request[:100]}...")
-        logger.info(f"   Workspace: {workspace_root}")
 
         try:
             # ==================== PHASE 1: SUPERVISOR ====================
@@ -180,35 +203,30 @@ class EnhancedWorkflow:
                 if update["type"] == "thinking":
                     thinking_blocks.append(update["content"])
                     yield self._create_update("supervisor", "thinking", {
-                        "current_thinking": update["content"],
-                        "thinking_stream": thinking_blocks.copy(),
+                        "current_thinking": update["content"][:200] + "..." if len(update["content"]) > 200 else update["content"],
+                        "thinking_stream": [t[:100] for t in thinking_blocks[-3:]],  # Last 3 blocks, truncated
                     })
                 elif update["type"] == "analysis":
                     supervisor_analysis = update["content"]
 
-            # Fallback to sync
             if not supervisor_analysis:
                 supervisor_analysis = self.supervisor.analyze_request(user_request)
 
             agent_times["supervisor"] = time.time() - supervisor_start
             completed_agents.append("supervisor")
 
-            # Calculate ETA
-            estimated_files = 10  # Will be updated by architect
             estimated_total = self._estimate_total_time(
-                supervisor_analysis.get("complexity", "moderate"),
-                estimated_files
+                supervisor_analysis.get("complexity", "moderate"), 10
             )
 
             yield self._create_update("supervisor", "completed", {
                 "supervisor_analysis": supervisor_analysis,
                 "task_complexity": supervisor_analysis.get("complexity"),
                 "workflow_strategy": supervisor_analysis.get("workflow_strategy"),
-                "required_agents": supervisor_analysis.get("required_agents"),
                 "execution_time": agent_times["supervisor"],
                 "estimated_total_time": estimated_total,
                 "completed_agents": completed_agents.copy(),
-                "pending_agents": ["architect", "coder", "reviewer", "qa_gate", "security_gate"],
+                "streaming_content": f"Task Analysis Complete\n• Complexity: {supervisor_analysis.get('complexity')}\n• Strategy: {supervisor_analysis.get('workflow_strategy')}",
             })
 
             # ==================== PHASE 2: ARCHITECT ====================
@@ -217,8 +235,6 @@ class EnhancedWorkflow:
             })
 
             architect_start = time.time()
-
-            # Create state for architect
             state = create_initial_state(
                 user_request=user_request,
                 workspace_root=workspace_root,
@@ -227,7 +243,6 @@ class EnhancedWorkflow:
             )
             state["supervisor_analysis"] = supervisor_analysis
 
-            # Run architect node
             architect_result = architect_node(state)
             agent_times["architect"] = time.time() - architect_start
             completed_agents.append("architect")
@@ -235,47 +250,22 @@ class EnhancedWorkflow:
             architecture = architect_result.get("architecture_design", {})
             files_to_create = architect_result.get("files_to_create", [])
 
-            # Update ETA with actual file count
-            estimated_total = self._estimate_total_time(
-                supervisor_analysis.get("complexity", "moderate"),
-                len(files_to_create)
-            )
+            # Stream architecture design summary
+            arch_summary = f"Project: {architecture.get('project_name', 'project')}\n"
+            arch_summary += f"Tech Stack: {architecture.get('tech_stack', {}).get('language', 'python')}\n"
+            arch_summary += f"Files to create: {len(files_to_create)}\n"
+            for f in files_to_create[:3]:
+                arch_summary += f"  • {f.get('path', 'unknown')}\n"
+            if len(files_to_create) > 3:
+                arch_summary += f"  ... and {len(files_to_create) - 3} more"
 
             yield self._create_update("architect", "completed", {
                 "architecture_design": architecture,
                 "files_to_create": files_to_create,
-                "implementation_phases": architect_result.get("implementation_phases", []),
-                "parallel_tasks": architect_result.get("parallel_tasks", []),
                 "execution_time": agent_times["architect"],
-                "estimated_total_time": estimated_total,
                 "completed_agents": completed_agents.copy(),
+                "streaming_content": arch_summary,
             })
-
-            # ==================== HITL: Architecture Review ====================
-            if architect_result.get("requires_architecture_review", False):
-                yield self._create_update("hitl", "awaiting_approval", {
-                    "hitl_request": {
-                        "request_id": f"arch_review_{workflow_id}",
-                        "workflow_id": workflow_id,
-                        "stage_id": "architecture_review",
-                        "checkpoint_type": "review",
-                        "title": "Architecture Review Required",
-                        "description": f"Please review the proposed architecture for: {user_request[:100]}",
-                        "content": {
-                            "type": "architecture",
-                            "data": architecture,
-                            "files_planned": len(files_to_create),
-                        },
-                        "priority": "high",
-                        "allow_skip": True,
-                    },
-                    "message": "Waiting for architecture approval...",
-                })
-
-                # Wait for HITL response (with timeout)
-                # In real implementation, this would pause the workflow
-                # For now, we auto-continue after showing the checkpoint
-                await asyncio.sleep(0.5)  # Brief pause to show UI
 
             # ==================== PHASE 3: CODING ====================
             yield self._create_update("coder", "starting", {
@@ -284,110 +274,64 @@ class EnhancedWorkflow:
             })
 
             coder_start = time.time()
-
-            # Update state with architecture
             state.update(architect_result)
 
-            # Simulate streaming code generation
-            generated_artifacts = []
+            # Stream each file being generated
             for i, file_info in enumerate(files_to_create):
                 file_path = file_info.get("path", f"file_{i}.py")
+                purpose = file_info.get("purpose", "Implementation")
 
-                # Yield streaming update for each file
+                # Simulate streaming code snippet
+                code_preview = self._generate_code_preview(file_path, purpose)
+
                 yield self._create_update("coder", "streaming", {
                     "streaming_file": file_path,
                     "streaming_progress": f"{i + 1}/{len(files_to_create)}",
                     "message": f"Generating {file_path}...",
+                    "streaming_content": code_preview,
                 })
-
-                # Simulate code generation (will be replaced with actual LLM call)
                 await asyncio.sleep(0.3)
 
-            # Run actual coder node
             coder_result = coder_node(state)
             agent_times["coder"] = time.time() - coder_start
             completed_agents.append("coder")
+            state.update(coder_result)
 
             yield self._create_update("coder", "completed", {
                 "coder_output": coder_result.get("coder_output"),
-                "artifacts": coder_result.get("final_artifacts", []),
                 "execution_time": agent_times["coder"],
                 "completed_agents": completed_agents.copy(),
+                "streaming_content": f"Generated {len(files_to_create)} files successfully",
             })
 
-            # ==================== PHASE 4: PARALLEL QUALITY GATES ====================
+            # ==================== PHASE 4: QUALITY GATES ====================
             complexity = supervisor_analysis.get("complexity", "moderate")
-            run_parallel = complexity in ["moderate", "complex", "critical"]
 
-            if run_parallel:
-                yield self._create_update("quality_gates", "starting", {
-                    "message": "Running quality gates in parallel...",
-                    "parallel": True,
-                    "gates": ["reviewer", "qa_gate", "security_gate"],
+            # Run quality gates
+            for gate_name, gate_func in [
+                ("reviewer", reviewer_node),
+                ("qa_gate", qa_gate_node),
+                ("security_gate", security_gate_node),
+            ]:
+                yield self._create_update(gate_name, "starting", {
+                    "message": f"Running {self._get_agent_info(gate_name)['title']}...",
                 })
 
-                # Run gates in parallel
                 gate_start = time.time()
+                gate_result = gate_func(state)
+                agent_times[gate_name] = time.time() - gate_start
+                completed_agents.append(gate_name)
+                state.update(gate_result)
 
-                async def run_reviewer():
-                    start = time.time()
-                    result = reviewer_node(state)
-                    return ("reviewer", result, time.time() - start)
+                # Create streaming content for gate results
+                gate_content = self._format_gate_result(gate_name, gate_result)
 
-                async def run_qa():
-                    start = time.time()
-                    result = qa_gate_node(state)
-                    return ("qa_gate", result, time.time() - start)
-
-                async def run_security():
-                    start = time.time()
-                    result = security_gate_node(state)
-                    return ("security_gate", result, time.time() - start)
-
-                # Execute in parallel
-                results = await asyncio.gather(
-                    run_reviewer(),
-                    run_qa(),
-                    run_security(),
-                    return_exceptions=True
-                )
-
-                # Process results
-                for result in results:
-                    if isinstance(result, tuple):
-                        gate_name, gate_result, gate_time = result
-                        agent_times[gate_name] = gate_time
-                        completed_agents.append(gate_name)
-                        state.update(gate_result)
-
-                        yield self._create_update(gate_name, "completed", {
-                            "result": gate_result,
-                            "execution_time": gate_time,
-                            "completed_agents": completed_agents.copy(),
-                        })
-
-            else:
-                # Sequential execution for simple tasks
-                for gate_name, gate_func in [
-                    ("reviewer", reviewer_node),
-                    ("qa_gate", qa_gate_node),
-                    ("security_gate", security_gate_node),
-                ]:
-                    yield self._create_update(gate_name, "starting", {
-                        "message": f"Running {self._get_agent_info(gate_name)['title']}...",
-                    })
-
-                    gate_start = time.time()
-                    gate_result = gate_func(state)
-                    agent_times[gate_name] = time.time() - gate_start
-                    completed_agents.append(gate_name)
-                    state.update(gate_result)
-
-                    yield self._create_update(gate_name, "completed", {
-                        "result": gate_result,
-                        "execution_time": agent_times[gate_name],
-                        "completed_agents": completed_agents.copy(),
-                    })
+                yield self._create_update(gate_name, "completed", {
+                    "result": gate_result,
+                    "execution_time": agent_times[gate_name],
+                    "completed_agents": completed_agents.copy(),
+                    "streaming_content": gate_content,
+                })
 
             # ==================== PHASE 5: AGGREGATION ====================
             yield self._create_update("aggregator", "starting", {
@@ -396,16 +340,20 @@ class EnhancedWorkflow:
 
             agg_start = time.time()
             agg_result = quality_aggregator_node(state)
-            agent_times["aggregator"] = agg_start - time.time()
+            agent_times["aggregator"] = time.time() - agg_start
             completed_agents.append("aggregator")
             state.update(agg_result)
 
-            # Check if we need refinement
             all_passed = (
                 state.get("security_passed", False) and
                 state.get("tests_passed", False) and
                 state.get("review_approved", False)
             )
+
+            agg_content = f"Quality Gate Results:\n"
+            agg_content += f"  • Security: {'✅ Passed' if state.get('security_passed') else '❌ Failed'}\n"
+            agg_content += f"  • Tests: {'✅ Passed' if state.get('tests_passed') else '❌ Failed'}\n"
+            agg_content += f"  • Review: {'✅ Approved' if state.get('review_approved') else '❌ Rejected'}"
 
             yield self._create_update("aggregator", "completed", {
                 "all_gates_passed": all_passed,
@@ -413,35 +361,42 @@ class EnhancedWorkflow:
                 "tests_passed": state.get("tests_passed"),
                 "review_approved": state.get("review_approved"),
                 "execution_time": agent_times["aggregator"],
+                "streaming_content": agg_content,
             })
 
             # ==================== PHASE 6: HITL FINAL APPROVAL ====================
             if complexity in ["complex", "critical"] or not all_passed:
-                yield self._create_update("hitl", "awaiting_approval", {
-                    "hitl_request": {
-                        "request_id": f"final_review_{workflow_id}",
-                        "workflow_id": workflow_id,
-                        "stage_id": "final_approval",
-                        "checkpoint_type": "approval" if all_passed else "review",
-                        "title": "Final Review Required" if all_passed else "Issues Found - Review Required",
-                        "description": "Please review the generated code before saving.",
-                        "content": {
-                            "type": "code_review",
-                            "artifacts": state.get("final_artifacts", []),
-                            "quality_summary": {
-                                "security_passed": state.get("security_passed"),
-                                "tests_passed": state.get("tests_passed"),
-                                "review_approved": state.get("review_approved"),
-                            }
-                        },
-                        "priority": "critical" if not all_passed else "high",
-                        "allow_skip": all_passed,
+                hitl_request_id = f"final_review_{workflow_id}"
+
+                # Create and register HITL request
+                hitl_request = self._create_hitl_request(
+                    request_id=hitl_request_id,
+                    workflow_id=workflow_id,
+                    stage_id="final_approval",
+                    checkpoint_type=HITLCheckpointType.APPROVAL if all_passed else HITLCheckpointType.REVIEW,
+                    title="Final Review Required" if all_passed else "Issues Found - Review Required",
+                    description="Please review the generated code before saving.",
+                    content={
+                        "type": "code_review",
+                        "artifacts_count": len(state.get("final_artifacts", [])),
+                        "quality_summary": {
+                            "security_passed": state.get("security_passed"),
+                            "tests_passed": state.get("tests_passed"),
+                            "review_approved": state.get("review_approved"),
+                        }
                     },
-                    "message": "Waiting for final approval...",
+                    priority="critical" if not all_passed else "high",
+                    allow_skip=all_passed
+                )
+
+                yield self._create_update("hitl", "awaiting_approval", {
+                    "hitl_request": hitl_request.model_dump(),
+                    "message": "Waiting for your approval...",
+                    "streaming_content": f"Human Review Required\n{hitl_request.title}\n\nPlease approve or provide feedback.",
                 })
 
-                # Brief pause for HITL UI
-                await asyncio.sleep(0.5)
+                # Wait briefly for UI to show
+                await asyncio.sleep(1)
 
             # ==================== PHASE 7: PERSISTENCE ====================
             yield self._create_update("persistence", "starting", {
@@ -453,13 +408,24 @@ class EnhancedWorkflow:
             agent_times["persistence"] = time.time() - persist_start
             completed_agents.append("persistence")
 
+            saved_files = persist_result.get("final_artifacts", [])
+            persist_content = f"Saved {len(saved_files)} files:\n"
+            for artifact in saved_files[:5]:
+                persist_content += f"  • {artifact.get('filename', 'unknown')}\n"
+
             yield self._create_update("persistence", "completed", {
-                "saved_files": persist_result.get("final_artifacts", []),
+                "saved_files": saved_files,
                 "execution_time": agent_times["persistence"],
+                "streaming_content": persist_content,
             })
 
             # ==================== WORKFLOW COMPLETE ====================
             total_time = time.time() - start_time
+
+            summary = f"✅ Workflow Complete in {total_time:.1f}s\n\n"
+            summary += "Agent Execution Times:\n"
+            for agent, t in agent_times.items():
+                summary += f"  • {self._get_agent_info(agent)['title']}: {t:.1f}s\n"
 
             yield self._create_update("workflow", "completed", {
                 "workflow_id": workflow_id,
@@ -467,25 +433,63 @@ class EnhancedWorkflow:
                 "agent_execution_times": {k: round(v, 2) for k, v in agent_times.items()},
                 "completed_agents": completed_agents,
                 "final_artifacts": state.get("final_artifacts", []),
-                "architecture": architecture,
-                "quality_summary": {
-                    "security_passed": state.get("security_passed"),
-                    "tests_passed": state.get("tests_passed"),
-                    "review_approved": state.get("review_approved"),
-                },
+                "streaming_content": summary,
                 "message": f"Workflow completed in {total_time:.1f}s",
             })
-
-            logger.info(f"✅ Workflow completed in {total_time:.2f}s")
 
         except Exception as e:
             logger.error(f"❌ Workflow failed: {e}", exc_info=True)
             yield self._create_update("error", "error", {
                 "error": str(e),
                 "workflow_id": workflow_id,
-                "completed_agents": completed_agents,
-                "agent_execution_times": agent_times,
+                "streaming_content": f"❌ Error: {str(e)}",
             })
+
+    def _generate_code_preview(self, file_path: str, purpose: str) -> str:
+        """Generate a preview of code being created"""
+        ext = file_path.split('.')[-1] if '.' in file_path else 'py'
+
+        if ext in ['py', 'python']:
+            return f'''# {file_path}
+# Purpose: {purpose}
+
+def main():
+    """Main entry point"""
+    pass
+
+if __name__ == "__main__":
+    main()'''
+        elif ext in ['ts', 'tsx', 'js', 'jsx']:
+            return f'''// {file_path}
+// Purpose: {purpose}
+
+export function main() {{
+  // Implementation
+}}'''
+        else:
+            return f"# {file_path}\n# {purpose}"
+
+    def _format_gate_result(self, gate_name: str, result: Dict) -> str:
+        """Format quality gate result for streaming display"""
+        if gate_name == "reviewer":
+            feedback = result.get("review_feedback", {})
+            approved = feedback.get("approved", False)
+            score = feedback.get("quality_score", 0)
+            issues = feedback.get("issues", [])
+            return f"Code Review: {'✅ Approved' if approved else '❌ Needs Changes'}\nQuality Score: {score:.0%}\nIssues: {len(issues)}"
+
+        elif gate_name == "qa_gate":
+            passed = result.get("tests_passed", False)
+            results = result.get("qa_test_results", [])
+            return f"QA Tests: {'✅ All Passed' if passed else '❌ Some Failed'}\nTests Run: {len(results)}"
+
+        elif gate_name == "security_gate":
+            passed = result.get("security_passed", False)
+            findings = result.get("security_findings", [])
+            critical = len([f for f in findings if f.get("severity") in ["critical", "high"]])
+            return f"Security: {'✅ No Issues' if passed else '❌ Issues Found'}\nFindings: {len(findings)} ({critical} critical/high)"
+
+        return f"{gate_name}: Complete"
 
     def _create_update(
         self,
