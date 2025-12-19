@@ -143,6 +143,19 @@ class QualityGateState(TypedDict, total=False):
     current_prompt: Optional[str]  # Current prompt being executed
     current_thinking: Optional[str]  # Current agent thinking process
 
+    # ==================== Supervisor Analysis (NEW) ====================
+    supervisor_analysis: Optional[Dict[str, Any]]  # Full supervisor analysis result
+    thinking_stream: Annotated[List[str], add]  # DeepSeek-R1 <think> blocks (append-only)
+    workflow_strategy: Optional[str]  # linear, parallel_gates, adaptive_loop, staged_approval
+    required_agents: List[str]  # List of required agent capabilities
+    task_complexity: Optional[str]  # simple, moderate, complex, critical
+
+    # ==================== HITL Integration (NEW) ====================
+    hitl_request: Optional[Dict[str, Any]]  # Current HITL request
+    hitl_checkpoint_type: Optional[str]  # approval, review, edit, choice, confirm
+    user_modified_content: Optional[str]  # Content modified by user during HITL
+    selected_option: Optional[str]  # User's choice in CHOICE checkpoint
+
 
 def create_initial_state(
     user_request: str,
@@ -229,4 +242,17 @@ def create_initial_state(
         enable_debug=enable_debug,
         current_prompt=None,
         current_thinking=None,
+
+        # Supervisor analysis (NEW)
+        supervisor_analysis=None,
+        thinking_stream=[],
+        workflow_strategy=None,
+        required_agents=[],
+        task_complexity=None,
+
+        # HITL integration (NEW)
+        hitl_request=None,
+        hitl_checkpoint_type=None,
+        user_modified_content=None,
+        selected_option=None,
     )

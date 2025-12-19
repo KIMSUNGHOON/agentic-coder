@@ -4,12 +4,13 @@
  * Now with parallel execution and shared context visualization
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { WorkflowUpdate, Artifact, WorkflowInfo } from '../types/api';
+import { WorkflowUpdate, Artifact, WorkflowInfo, HITLRequest, HITLCheckpointType } from '../types/api';
 import WorkflowStep from './WorkflowStep';
 import SharedContextViewer from './SharedContextViewer';
 import WorkflowGraph from './WorkflowGraph';
 import WorkspaceProjectSelector from './WorkspaceProjectSelector';
 import DebugPanel from './DebugPanel';
+import HITLModal from './HITLModal';
 import apiClient from '../api/client';
 
 interface DebugLog {
@@ -99,6 +100,14 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   // Debug panel state
   const [debugLogs, setDebugLogs] = useState<DebugLog[]>([]);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+
+  // HITL (Human-in-the-Loop) state
+  const [hitlRequest, setHitlRequest] = useState<HITLRequest | null>(null);
+  const [isHitlModalOpen, setIsHitlModalOpen] = useState(false);
+
+  // Thinking stream state (DeepSeek-R1)
+  const [thinkingStream, setThinkingStream] = useState<string[]>([]);
+  const [isThinking, setIsThinking] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -286,6 +295,35 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
               setDebugLogs(prev => [...prev, ...event.updates.debug_logs]);
             }
 
+            // Handle HITL (Human-in-the-Loop) requests
+            if (event.status === 'awaiting_approval' && event.updates?.hitl_request) {
+              const hitlReq = event.updates.hitl_request;
+              setHitlRequest({
+                request_id: hitlReq.request_id,
+                workflow_id: hitlReq.workflow_id,
+                stage_id: hitlReq.stage_id,
+                checkpoint_type: hitlReq.checkpoint_type as HITLCheckpointType,
+                title: hitlReq.title,
+                description: hitlReq.description,
+                content: hitlReq.content,
+                priority: hitlReq.priority,
+                allow_skip: hitlReq.allow_skip,
+              });
+              setIsHitlModalOpen(true);
+              continue; // Don't add to updates list yet
+            }
+
+            // Handle thinking stream (DeepSeek-R1)
+            if (event.status === 'thinking' && event.updates?.current_thinking) {
+              setIsThinking(true);
+              setThinkingStream(event.updates.thinking_stream || []);
+            }
+
+            // Clear thinking when moving past thinking status
+            if (event.status === 'running' && isThinking) {
+              setIsThinking(false);
+            }
+
             // Convert unified format to WorkflowUpdate format
             const update: WorkflowUpdate = {
               agent: event.node || 'Workflow',
@@ -385,6 +423,46 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       ]);
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  // Handle HITL response
+  const handleHitlResponse = async (action: string, feedback?: string, modifiedContent?: string) => {
+    if (!hitlRequest) return;
+
+    try {
+      await apiClient.submitHITLResponse(hitlRequest.request_id, {
+        action: action as any,
+        feedback,
+        modified_content: modifiedContent,
+      });
+
+      // Close modal and clear request
+      setIsHitlModalOpen(false);
+      setHitlRequest(null);
+
+      // Add update to show response was submitted
+      setUpdates(prev => [
+        ...prev,
+        {
+          agent: 'Human Approval',
+          type: action === 'approve' || action === 'confirm' ? 'completed' : 'error',
+          status: action === 'approve' || action === 'confirm' ? 'completed' : 'rejected',
+          message: action === 'approve' || action === 'confirm'
+            ? 'Changes approved by user'
+            : `Changes ${action} by user${feedback ? `: ${feedback}` : ''}`,
+        },
+      ]);
+    } catch (error) {
+      console.error('Failed to submit HITL response:', error);
+    }
+  };
+
+  // Handle HITL modal close/skip
+  const handleHitlClose = () => {
+    if (hitlRequest?.allow_skip) {
+      setIsHitlModalOpen(false);
+      setHitlRequest(null);
     }
   };
 
@@ -559,6 +637,33 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
               >
                 Don't Save
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DeepSeek-R1 Thinking Indicator */}
+      {isThinking && thinkingStream.length > 0 && (
+        <div className="sticky top-0 z-20 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-200">
+          <div className="max-w-4xl mx-auto px-4 py-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0 animate-pulse">
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-purple-800">DeepSeek-R1 Thinking</span>
+                  <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded">
+                    {thinkingStream.length} block{thinkingStream.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="text-xs text-purple-700 font-mono bg-white/50 rounded-lg p-2 max-h-20 overflow-y-auto">
+                  {thinkingStream[thinkingStream.length - 1]?.slice(0, 200)}
+                  {thinkingStream[thinkingStream.length - 1]?.length > 200 && '...'}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1105,6 +1210,21 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
         isVisible={showSharedContext}
         onClose={() => setShowSharedContext(false)}
       />
+
+      {/* HITL (Human-in-the-Loop) Modal */}
+      {hitlRequest && (
+        <HITLModal
+          request={hitlRequest}
+          isOpen={isHitlModalOpen}
+          onClose={handleHitlClose}
+          onApprove={(feedback) => handleHitlResponse('approve', feedback)}
+          onReject={(feedback) => handleHitlResponse('reject', feedback)}
+          onEdit={(modifiedContent, feedback) => handleHitlResponse('edit', feedback, modifiedContent)}
+          onRetry={(instructions) => handleHitlResponse('retry', instructions)}
+          onSelect={(optionId, feedback) => handleHitlResponse('select', `Selected: ${optionId}. ${feedback || ''}`)}
+          onConfirm={(feedback) => handleHitlResponse('confirm', feedback)}
+        />
+      )}
 
       {/* Debug Panel - Fixed Position */}
       <DebugPanel

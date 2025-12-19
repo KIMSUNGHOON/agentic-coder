@@ -63,7 +63,7 @@ class UnifiedLangGraphWorkflow:
         CRITICAL: This method performs ACTUAL file operations.
 
         Flow:
-        1. Supervisor analyzes request (DeepSeek-R1 reasoning)
+        1. Supervisor analyzes request (DeepSeek-R1 reasoning with streaming)
         2. Dynamic workflow graph is constructed
         3. Workflow executes with real LLM calls
         4. Results are streamed back to frontend
@@ -75,23 +75,54 @@ class UnifiedLangGraphWorkflow:
             enable_debug: Whether to enable debug logging
 
         Yields:
-            State updates from each node, including Supervisor analysis
+            State updates from each node, including Supervisor analysis and thinking stream
         """
         logger.info(f"🚀 Starting Supervisor-Led Workflow Execution")
         logger.info(f"   Request: {user_request[:100]}")
         logger.info(f"   Workspace: {workspace_root}")
 
         try:
-            # STEP 1: Supervisor analyzes request using DeepSeek-R1
-            logger.info("🧠 Step 1/3: Supervisor Analysis (DeepSeek-R1)")
-            supervisor_analysis = self.supervisor.analyze_request(user_request, task_type)
+            # STEP 1: Supervisor analyzes request using DeepSeek-R1 with streaming
+            logger.info("🧠 Step 1/3: Supervisor Analysis (DeepSeek-R1 with streaming)")
 
-            # Yield Supervisor analysis to frontend
+            supervisor_analysis = None
+            thinking_blocks = []
+
+            # Stream supervisor analysis with <think> blocks
+            async for update in self.supervisor.analyze_request_async(user_request):
+                if update["type"] == "thinking":
+                    thinking_blocks.append(update["content"])
+
+                    # Yield thinking update for real-time UI
+                    yield {
+                        "node": "supervisor",
+                        "updates": {
+                            "current_thinking": update["content"],
+                            "thinking_stream": thinking_blocks.copy(),
+                            "thinking_complete": update.get("is_complete", False),
+                        },
+                        "status": "thinking",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+
+                elif update["type"] == "analysis":
+                    supervisor_analysis = update["content"]
+
+            # Fallback to sync if async failed
+            if not supervisor_analysis:
+                supervisor_analysis = self.supervisor.analyze_request(user_request)
+
+            # Yield complete Supervisor analysis to frontend
             yield {
                 "node": "supervisor",
                 "updates": {
-                    "supervisor_analysis": supervisor_analysis,  # Already a dict
-                    "current_thinking": supervisor_analysis["reasoning"],  # DeepSeek-R1 <think> block
+                    "supervisor_analysis": supervisor_analysis,
+                    "current_thinking": supervisor_analysis.get("reasoning", ""),
+                    "thinking_stream": thinking_blocks,
+                    "task_complexity": supervisor_analysis.get("complexity", "moderate"),
+                    "workflow_strategy": supervisor_analysis.get("workflow_strategy", "parallel_gates"),
+                    "required_agents": supervisor_analysis.get("required_agents", []),
+                    "api_used": supervisor_analysis.get("api_used", False),
                 },
                 "status": "running",
                 "timestamp": datetime.utcnow().isoformat()
@@ -137,8 +168,12 @@ class UnifiedLangGraphWorkflow:
             )
 
             # Add supervisor analysis to state
-            initial_state["supervisor_analysis"] = supervisor_analysis["reasoning"]
+            initial_state["supervisor_analysis"] = supervisor_analysis
             initial_state["max_iterations"] = supervisor_analysis["max_iterations"]
+            initial_state["thinking_stream"] = thinking_blocks
+            initial_state["task_complexity"] = supervisor_analysis.get("complexity", "moderate")
+            initial_state["workflow_strategy"] = supervisor_analysis.get("workflow_strategy", "parallel_gates")
+            initial_state["required_agents"] = supervisor_analysis.get("required_agents", [])
 
             # Execute graph with streaming
             config = {
