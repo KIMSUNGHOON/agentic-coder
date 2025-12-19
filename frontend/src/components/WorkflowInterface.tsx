@@ -238,17 +238,34 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
 
     // Capture saved files from persistence
     if (nodeName === 'persistence' && status === 'completed') {
-      const files = event.updates?.saved_files || event.updates?.final_artifacts || [];
+      const files = event.updates?.saved_files || event.updates?.artifacts || event.updates?.final_artifacts || [];
       if (files.length > 0) {
         setSavedFiles(files);
+        console.log(`[Persistence] Saved ${files.length} files:`, files.map((f: any) => f.filename));
+      }
+      // Also update project info if present
+      if (event.updates?.project_name) {
+        setCurrentProjectName(event.updates.project_name);
+      }
+      if (event.updates?.project_dir) {
+        setCurrentProjectDir(event.updates.project_dir);
       }
     }
 
     // Also capture final artifacts from workflow completion
     if (nodeName === 'workflow' && status === 'completed') {
-      const files = event.updates?.final_artifacts || [];
+      const files = event.updates?.final_artifacts || event.updates?.artifacts || [];
       if (files.length > 0) {
         setSavedFiles(prev => prev.length > 0 ? prev : files);
+      }
+    }
+
+    // Capture artifacts from coder output
+    if (nodeName === 'coder' && status === 'completed') {
+      const coderOutput = event.updates?.coder_output;
+      if (coderOutput?.artifacts && coderOutput.artifacts.length > 0) {
+        console.log(`[Coder] Generated ${coderOutput.artifacts.length} artifacts`);
+        setSavedFiles(coderOutput.artifacts);
       }
     }
   };
