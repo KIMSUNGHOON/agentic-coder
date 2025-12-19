@@ -219,15 +219,22 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           if (agent.name === 'hitl') {
             return {
               ...agent,
-              status: status === 'approved' ? 'completed' : status === 'retry_requested' ? 'running' : 'error',
+              status: status === 'approved' ? 'completed' : 'error',
               description: status === 'approved' ? 'Approved' : status === 'retry_requested' ? 'Retry Requested' : 'Rejected',
               streamingContent: streamingContent,
             };
           }
           return agent;
         }));
-        return;
+        // Continue processing for retry/reject to handle workflow stopped
       }
+    }
+
+    // Handle workflow stopped status (retry/reject)
+    if (nodeName === 'workflow' && (status === 'stopped' || event.updates?.is_final)) {
+      console.log(`[Workflow] Stopped: reason=${event.updates?.reason}, action=${event.updates?.action}`);
+      setIsRunning(false);
+      // Don't return here - let the update be added to the list
     }
 
     setAgentProgress(prev => {

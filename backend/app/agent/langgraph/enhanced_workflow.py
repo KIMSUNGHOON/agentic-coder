@@ -250,12 +250,19 @@ class EnhancedWorkflow:
             architecture = architect_result.get("architecture_design", {})
             files_to_create = architect_result.get("files_to_create", [])
 
-            # Generate project name and create project directory
-            project_name = architecture.get("project_name", "project")
+            # Generate project name from user request analysis
+            project_name = self._generate_project_name(
+                user_request=user_request,
+                supervisor_analysis=supervisor_analysis,
+                architecture=architecture
+            )
+
             # Sanitize project name (remove special characters, lowercase, replace spaces)
             import re
             project_name = re.sub(r'[^\w\-]', '-', project_name.lower()).strip('-')
-            if not project_name:
+            # Remove consecutive dashes
+            project_name = re.sub(r'-+', '-', project_name)
+            if not project_name or len(project_name) < 2:
                 project_name = f"project_{int(time.time())}"
 
             # Create project directory within workspace
@@ -607,22 +614,48 @@ class EnhancedWorkflow:
 
                 # Handle rejection/retry
                 if not hitl_approved and hitl_action in ["reject", "retry"]:
+                    total_time = time.time() - start_time
+
                     if hitl_action == "retry":
-                        yield self._create_update("workflow", "retry_requested", {
+                        yield self._create_update("hitl", "retry_requested", {
+                            "action": hitl_action,
+                            "feedback": hitl_feedback,
+                            "approved": False,
+                            "response_status": "retry_requested",
+                            "streaming_content": f"🔄 Retry Requested\n\nFeedback: {hitl_feedback or 'None'}",
+                        })
+
+                        # Send workflow stopped message
+                        yield self._create_update("workflow", "stopped", {
                             "reason": "retry_requested",
                             "action": hitl_action,
                             "feedback": hitl_feedback,
-                            "streaming_content": f"🔄 Retry Requested\n\nUser requested to regenerate the code.\nFeedback: {hitl_feedback or 'None'}\n\nWorkflow will restart with improvements.",
-                            "message": "Retry requested - workflow will restart",
+                            "total_execution_time": round(total_time, 2),
+                            "streaming_content": f"🔄 Workflow Stopped - Retry Requested\n\nPlease submit your request again with the feedback incorporated.\n\nFeedback: {hitl_feedback or 'None'}\n\nTime elapsed: {total_time:.1f}s",
+                            "message": "Workflow stopped - retry requested",
+                            "is_final": True,
                         })
                     else:
-                        yield self._create_update("workflow", "rejected", {
+                        yield self._create_update("hitl", "rejected", {
+                            "action": hitl_action,
+                            "feedback": hitl_feedback,
+                            "approved": False,
+                            "response_status": "rejected",
+                            "streaming_content": f"❌ Rejected\n\nFeedback: {hitl_feedback or 'None'}",
+                        })
+
+                        # Send workflow stopped message
+                        yield self._create_update("workflow", "stopped", {
                             "reason": "rejected_by_user",
                             "action": hitl_action,
                             "feedback": hitl_feedback,
-                            "streaming_content": f"❌ Rejected by User\n\nFeedback: {hitl_feedback or 'None'}\n\nPlease submit a new request with updated requirements.",
+                            "total_execution_time": round(total_time, 2),
+                            "streaming_content": f"❌ Workflow Rejected by User\n\nFeedback: {hitl_feedback or 'None'}\n\nPlease submit a new request with updated requirements.\n\nTime elapsed: {total_time:.1f}s",
                             "message": "Workflow rejected by user",
+                            "is_final": True,
                         })
+
+                    logger.info(f"[Workflow] Stopped due to {hitl_action}: {hitl_feedback}")
                     return  # Stop workflow execution
 
             # ==================== PHASE 7: PERSISTENCE ====================
@@ -694,6 +727,109 @@ class EnhancedWorkflow:
                 "workflow_id": workflow_id,
                 "streaming_content": f"❌ Error: {str(e)}",
             })
+
+    def _generate_project_name(
+        self,
+        user_request: str,
+        supervisor_analysis: Dict,
+        architecture: Dict
+    ) -> str:
+        """Generate a meaningful project name from user request analysis
+
+        Priority:
+        1. Architecture project_name if meaningful
+        2. Extract from user request keywords
+        3. Use task type from supervisor analysis
+        """
+        import re
+
+        # 1. Try architecture project_name first
+        arch_name = architecture.get("project_name", "")
+        if arch_name and arch_name.lower() not in ["project", "app", "application", "code"]:
+            return arch_name
+
+        # 2. Extract meaningful keywords from user request
+        request_lower = user_request.lower()
+
+        # Common Korean keywords to project names
+        korean_keywords = {
+            "계산기": "calculator",
+            "사칙연산": "calculator",
+            "할일": "todo",
+            "투두": "todo",
+            "메모": "memo",
+            "일기": "diary",
+            "게시판": "board",
+            "쇼핑": "shopping",
+            "장바구니": "cart",
+            "로그인": "auth",
+            "회원가입": "signup",
+            "채팅": "chat",
+            "날씨": "weather",
+            "뉴스": "news",
+            "블로그": "blog",
+            "포트폴리오": "portfolio",
+            "대시보드": "dashboard",
+            "관리자": "admin",
+            "api": "api",
+            "서버": "server",
+            "크롤러": "crawler",
+            "스크래퍼": "scraper",
+            "봇": "bot",
+            "게임": "game",
+            "퀴즈": "quiz",
+        }
+
+        # Check Korean keywords
+        for kor, eng in korean_keywords.items():
+            if kor in request_lower:
+                # Add suffix based on tech stack
+                tech = architecture.get("tech_stack", {}).get("language", "")
+                if tech.lower() in ["javascript", "typescript", "react"]:
+                    return f"{eng}-app"
+                elif "web" in request_lower or "웹" in request_lower:
+                    return f"{eng}-web"
+                return eng
+
+        # English keyword patterns
+        english_patterns = [
+            (r'\b(calculator|calc)\b', 'calculator'),
+            (r'\b(todo|task)\s*(list|app)?\b', 'todo-app'),
+            (r'\b(weather)\s*(app)?\b', 'weather-app'),
+            (r'\b(chat)\s*(app|bot)?\b', 'chat-app'),
+            (r'\b(blog)\b', 'blog'),
+            (r'\b(dashboard)\b', 'dashboard'),
+            (r'\b(api|rest|server)\b', 'api-server'),
+            (r'\b(game)\b', 'game'),
+            (r'\b(portfolio)\b', 'portfolio'),
+            (r'\b(ecommerce|shop|store)\b', 'ecommerce'),
+            (r'\b(auth|login)\b', 'auth-system'),
+        ]
+
+        for pattern, name in english_patterns:
+            if re.search(pattern, request_lower):
+                return name
+
+        # 3. Use task type from supervisor analysis
+        task_type = supervisor_analysis.get("task_type", "")
+        if task_type and task_type not in ["general", "implementation"]:
+            return f"{task_type}-project"
+
+        # 4. Try to extract first meaningful noun from request
+        # Remove common words and get first significant word
+        stopwords = {'a', 'an', 'the', 'create', 'make', 'build', 'develop', 'write',
+                     'implement', 'generate', 'please', 'want', 'need', 'simple',
+                     'basic', 'new', 'web', 'app', 'application', '만들어', '생성',
+                     '개발', '구현', '작성', '줘', '주세요', '해줘', '해주세요'}
+
+        words = re.findall(r'[a-zA-Z가-힣]+', user_request)
+        for word in words:
+            word_lower = word.lower()
+            if len(word) >= 3 and word_lower not in stopwords:
+                return word_lower[:20]  # Limit length
+
+        # 5. Fallback to timestamp-based name
+        return f"project-{int(time.time()) % 10000}"
 
     def _generate_code_preview(self, file_path: str, purpose: str) -> str:
         """Generate a preview of code being created"""
