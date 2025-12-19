@@ -13,7 +13,7 @@ from .models import (
     HITLResponse,
     HITLStatus,
 )
-from .manager import HITLManager
+from .manager import HITLManager, get_hitl_manager
 
 __all__ = [
     "HITLCheckpointType",
@@ -21,4 +21,5 @@ __all__ = [
     "HITLResponse",
     "HITLStatus",
     "HITLManager",
+    "get_hitl_manager",
 ]
