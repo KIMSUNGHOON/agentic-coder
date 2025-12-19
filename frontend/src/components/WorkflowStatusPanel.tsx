@@ -21,6 +21,8 @@ interface FileTreeNode {
   language?: string;
   saved?: boolean;
   savedPath?: string;
+  description?: string;
+  content?: string;
   children?: FileTreeNode[];
 }
 
@@ -35,6 +37,8 @@ interface WorkflowStatusPanelProps {
   streamingFile?: string;
   savedFiles?: Artifact[];
   workspaceRoot?: string;
+  projectName?: string;
+  projectDir?: string;
 }
 
 const WorkflowStatusPanel = ({
@@ -48,6 +52,8 @@ const WorkflowStatusPanel = ({
   streamingFile,
   savedFiles,
   workspaceRoot,
+  projectName,
+  projectDir,
 }: WorkflowStatusPanelProps) => {
   const [expandedSections, setExpandedSections] = useState({
     progress: true,
@@ -88,6 +94,8 @@ const WorkflowStatusPanel = ({
               language: file.language,
               saved: file.saved,
               savedPath: file.saved_path || undefined,
+              description: file.description || undefined,
+              content: file.content?.slice(0, 100) || undefined,
             }),
           };
           if (!isLastPart) {
@@ -114,6 +122,29 @@ const WorkflowStatusPanel = ({
     return Array.from(root.values());
   };
 
+  // Get file type icon based on extension
+  const getFileIcon = (filename: string): string => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const iconMap: Record<string, string> = {
+      'py': '🐍',
+      'js': '📜',
+      'ts': '📜',
+      'tsx': '⚛️',
+      'jsx': '⚛️',
+      'html': '🌐',
+      'css': '🎨',
+      'json': '⚙️',
+      'md': '📝',
+      'txt': '📄',
+      'yml': '🔧',
+      'yaml': '🔧',
+      'sql': '🗄️',
+      'sh': '💻',
+      'dockerfile': '🐳',
+    };
+    return iconMap[ext] || '📄';
+  };
+
   const renderFileTree = (nodes: FileTreeNode[], depth: number = 0): JSX.Element[] => {
     return nodes
       .sort((a, b) => {
@@ -121,28 +152,42 @@ const WorkflowStatusPanel = ({
         return a.name.localeCompare(b.name);
       })
       .map(node => (
-        <div key={node.path} style={{ marginLeft: depth * 16 }}>
-          <div className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-700/50 text-sm">
+        <div key={node.path} style={{ marginLeft: depth * 12 }}>
+          <div className="flex items-start gap-2 py-1.5 px-2 rounded hover:bg-gray-700/50 text-sm group">
             {node.type === 'directory' ? (
-              <>
-                <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-                </svg>
-                <span className="text-gray-300 font-medium">{node.name}/</span>
-              </>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                  </svg>
+                  <span className="text-yellow-300 font-medium">{node.name}/</span>
+                </div>
+              </div>
             ) : (
-              <>
-                <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
-                <span className="text-gray-200">{node.name}</span>
-                {node.language && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-600 text-gray-300">{node.language}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex-shrink-0">{getFileIcon(node.name)}</span>
+                  <span className="text-gray-200 font-medium truncate">{node.name}</span>
+                  {node.language && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/30 text-blue-300 flex-shrink-0">{node.language}</span>
+                  )}
+                  {node.saved && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-600/30 text-green-400 flex-shrink-0">✓ saved</span>
+                  )}
+                </div>
+                {/* File description/comment */}
+                {node.description && (
+                  <div className="mt-1 text-[11px] text-gray-400 italic pl-5 leading-relaxed">
+                    💬 {node.description}
+                  </div>
                 )}
-                {node.saved && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-600/30 text-green-400">✓ saved</span>
+                {/* Saved path */}
+                {node.savedPath && (
+                  <div className="mt-0.5 text-[10px] text-green-500/70 font-mono pl-5 truncate">
+                    📂 {node.savedPath}
+                  </div>
                 )}
-              </>
+              </div>
             )}
           </div>
           {node.children && node.children.length > 0 && renderFileTree(node.children, depth + 1)}
@@ -178,21 +223,37 @@ const WorkflowStatusPanel = ({
   return (
     <div className="h-full flex flex-col bg-gray-900 text-gray-100 overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-          </svg>
-          <span className="font-semibold">Workflow Status</span>
-        </div>
-        {isRunning && (
-          <span className="flex items-center gap-2 text-xs text-green-400">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+      <div className="px-4 py-3 bg-gray-800 border-b border-gray-700">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+            </svg>
+            <span className="font-semibold">Workflow Status</span>
+          </div>
+          {isRunning && (
+            <span className="flex items-center gap-2 text-xs text-green-400">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              Running
             </span>
-            Running
-          </span>
+          )}
+        </div>
+        {/* Project info */}
+        {projectName && (
+          <div className="mt-2 pt-2 border-t border-gray-700">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-yellow-400">📁</span>
+              <span className="text-gray-300 font-medium">{projectName}</span>
+            </div>
+            {projectDir && (
+              <div className="mt-1 text-[11px] text-gray-500 font-mono truncate pl-5">
+                {projectDir}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

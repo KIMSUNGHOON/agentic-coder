@@ -138,6 +138,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [currentStreamingContent, setCurrentStreamingContent] = useState<string>('');
   const [savedFiles, setSavedFiles] = useState<Artifact[]>([]);
   const [showStatusPanel, setShowStatusPanel] = useState(true);
+  const [currentProjectName, setCurrentProjectName] = useState<string | undefined>();
+  const [currentProjectDir, setCurrentProjectDir] = useState<string | undefined>();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -174,6 +176,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     setCurrentStreamingFile(null);
     setCurrentStreamingContent('');
     setSavedFiles([]);
+    setCurrentProjectName(undefined);
+    setCurrentProjectDir(undefined);
   };
 
   // Update agent progress from event
@@ -479,10 +483,17 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             };
 
             // Handle project info message
-            if (update.type === 'project_info') {
-              setProjectName(update.project_name || '');
-              console.log(`Working on project: ${update.project_name}`);
-              // Optionally show a notification to the user
+            if (update.type === 'project_info' || event.status === 'project_info') {
+              const projName = update.project_name || event.updates?.project_name;
+              const projDir = update.full_path || event.updates?.project_dir;
+              if (projName) {
+                setProjectName(projName);
+                setCurrentProjectName(projName);
+              }
+              if (projDir) {
+                setCurrentProjectDir(projDir);
+              }
+              console.log(`Working on project: ${projName} at ${projDir}`);
               continue; // Don't add to updates list
             }
 
@@ -1341,9 +1352,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       </div>
       </div>{/* End of LEFT PANEL */}
 
-      {/* RIGHT PANEL - Workflow Status */}
+      {/* RIGHT PANEL - Workflow Status (50% width for 5:5 ratio) */}
       {showStatusPanel && (isRunning || savedFiles.length > 0 || totalProgress > 0) && (
-        <div className="w-96 border-l border-gray-200 flex-shrink-0">
+        <div className="w-1/2 min-w-[400px] max-w-[800px] border-l border-gray-200 flex-shrink-0 overflow-hidden">
           <WorkflowStatusPanel
             isRunning={isRunning}
             agents={agentProgress}
@@ -1355,6 +1366,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             streamingFile={currentStreamingFile || undefined}
             savedFiles={savedFiles}
             workspaceRoot={workspace}
+            projectName={currentProjectName}
+            projectDir={currentProjectDir}
           />
         </div>
       )}

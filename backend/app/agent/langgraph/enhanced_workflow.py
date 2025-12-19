@@ -250,6 +250,38 @@ class EnhancedWorkflow:
             architecture = architect_result.get("architecture_design", {})
             files_to_create = architect_result.get("files_to_create", [])
 
+            # Generate project name and create project directory
+            project_name = architecture.get("project_name", "project")
+            # Sanitize project name (remove special characters, lowercase, replace spaces)
+            import re
+            project_name = re.sub(r'[^\w\-]', '-', project_name.lower()).strip('-')
+            if not project_name:
+                project_name = f"project_{int(time.time())}"
+
+            # Create project directory within workspace
+            import os
+            project_dir = os.path.join(workspace_root, project_name)
+            try:
+                os.makedirs(project_dir, exist_ok=True)
+                logger.info(f"📁 Created project directory: {project_dir}")
+            except Exception as e:
+                logger.error(f"Failed to create project directory: {e}")
+                project_dir = workspace_root  # Fallback to workspace root
+
+            # Update workspace_root to project directory for subsequent nodes
+            state["workspace_root"] = project_dir
+            original_workspace = workspace_root
+            workspace_root = project_dir
+
+            # Send project info to frontend
+            yield self._create_update("workflow", "project_info", {
+                "project_name": project_name,
+                "project_dir": project_dir,
+                "original_workspace": original_workspace,
+                "message": f"Created project: {project_name}",
+                "streaming_content": f"📁 Project: {project_name}\n📂 Location: {project_dir}",
+            })
+
             # Stream architecture design summary
             arch_summary = f"Project: {architecture.get('project_name', 'project')}\n"
             arch_summary += f"Tech Stack: {architecture.get('tech_stack', {}).get('language', 'python')}\n"
@@ -399,25 +431,59 @@ class EnhancedWorkflow:
 
                 # Wait for HITL response with timeout
                 max_wait_time = 300  # 5 minutes max wait
-                poll_interval = 1  # Check every second
+                poll_interval = 2  # Check every 2 seconds
                 waited = 0
                 hitl_approved = False
                 hitl_action = None
                 hitl_feedback = None
+                last_heartbeat = 0
+
+                logger.info(f"[HITL] Waiting for response: {hitl_request_id}")
 
                 while waited < max_wait_time:
                     await asyncio.sleep(poll_interval)
                     waited += poll_interval
+
+                    # Send periodic heartbeat to keep SSE connection alive
+                    if waited - last_heartbeat >= 10:
+                        last_heartbeat = waited
+                        yield self._create_update("hitl", "waiting", {
+                            "message": f"Waiting for human approval... ({waited}s / {max_wait_time}s)",
+                            "wait_time": waited,
+                            "max_wait_time": max_wait_time,
+                            "streaming_content": f"⏳ Waiting for human approval ({waited}s)",
+                        })
 
                     # Check if response was submitted
                     if hitl_request_id in self.hitl_manager._pending_requests:
                         request = self.hitl_manager._pending_requests[hitl_request_id]
                         # Check if status is no longer pending (enum comparison)
                         status_value = request.status.value if hasattr(request.status, 'value') else str(request.status)
+                        logger.info(f"[HITL] Checking status: {status_value}, response_action: {request.response_action}")
+
                         if status_value != "pending":
                             hitl_action = request.response_action
                             hitl_feedback = request.response_feedback
                             hitl_approved = hitl_action in ["approve", "confirm"]
+
+                            logger.info(f"[HITL] Response received: action={hitl_action}, approved={hitl_approved}")
+
+                            yield self._create_update("hitl", "completed", {
+                                "action": hitl_action,
+                                "feedback": hitl_feedback,
+                                "approved": hitl_approved,
+                                "streaming_content": f"Human Response: {hitl_action.upper() if hitl_action else 'N/A'}\n{hitl_feedback or 'No feedback provided'}",
+                            })
+                            break
+                    else:
+                        # Request was removed - check stored responses
+                        if hitl_request_id in self.hitl_manager._responses:
+                            response = self.hitl_manager._responses[hitl_request_id]
+                            hitl_action = response.action.value if hasattr(response.action, 'value') else str(response.action)
+                            hitl_feedback = response.feedback
+                            hitl_approved = hitl_action in ["approve", "confirm"]
+
+                            logger.info(f"[HITL] Found in responses: action={hitl_action}, approved={hitl_approved}")
 
                             yield self._create_update("hitl", "completed", {
                                 "action": hitl_action,
@@ -426,9 +492,18 @@ class EnhancedWorkflow:
                                 "streaming_content": f"Human Response: {hitl_action.upper()}\n{hitl_feedback or 'No feedback provided'}",
                             })
                             break
-                    else:
-                        # Request might have been removed after processing
-                        break
+                        else:
+                            logger.warning(f"[HITL] Request removed but no response found: {hitl_request_id}")
+                            break
+
+                # Check if timeout
+                if waited >= max_wait_time and not hitl_action:
+                    logger.warning(f"[HITL] Timeout waiting for response: {hitl_request_id}")
+                    yield self._create_update("hitl", "timeout", {
+                        "message": "HITL request timed out",
+                        "streaming_content": "⚠️ Timeout: No response received within 5 minutes",
+                    })
+                    hitl_approved = True  # Default to approved on timeout
 
                 # Handle rejection/retry
                 if not hitl_approved and hitl_action in ["reject", "retry"]:
