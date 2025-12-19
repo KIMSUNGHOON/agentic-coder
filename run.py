@@ -110,10 +110,19 @@ class SystemRunner:
 
         self.print_info("Starting uvicorn server...")
 
+        # Set PYTHONPATH to include project root for shared module access
+        env = os.environ.copy()
+        project_pythonpath = str(self.project_root)
+        if "PYTHONPATH" in env:
+            env["PYTHONPATH"] = f"{project_pythonpath}:{env['PYTHONPATH']}"
+        else:
+            env["PYTHONPATH"] = project_pythonpath
+
         process = subprocess.Popen(
             ["python", "-m", "uvicorn", "app.main:app",
              "--host", "0.0.0.0", "--port", "8000", "--reload"],
             cwd=backend_dir,
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )

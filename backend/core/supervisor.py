@@ -16,7 +16,15 @@ from dataclasses import dataclass, field
 # Import vLLM client for DeepSeek-R1
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Add project root to path for shared module access
+PROJECT_ROOT = Path(__file__).parent.parent.parent  # backend/core -> backend -> project_root
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Add backend to path for app module access
+BACKEND_ROOT = Path(__file__).parent.parent  # backend/core -> backend
+sys.path.insert(0, str(BACKEND_ROOT))
+
 from app.services.vllm_client import vllm_router
 
 # Import DeepSeek-R1 prompts
