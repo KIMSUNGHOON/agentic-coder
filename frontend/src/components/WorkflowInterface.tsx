@@ -4,6 +4,9 @@
  * Now with split layout: Conversation (left) + Workflow Status (right)
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { WorkflowUpdate, Artifact, WorkflowInfo, HITLRequest, HITLCheckpointType } from '../types/api';
 import SharedContextViewer from './SharedContextViewer';
 import WorkflowGraph from './WorkflowGraph';
@@ -160,9 +163,12 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [currentProjectName, setCurrentProjectName] = useState<string | undefined>();
   const [currentProjectDir, setCurrentProjectDir] = useState<string | undefined>();
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const scrollToBottom = useCallback(() => {
+    // Use setTimeout to ensure DOM is updated before scrolling
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+  }, []);
 
   // Track elapsed time during workflow
   useEffect(() => {
@@ -489,7 +495,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
 
   useEffect(() => {
     scrollToBottom();
-  }, [updates, conversationHistory]);
+  }, [updates, conversationHistory, liveOutputs, scrollToBottom]);
 
   // Load initial updates when session changes
   useEffect(() => {
@@ -1121,12 +1127,31 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                 <div key={`turn-${turnIndex}-${turn.timestamp}`} className="font-mono text-[10px] sm:text-xs">
                   {turn.role === 'user' ? (
                     <div className="text-blue-400">
-                      <span className="text-gray-600">$</span> {turn.content}
+                      <span className="text-gray-600 mr-2">$</span>
+                      <div className="inline-block text-left prose prose-sm prose-invert max-w-none
+                        prose-headings:text-blue-300 prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-2
+                        prose-p:text-blue-400 prose-p:my-1
+                        prose-li:text-blue-400 prose-li:my-0.5
+                        prose-ul:my-1 prose-ol:my-1
+                        prose-code:text-cyan-400 prose-code:bg-gray-800 prose-code:px-1 prose-code:rounded
+                        prose-strong:text-blue-300 prose-em:text-blue-300">
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                          {turn.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   ) : (
                     <div className="border-l-2 border-gray-800 pl-2 text-gray-400">
                       <div className="text-green-400 text-[9px] sm:text-[10px]">✓ 완료</div>
-                      <div className="whitespace-pre-wrap">{turn.content}</div>
+                      <div className="prose prose-sm prose-invert max-w-none
+                        prose-headings:text-gray-300 prose-headings:font-semibold prose-headings:mt-2 prose-headings:mb-1
+                        prose-p:text-gray-400 prose-p:my-1
+                        prose-li:text-gray-400 prose-li:my-0.5
+                        prose-code:text-green-400 prose-code:bg-gray-800 prose-code:px-1 prose-code:rounded">
+                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                          {turn.content}
+                        </ReactMarkdown>
+                      </div>
                       {turn.artifacts && turn.artifacts.length > 0 && (
                         <div className="mt-1 text-gray-600">
                           파일: {turn.artifacts.map(a => a.filename).join(', ')}
