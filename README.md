@@ -97,6 +97,14 @@ A full-stack coding agent powered by **dual agent frameworks** (Microsoft Agent 
 
 ### Development Setup
 
+#### Environment Setup
+
+```bash
+# Copy and configure environment in project root
+cp .env.example .env
+# Edit .env to configure your LLM endpoints
+```
+
 #### Backend
 
 ```bash
@@ -111,9 +119,6 @@ pip install -r requirements.txt
 
 # Additional dependencies for full functionality
 pip install pydantic-settings aiofiles langchain langchain-openai langgraph
-
-# Copy and configure environment (from project root)
-cp ../.env.example .env
 
 # Run the server
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

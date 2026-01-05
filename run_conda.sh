@@ -25,10 +25,10 @@ if ! conda env list | grep -q "coding-agent"; then
     exit 1
 fi
 
-# Check if .env exists
-if [ ! -f backend/.env ]; then
-    echo -e "${YELLOW}⚠️  Creating backend/.env from .env.example${NC}"
-    cp .env.example backend/.env
+# Check if .env exists in project root
+if [ ! -f .env ]; then
+    echo -e "${YELLOW}⚠️  Creating .env from .env.example${NC}"
+    cp .env.example .env
 fi
 
 # Check if frontend dependencies are installed

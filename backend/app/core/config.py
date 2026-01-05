@@ -3,9 +3,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List, Literal, Optional
 
-# Get the backend directory path for .env file
-BACKEND_DIR = Path(__file__).parent.parent.parent
-ENV_FILE = BACKEND_DIR / ".env"
+# Get the project root directory path for .env file
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+ENV_FILE = PROJECT_ROOT / ".env"
 
 
 def detect_model_type(model_name: str) -> str:

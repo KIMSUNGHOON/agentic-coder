@@ -26,10 +26,10 @@ pip install -r requirements.txt
 cd ../frontend
 npm install
 
-# .env 파일 생성 (프로젝트 루트의 .env.example 사용)
+# .env 파일 생성 (프로젝트 루트)
 cd ..
-cp .env.example backend/.env
-# backend/.env 파일을 편집해서 vLLM 엔드포인트 설정
+cp .env.example .env
+# .env 파일을 편집해서 vLLM 엔드포인트 설정
 
 # 설치 완료!
 ```
@@ -51,9 +51,9 @@ conda activate coding-agent
 cd frontend
 npm install
 
-# .env 파일 생성 (프로젝트 루트의 .env.example 사용)
+# .env 파일 생성 (프로젝트 루트)
 cd ..
-cp .env.example backend/.env
+cp .env.example .env
 ```
 
 ### Backend Only 환경
@@ -66,14 +66,14 @@ conda env create -f environment.yml
 # 환경 활성화
 conda activate coding-agent-backend
 
-# .env 파일 생성 (프로젝트 루트의 .env.example 사용)
+# .env 파일 생성 (프로젝트 루트)
 cd ..
-cp .env.example backend/.env
+cp .env.example .env
 ```
 
 ## 🔧 환경 변수 설정
 
-`backend/.env` 파일을 편집해서 LLM 엔드포인트를 설정하세요:
+프로젝트 루트의 `.env` 파일을 편집해서 LLM 엔드포인트를 설정하세요:
 
 ```env
 # Primary LLM endpoint
