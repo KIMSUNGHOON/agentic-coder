@@ -351,6 +351,92 @@ Quality score: {quality_score:.0%} → targeting 70%+"""
     }
 
 
+def _extract_code_from_response(response_text: str, original_content: str) -> str:
+    """Extract actual code from LLM response, handling markdown and explanations.
+
+    The LLM might return:
+    1. Just code (ideal)
+    2. Code wrapped in markdown code blocks
+    3. Markdown explanation + code blocks (problematic - need to extract code only)
+
+    Args:
+        response_text: Raw LLM response
+        original_content: Original code for validation
+
+    Returns:
+        Extracted code content
+    """
+    import re
+
+    text = response_text.strip()
+
+    # Strategy 1: If response starts with code-like content (not markdown prose)
+    # Check if first non-empty line looks like code
+    first_lines = [l for l in text.split('\n')[:5] if l.strip()]
+    if first_lines:
+        first_line = first_lines[0].strip()
+        # Code indicators: starts with import, def, class, #!, comment, or code syntax
+        code_starters = ['import ', 'from ', 'def ', 'class ', '#!/', '#', '@', 'async ', 'if ', 'for ', 'while ', 'try:', 'with ']
+        if any(first_line.startswith(s) for s in code_starters) and '```' not in text[:100]:
+            return text
+
+    # Strategy 2: Extract code from markdown code blocks
+    # Pattern: ```python or ```py or ``` followed by code and closing ```
+    code_block_pattern = r'```(?:python|py|javascript|js|typescript|ts)?\s*\n(.*?)```'
+    code_blocks = re.findall(code_block_pattern, text, re.DOTALL)
+
+    if code_blocks:
+        # If multiple code blocks, use the longest one (likely the main code)
+        longest_block = max(code_blocks, key=len)
+
+        # Validate: code block should be substantial (not just a snippet)
+        if len(longest_block.strip()) > 50:
+            logger.info("📝 Extracted code from markdown code block")
+            return longest_block.strip()
+
+    # Strategy 3: If response has ``` but regex didn't match, try line-by-line extraction
+    if '```' in text:
+        lines = text.split('\n')
+        in_code_block = False
+        code_lines = []
+
+        for line in lines:
+            if line.strip().startswith('```'):
+                if in_code_block:
+                    # End of code block
+                    break
+                else:
+                    # Start of code block
+                    in_code_block = True
+                    continue
+
+            if in_code_block:
+                code_lines.append(line)
+
+        if code_lines and len('\n'.join(code_lines).strip()) > 50:
+            logger.info("📝 Extracted code via line-by-line parsing")
+            return '\n'.join(code_lines)
+
+    # Strategy 4: Check if response looks like prose/explanation (not code)
+    # Prose indicators: sentences, markdown headers, bullet points at start
+    prose_indicators = ['# ', '## ', '### ', '**', 'To ', 'The ', 'This ', 'Here', 'In order', 'We ', 'You ']
+    if any(text.startswith(indicator) for indicator in prose_indicators):
+        # Response is prose - try to find any code-like section
+        logger.warning("⚠️ LLM returned prose instead of code - attempting extraction")
+
+        # Last resort: look for indented code sections
+        indented_lines = [l for l in text.split('\n') if l.startswith('    ') or l.startswith('\t')]
+        if len(indented_lines) > 5:
+            return '\n'.join(indented_lines)
+
+        # If no code found, return original to avoid corruption
+        logger.error("❌ Could not extract code from LLM response - keeping original")
+        return original_content
+
+    # Default: return cleaned text
+    return text
+
+
 def _apply_fix_with_llm(original_content: str, issue: str, suggestion: str = "") -> str:
     """Apply fix to code using LLM
 
@@ -384,8 +470,9 @@ REQUIREMENTS:
 2. Maintain existing functionality
 3. Keep changes minimal and targeted
 4. Return the COMPLETE fixed code (not a diff)
+5. Return ONLY the code - no explanations, no markdown, no comments about the fix
 
-Return the fixed code directly, without explanations or markdown formatting."""
+Return the fixed code directly:"""
 
     # Try LLM provider adapter first
     if LLM_PROVIDER_AVAILABLE and refine_endpoint:
@@ -399,19 +486,15 @@ Return the fixed code directly, without explanations or markdown formatting."""
             response = provider.generate_sync(fix_prompt, TaskType.REFINE)
 
             if response.content:
-                # Clean up response - remove markdown code blocks if present
-                fixed_code = response.content.strip()
-                if fixed_code.startswith("```"):
-                    lines = fixed_code.split("\n")
-                    # Remove first and last lines if they're code fences
-                    if lines[0].startswith("```"):
-                        lines = lines[1:]
-                    if lines and lines[-1].strip() == "```":
-                        lines = lines[:-1]
-                    fixed_code = "\n".join(lines)
+                # Extract code from response (handles markdown, explanations, etc.)
+                fixed_code = _extract_code_from_response(response.content, original_content)
 
-                logger.info(f"🤖 Fix applied via {settings.get_coding_model_type} adapter")
-                return fixed_code
+                # Final validation: ensure we got actual code, not prose
+                if fixed_code and len(fixed_code) > 20:
+                    logger.info(f"🤖 Fix applied via {settings.get_coding_model_type} adapter")
+                    return fixed_code
+                else:
+                    logger.warning("⚠️ Extracted code too short - using fallback")
 
         except Exception as e:
             logger.warning(f"LLM provider failed for fix: {e}, using fallback")
@@ -441,19 +524,16 @@ Fixed code:"""
 
                 if response.status_code == 200:
                     result = response.json()
-                    fixed_code = result["choices"][0]["text"].strip()
+                    raw_response = result["choices"][0]["text"].strip()
 
-                    # Clean up markdown if present
-                    if fixed_code.startswith("```"):
-                        lines = fixed_code.split("\n")
-                        if lines[0].startswith("```"):
-                            lines = lines[1:]
-                        if lines and lines[-1].strip() == "```":
-                            lines = lines[:-1]
-                        fixed_code = "\n".join(lines)
+                    # Use the same extraction logic as LLM provider
+                    fixed_code = _extract_code_from_response(raw_response, original_content)
 
-                    logger.info(f"🔧 Fix applied via direct LLM call")
-                    return fixed_code
+                    if fixed_code and len(fixed_code) > 20:
+                        logger.info(f"🔧 Fix applied via direct LLM call")
+                        return fixed_code
+                    else:
+                        logger.warning("⚠️ Direct LLM response extraction failed")
 
         except Exception as e:
             logger.warning(f"Direct LLM call failed: {e}, using heuristic fallback")

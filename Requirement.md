@@ -1,7 +1,7 @@
 # 요구사항 및 작업 현황
 
 **마지막 업데이트**: 2026-01-06
-**상태**: ✅ 모든 요청 사항 완료 (Backend Log 분석 및 수정 완료)
+**상태**: ✅ 모든 요청 사항 완료 (Refiner 버그 수정 완료)
 
 ---
 
@@ -155,4 +155,46 @@ WARNING] [critical] command_injection in style.css:19  # CSS 파일 False Positi
 WARNING] [critical] command_injection in README.md:47  # Markdown False Positive
 ERROR] Security Gate FAILED: 3 critical/high findings  # False Positive로 인한 실패
 ```
+
+---
+
+### (Done) Refiner LLM 응답 처리 버그 ✅ 수정 완료
+
+**문제:** Calculator 테스트 중 GUI 파일(`calculator_gui.py`)이 마크다운 설명으로 덮어쓰여짐
+
+**원인 분석:**
+1. Refiner가 Security Gate의 `dangerous_eval_python` 이슈를 감지
+2. LLM에 코드 수정 요청
+3. LLM이 마크다운 설명 + 코드 블록 형태로 응답
+4. 기존 코드는 마크다운 설명을 코드로 오인하여 파일에 저장
+
+**수정 내용:**
+
+| 함수 | 수정 전 | 수정 후 |
+|------|---------|---------|
+| `_apply_fix_with_llm()` | 단순 ``` 제거 | `_extract_code_from_response()` 호출 |
+| `_extract_code_from_response()` | (신규) | 4단계 코드 추출 로직 |
+
+**새 함수 `_extract_code_from_response()` 로직:**
+1. Strategy 1: 첫 줄이 코드인지 확인 (`import`, `def`, `class` 등)
+2. Strategy 2: 마크다운 코드 블록에서 추출 (```python...```)
+3. Strategy 3: 라인별 파싱으로 코드 블록 추출
+4. Strategy 4: Prose 감지 시 원본 코드 유지 (손상 방지)
+
+**수정된 파일:**
+- `backend/app/agent/langgraph/nodes/refiner.py`
+
+---
+
+## 📊 테스트 결과
+
+```
+======================== 145 passed, 4 failed, 2 skipped in 24.31s ========================
+```
+
+**실패한 4개 테스트 (기존 문제, 수정 대상 아님):**
+- `test_path_traversal_with_symlink` - Windows symlink 권한 문제
+- `test_shared_context_concurrent_writes` - Race condition
+- `test_parse_checklist_basic` - API 불일치
+- `test_parse_checklist_with_completed_tasks` - 테스트 assertion 오류
 
