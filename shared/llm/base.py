@@ -183,15 +183,31 @@ class BaseLLMProvider(ABC):
         import json
         import re
 
+        if not text or not text.strip():
+            logger.warning("Empty response text - cannot extract JSON")
+            return None
+
         try:
             # Step 1: Remove <think>...</think> tags (DeepSeek-R1 reasoning)
-            # This tag contains the model's reasoning process, not the actual response
+            # Handle both closed and unclosed tags
             cleaned_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+            # Handle unclosed <think> tag (remove everything after it)
+            if '<think>' in cleaned_text:
+                cleaned_text = cleaned_text.split('<think>')[0]
 
             # Step 2: Also remove any other common wrapper tags
             cleaned_text = re.sub(r'<reasoning>.*?</reasoning>', '', cleaned_text, flags=re.DOTALL)
+            cleaned_text = re.sub(r'<output>|</output>', '', cleaned_text)
 
-            # Step 3: Try to find JSON in the cleaned text
+            # Step 3: Try direct JSON parse first (if response is pure JSON)
+            cleaned_text = cleaned_text.strip()
+            if cleaned_text.startswith('{') and cleaned_text.endswith('}'):
+                try:
+                    return json.loads(cleaned_text)
+                except json.JSONDecodeError:
+                    pass
+
+            # Step 4: Find JSON object in text
             json_start = cleaned_text.find("{")
             json_end = cleaned_text.rfind("}") + 1
 
@@ -201,24 +217,53 @@ class BaseLLMProvider(ABC):
                 # Try to parse as-is first
                 try:
                     return json.loads(json_str)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    logger.debug(f"Initial JSON parse failed: {e}")
+
                     # Try to fix common JSON issues
-                    # 1. Replace single quotes with double quotes
-                    fixed_json = json_str.replace("'", '"')
-                    # 2. Remove trailing commas before } or ]
+                    fixed_json = json_str
+
+                    # Fix 1: Handle newlines in strings (convert to \n)
+                    # This is tricky - only fix if inside quotes
+                    fixed_json = re.sub(r'(?<=": ")([^"]*)\n([^"]*?)(?=")', r'\1\\n\2', fixed_json)
+
+                    # Fix 2: Remove trailing commas before } or ]
                     fixed_json = re.sub(r',\s*([}\]])', r'\1', fixed_json)
+
+                    # Fix 3: Replace Python True/False/None with JSON equivalents
+                    fixed_json = re.sub(r'\bTrue\b', 'true', fixed_json)
+                    fixed_json = re.sub(r'\bFalse\b', 'false', fixed_json)
+                    fixed_json = re.sub(r'\bNone\b', 'null', fixed_json)
+
                     try:
                         return json.loads(fixed_json)
+                    except json.JSONDecodeError as e2:
+                        logger.debug(f"Fixed JSON parse also failed: {e2}")
+
+            # Step 5: Fallback - try to extract JSON from code blocks
+            code_block_patterns = [
+                r'```json\s*\n?(.*?)\n?```',  # ```json ... ```
+                r'```\s*\n?(\{.*?\})\n?```',   # ``` {...} ```
+            ]
+            for pattern in code_block_patterns:
+                code_block_match = re.search(pattern, text, re.DOTALL)
+                if code_block_match:
+                    try:
+                        return json.loads(code_block_match.group(1).strip())
+                    except json.JSONDecodeError:
+                        continue
+
+            # Step 6: Try to find JSON array
+            if '[' in cleaned_text:
+                array_start = cleaned_text.find("[")
+                array_end = cleaned_text.rfind("]") + 1
+                if array_start != -1 and array_end > array_start:
+                    try:
+                        result = json.loads(cleaned_text[array_start:array_end])
+                        # Wrap array in dict for consistency
+                        return {"items": result} if isinstance(result, list) else result
                     except json.JSONDecodeError:
                         pass
-
-            # Step 4: Fallback - try to extract JSON from code blocks
-            code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-            if code_block_match:
-                try:
-                    return json.loads(code_block_match.group(1))
-                except json.JSONDecodeError:
-                    pass
 
             logger.warning("Failed to parse JSON from response")
             logger.debug(f"Response text (first 500 chars): {text[:500]}")
