@@ -1,7 +1,7 @@
 # 요구사항 및 작업 현황
 
 **마지막 업데이트**: 2026-01-06
-**상태**: ✅ 모든 요청 사항 완료 (Refiner 버그 수정 완료)
+**상태**: 🔄 개선 계획 수립 완료 - 추가 최적화 진행 중
 
 ---
 
@@ -183,6 +183,37 @@ ERROR] Security Gate FAILED: 3 critical/high findings  # False Positive로 인�
 
 **수정된 파일:**
 - `backend/app/agent/langgraph/nodes/refiner.py`
+
+---
+
+## 📋 개선 계획 (2026-01-06)
+
+**상세 문서**: `docs/IMPROVEMENT_PLAN.md`
+
+### 발견된 주요 이슈
+
+| # | 이슈 | 심각도 | 상태 |
+|---|------|--------|------|
+| 1 | Security Gate False Positive (`ast.literal_eval` 오탐) | High | 🔄 개선 필요 |
+| 2 | Refiner 반복 제한 (3회 → 5회로 증가 필요) | Medium | 🔄 개선 필요 |
+| 3 | QA Gate 중복 보안 검사 | Low | 📋 검토 필요 |
+| 4 | Empty LLM Response 처리 | Medium | ✅ 수정 완료 |
+| 5 | Windows 경로 정규화 | Medium | ✅ 수정 완료 |
+
+### 이번 세션 수정 내역
+
+| 파일 | 수정 내용 |
+|------|-----------|
+| `frontend/src/components/WorkflowInterface.tsx` | Markdown 렌더링, Auto-scroll, HITL 디버깅 |
+| `shared/llm/base.py` | JSON 파싱 로그 레벨 DEBUG로 변경 |
+| `shared/llm/adapters/deepseek_adapter.py` | Empty response retry 로직 추가 |
+| `backend/app/agent/langgraph/nodes/refiner.py` | Windows 경로 정규화 수정 |
+
+### 다음 단계 (Linux 환경)
+
+1. Security Gate의 `ast.literal_eval` 패턴 수정
+2. Refiner 반복 제한 5회로 증가
+3. 전체 테스트 실행 및 검증
 
 ---
 
