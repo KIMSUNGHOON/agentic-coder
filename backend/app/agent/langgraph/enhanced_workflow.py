@@ -357,7 +357,9 @@ class EnhancedWorkflow:
 
             # PARALLEL STREAMING: Show multiple files being generated simultaneously
             # Group files into parallel batches (simulate parallel agent execution)
-            batch_size = min(3, len(files_to_create))  # Up to 3 files at a time
+            # Use configurable batch size (default 10 for H100, can be set via CODER_BATCH_SIZE)
+            from app.core.config import settings
+            batch_size = min(settings.coder_batch_size, len(files_to_create))
             file_progress = {}  # Track progress for each file
 
             # Initialize all files as "queued"

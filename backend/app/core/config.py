@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     # Workflow Configuration
     max_review_iterations: int = 3  # Maximum code review/fix iterations
 
+    # Coder batch size - for parallel file generation display
+    # Higher values for powerful GPUs (H100: 10-15, A100: 8-10, RTX 4090: 5-8)
+    coder_batch_size: int = 10  # Default optimized for H100
+
     # =========================
     # API Configuration
     # =========================

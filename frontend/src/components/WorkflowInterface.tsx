@@ -458,12 +458,15 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     // Capture artifacts from coder output - MERGE instead of replace
     // Backend sends artifacts in multiple places: coder_output.artifacts AND updates.artifacts
     if (nodeName === 'coder' && status === 'completed') {
+      console.log(`[Coder Complete] Full event.updates keys:`, Object.keys(event.updates || {}));
+
       // Try direct artifacts first (backend sends both)
       let artifacts = event.updates?.artifacts || [];
 
       // Fallback to nested coder_output.artifacts
       if (artifacts.length === 0) {
         const coderOutput = event.updates?.coder_output;
+        console.log(`[Coder] coder_output keys:`, Object.keys(coderOutput || {}));
         artifacts = coderOutput?.artifacts || [];
       }
 
@@ -471,8 +474,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
         console.log(`[Coder] Generated ${artifacts.length} artifacts:`, artifacts.map((a: any) => a.filename));
         setSavedFiles(prev => mergeFiles(prev, artifacts));
       } else {
-        console.warn(`[Coder] No artifacts found in event:`, JSON.stringify(event.updates, null, 2).slice(0, 500));
+        console.warn(`[Coder] No artifacts found! Event updates:`, JSON.stringify(event.updates, null, 2).slice(0, 1000));
       }
+    }
+
+    // Also capture from persistence completed event - this is the final source of truth
+    if (nodeName === 'persistence' && status === 'completed') {
+      console.log(`[Persistence Complete] Full event.updates keys:`, Object.keys(event.updates || {}));
     }
   };
 
