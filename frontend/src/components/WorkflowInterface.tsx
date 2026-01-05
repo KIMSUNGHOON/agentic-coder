@@ -92,7 +92,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [showSharedContext, setShowSharedContext] = useState(false);
   const [, setExecutionMode] = useState<'sequential' | 'parallel' | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Workspace configuration
   const [workspace, setWorkspace] = useState<string>(() => {
@@ -1193,21 +1193,31 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                 }}
               />
 
-              {/* 입력 필드 - 터미널 스타일 */}
+              {/* 입력 필드 - 멀티라인 textarea */}
               <div className="relative flex-1 min-w-0">
-                <input
+                <textarea
                   ref={inputRef}
-                  type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="작업 또는 질문을 입력하세요..."
+                  onKeyDown={(e) => {
+                    // Enter로 전송, Shift+Enter로 줄바꿈
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (input.trim() && !isRunning) {
+                        handleSubmit(e as unknown as React.FormEvent);
+                      }
+                    }
+                  }}
+                  placeholder="작업 또는 질문을 입력하세요... (Shift+Enter로 줄바꿈)"
                   disabled={isRunning}
-                  className="w-full px-2 sm:px-3 py-1.5 sm:py-2 pr-16 sm:pr-20 bg-gray-800 text-gray-100 placeholder-gray-500 rounded-lg text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 border border-gray-700 disabled:opacity-50"
+                  rows={3}
+                  className="w-full px-2 sm:px-3 py-1.5 sm:py-2 pr-16 sm:pr-20 bg-gray-800 text-gray-100 placeholder-gray-500 rounded-lg text-xs sm:text-sm font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 border border-gray-700 disabled:opacity-50 resize-none overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800"
+                  style={{ minHeight: '72px', maxHeight: '120px' }}
                 />
                 <button
                   type="submit"
                   disabled={isRunning || !input.trim()}
-                  className="absolute right-1 sm:right-1.5 top-1/2 -translate-y-1/2 px-2 sm:px-3 py-0.5 sm:py-1 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-[10px] sm:text-xs font-medium transition-colors flex items-center gap-1 sm:gap-1.5"
+                  className="absolute right-1.5 sm:right-2 bottom-1.5 sm:bottom-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-[10px] sm:text-xs font-medium transition-colors flex items-center gap-1 sm:gap-1.5"
                 >
                   {isRunning ? (
                     <>

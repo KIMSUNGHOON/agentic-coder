@@ -32,6 +32,44 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _detect_language(file_path: str) -> str:
+    """Detect programming language from file extension"""
+    ext = file_path.split(".")[-1].lower() if "." in file_path else ""
+    language_map = {
+        "py": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "tsx": "typescript",
+        "jsx": "javascript",
+        "java": "java",
+        "go": "go",
+        "rs": "rust",
+        "cpp": "cpp",
+        "c": "c",
+        "h": "c",
+        "hpp": "cpp",
+        "rb": "ruby",
+        "php": "php",
+        "cs": "csharp",
+        "swift": "swift",
+        "kt": "kotlin",
+        "scala": "scala",
+        "sql": "sql",
+        "sh": "bash",
+        "bash": "bash",
+        "zsh": "bash",
+        "json": "json",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "xml": "xml",
+        "html": "html",
+        "css": "css",
+        "md": "markdown",
+        "txt": "text",
+    }
+    return language_map.get(ext, "text")
+
+
 # DeepSeek-R1 style refinement prompt with <think> tags
 REFINER_ANALYSIS_PROMPT = """<think>
 1. Analyze the issues: What problems were found in the code?
@@ -177,22 +215,41 @@ def refiner_node(state: QualityGateState) -> Dict:
         # Write modified content to file
         from app.agent.langgraph.tools.filesystem_tools import write_file_tool
 
-        filename = code_diff["file_path"].split("/")[-1]  # Get filename
+        # CRITICAL FIX: Use full relative path to preserve directory structure
+        # file_path may be:
+        # - Just filename: "main.py"
+        # - Relative path from workspace: "src/main.py"
+        # - Full path: "/home/user/workspace/project/src/main.py"
+        original_file_path = code_diff["file_path"]
+
+        # If it's an absolute path starting with workspace_root, make it relative
+        if original_file_path.startswith(workspace_root):
+            relative_path = original_file_path[len(workspace_root):].lstrip("/")
+        else:
+            # Use as-is (already relative or just filename)
+            relative_path = original_file_path.lstrip("/")
+
+        # Extract just filename for artifact tracking
+        filename = relative_path.split("/")[-1]
+
+        logger.info(f"📝 Writing fix: {relative_path} (in {workspace_root})")
+
         result = write_file_tool(
-            file_path=filename,
+            file_path=relative_path,  # Use full relative path to preserve directory structure
             content=code_diff["modified_content"],
             workspace_root=workspace_root
         )
 
         if result["success"]:
-            logger.info(f"✅ Applied fix to: {code_diff['file_path']}")
-            updated_filenames.add(filename)
+            logger.info(f"✅ Applied fix to: {relative_path}")
+            # Track by full relative path to avoid losing directory info
+            updated_filenames.add(relative_path)
 
-            # Update artifact with new content
+            # Update artifact with new content - preserve full path
             updated_artifacts.append({
-                "filename": filename,
-                "file_path": result["file_path"],
-                "language": "python",
+                "filename": relative_path,  # Use full relative path as identifier
+                "file_path": result["file_path"],  # Full absolute path from write_file_tool
+                "language": _detect_language(relative_path),
                 "content": code_diff["modified_content"],
                 "size_bytes": len(code_diff["modified_content"]),
                 "checksum": "updated",
@@ -208,8 +265,22 @@ def refiner_node(state: QualityGateState) -> Dict:
     merged_artifacts = []
 
     # Add existing artifacts that weren't modified
+    # Check both by full relative path and by just filename (for backwards compatibility)
     for artifact in existing_artifacts:
-        if artifact.get("filename") not in updated_filenames:
+        artifact_filename = artifact.get("filename", "")
+        artifact_file_path = artifact.get("file_path", "")
+
+        # Check if this artifact was updated by relative path or full path
+        is_updated = False
+        for updated_path in updated_filenames:
+            # Match by: full relative path, just filename, or file_path
+            if (artifact_filename == updated_path or
+                artifact_filename.split("/")[-1] == updated_path.split("/")[-1] or
+                artifact_file_path.endswith(updated_path)):
+                is_updated = True
+                break
+
+        if not is_updated:
             merged_artifacts.append(artifact)
 
     # Add updated artifacts
