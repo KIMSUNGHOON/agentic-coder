@@ -220,17 +220,23 @@ def refiner_node(state: QualityGateState) -> Dict:
         # - Just filename: "main.py"
         # - Relative path from workspace: "src/main.py"
         # - Full path: "/home/user/workspace/project/src/main.py"
+        import os
         original_file_path = code_diff["file_path"]
 
+        # Normalize path separators for cross-platform compatibility
+        normalized_workspace = workspace_root.replace("\\", "/")
+        normalized_file_path = original_file_path.replace("\\", "/")
+
         # If it's an absolute path starting with workspace_root, make it relative
-        if original_file_path.startswith(workspace_root):
-            relative_path = original_file_path[len(workspace_root):].lstrip("/")
+        if normalized_file_path.startswith(normalized_workspace):
+            relative_path = normalized_file_path[len(normalized_workspace):].lstrip("/")
         else:
             # Use as-is (already relative or just filename)
-            relative_path = original_file_path.lstrip("/")
+            # Strip both forward and backslashes for Windows compatibility
+            relative_path = normalized_file_path.lstrip("/")
 
         # Extract just filename for artifact tracking
-        filename = relative_path.split("/")[-1]
+        filename = os.path.basename(relative_path)
 
         logger.info(f"📝 Writing fix: {relative_path} (in {workspace_root})")
 
