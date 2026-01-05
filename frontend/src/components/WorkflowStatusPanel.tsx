@@ -1,9 +1,10 @@
 /**
  * WorkflowStatusPanel - Right side panel for workflow monitoring
- * Contains: Progress indicator, Live output, Agent status, File tree
+ * Simplified version - Progress/Pipeline moved to DashboardHeader
+ * Contains: Live output, Agent details, File tree
  */
-import { useState, useEffect } from 'react';
-import { WorkflowUpdate, Artifact } from '../types/api';
+import { useState } from 'react';
+import { Artifact } from '../types/api';
 
 interface AgentProgressStatus {
   name: string;
@@ -12,6 +13,12 @@ interface AgentProgressStatus {
   status: 'pending' | 'running' | 'completed' | 'error';
   executionTime?: number;
   streamingContent?: string;
+  // Token usage tracking
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 interface FileTreeNode {
@@ -44,33 +51,21 @@ interface WorkflowStatusPanelProps {
 const WorkflowStatusPanel = ({
   isRunning,
   agents,
-  currentAgent,
-  totalProgress,
-  elapsedTime,
-  estimatedTimeRemaining,
+  // Props passed from parent but handled in DashboardHeader now:
+  // currentAgent, totalProgress, elapsedTime, estimatedTimeRemaining, projectName, projectDir
   streamingContent,
   streamingFile,
   savedFiles,
   workspaceRoot,
-  projectName,
-  projectDir,
 }: WorkflowStatusPanelProps) => {
   const [expandedSections, setExpandedSections] = useState({
-    progress: true,
     liveOutput: true,
-    agents: true,
+    agents: false,  // Collapsed by default since pipeline is in header
     files: true,
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  const formatTime = (seconds: number): string => {
-    if (seconds < 60) return `${seconds.toFixed(1)}s`;
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}m ${secs.toFixed(0)}s`;
   };
 
   // Build file tree from saved files
@@ -195,130 +190,32 @@ const WorkflowStatusPanel = ({
       ));
   };
 
-  const getAgentStatusIcon = (status: AgentProgressStatus['status']) => {
-    switch (status) {
-      case 'running':
-        return (
-          <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-        );
-      case 'completed':
-        return (
-          <svg className="w-3 h-3 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-          </svg>
-        );
-      case 'error':
-        return (
-          <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        );
-      default:
-        return <div className="w-3 h-3 rounded-full bg-gray-600" />;
-    }
-  };
-
   const fileTree = savedFiles && savedFiles.length > 0 ? buildFileTree(savedFiles) : [];
 
   return (
     <div className="h-full flex flex-col bg-gray-900 text-gray-100 overflow-hidden">
-      {/* Header */}
-      <div className="px-4 py-3 bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-            </svg>
-            <span className="font-semibold">Workflow Status</span>
-          </div>
-          {isRunning && (
-            <span className="flex items-center gap-2 text-xs text-green-400">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              Running
-            </span>
-          )}
+      {/* Compact Header - Just title */}
+      <div className="px-4 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+          </svg>
+          <span className="text-sm font-medium">Details</span>
         </div>
-        {/* Project info */}
-        {projectName && (
-          <div className="mt-2 pt-2 border-t border-gray-700">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-yellow-400">📁</span>
-              <span className="text-gray-300 font-medium">{projectName}</span>
-            </div>
-            {projectDir && (
-              <div className="mt-1 text-[11px] text-gray-500 font-mono truncate pl-5">
-                {projectDir}
-              </div>
-            )}
-          </div>
-        )}
+        {isRunning ? (
+          <span className="flex items-center gap-1.5 text-xs text-green-400">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span>
+            </span>
+            Active
+          </span>
+        ) : savedFiles && savedFiles.length > 0 ? (
+          <span className="text-xs text-green-400">✓ Done</span>
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Progress Section */}
-        <div className="border-b border-gray-700">
-          <button
-            onClick={() => toggleSection('progress')}
-            className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-300 hover:bg-gray-800"
-          >
-            <span>📊 Progress</span>
-            <svg className={`w-4 h-4 transition-transform ${expandedSections.progress ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
-          {expandedSections.progress && (
-            <div className="px-4 pb-3">
-              {/* Progress Bar */}
-              <div className="mb-3">
-                <div className="flex justify-between text-xs text-gray-400 mb-1">
-                  <span>{totalProgress.toFixed(0)}%</span>
-                  <span>{formatTime(elapsedTime)}</span>
-                </div>
-                <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-blue-500 to-green-500 transition-all duration-300"
-                    style={{ width: `${totalProgress}%` }}
-                  />
-                </div>
-                {estimatedTimeRemaining !== undefined && estimatedTimeRemaining > 0 && (
-                  <div className="text-xs text-gray-500 mt-1 text-right">
-                    ETA: ~{formatTime(estimatedTimeRemaining)}
-                  </div>
-                )}
-              </div>
-
-              {/* Agent Pipeline */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-2">
-                {agents.map((agent, index) => (
-                  <div key={agent.name} className="flex items-center">
-                    <div
-                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs whitespace-nowrap ${
-                        agent.status === 'running'
-                          ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-400'
-                          : agent.status === 'completed'
-                          ? 'bg-green-500/20 text-green-300'
-                          : agent.status === 'error'
-                          ? 'bg-red-500/20 text-red-300'
-                          : 'bg-gray-700 text-gray-400'
-                      }`}
-                    >
-                      {getAgentStatusIcon(agent.status)}
-                      <span>{agent.title.split(' ')[0]}</span>
-                    </div>
-                    {index < agents.length - 1 && (
-                      <svg className="w-4 h-4 text-gray-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                      </svg>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* Live Output Section */}
         {(isRunning || streamingContent) && (
@@ -352,54 +249,139 @@ const WorkflowStatusPanel = ({
           </div>
         )}
 
-        {/* Agents Section */}
+        {/* Agents Section - Enhanced Card Design */}
         <div className="border-b border-gray-700">
           <button
             onClick={() => toggleSection('agents')}
             className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-300 hover:bg-gray-800"
           >
-            <span>🤖 Agents ({agents.filter(a => a.status === 'completed').length}/{agents.length})</span>
+            <div className="flex items-center gap-2">
+              <span>🤖 Agent Details</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">
+                {agents.filter(a => a.status === 'completed').length}/{agents.length}
+              </span>
+            </div>
             <svg className={`w-4 h-4 transition-transform ${expandedSections.agents ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
             </svg>
           </button>
           {expandedSections.agents && (
-            <div className="px-4 pb-3 space-y-2">
-              {agents.map(agent => (
-                <div
-                  key={agent.name}
-                  className={`p-2 rounded-lg ${
-                    agent.status === 'running'
-                      ? 'bg-blue-500/10 ring-1 ring-blue-500/30'
-                      : agent.status === 'completed'
-                      ? 'bg-gray-800'
-                      : agent.status === 'error'
-                      ? 'bg-red-500/10'
-                      : 'bg-gray-800/50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {getAgentStatusIcon(agent.status)}
-                      <span className={`text-sm font-medium ${agent.status === 'running' ? 'text-blue-300' : 'text-gray-200'}`}>
-                        {agent.title}
-                      </span>
+            <div className="px-3 pb-3 space-y-2">
+              {agents.map(agent => {
+                // Extract emoji from title
+                const emoji = agent.title.match(/^[\p{Emoji}]/u)?.[0] || '🤖';
+                const titleWithoutEmoji = agent.title.replace(/^[\p{Emoji}]\s*/u, '');
+
+                // Status-based styling
+                const statusConfig = {
+                  running: {
+                    bg: 'bg-gradient-to-r from-blue-900/40 to-blue-800/20',
+                    border: 'border-blue-500/50',
+                    textColor: 'text-blue-300',
+                    iconBg: 'bg-blue-500',
+                  },
+                  completed: {
+                    bg: 'bg-gray-800/60',
+                    border: 'border-green-500/30',
+                    textColor: 'text-green-400',
+                    iconBg: 'bg-green-500',
+                  },
+                  error: {
+                    bg: 'bg-gradient-to-r from-red-900/30 to-red-800/10',
+                    border: 'border-red-500/50',
+                    textColor: 'text-red-400',
+                    iconBg: 'bg-red-500',
+                  },
+                  pending: {
+                    bg: 'bg-gray-800/30',
+                    border: 'border-gray-600/30',
+                    textColor: 'text-gray-500',
+                    iconBg: 'bg-gray-600',
+                  },
+                };
+
+                const config = statusConfig[agent.status] || statusConfig.pending;
+
+                return (
+                  <div
+                    key={agent.name}
+                    className={`
+                      rounded-lg border overflow-hidden transition-all duration-200
+                      ${config.bg} ${config.border}
+                      ${agent.status === 'running' ? 'shadow-lg shadow-blue-500/10' : ''}
+                    `}
+                  >
+                    {/* Card Header */}
+                    <div className="px-3 py-2 flex items-center gap-3">
+                      {/* Status Icon Circle */}
+                      <div className={`
+                        w-8 h-8 rounded-lg flex items-center justify-center text-sm
+                        ${config.iconBg}
+                        ${agent.status === 'running' ? 'animate-pulse' : ''}
+                      `}>
+                        {agent.status === 'running' ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : agent.status === 'completed' ? (
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                        ) : agent.status === 'error' ? (
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        ) : (
+                          <span className="text-white text-xs">{emoji}</span>
+                        )}
+                      </div>
+
+                      {/* Agent Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-semibold ${config.textColor}`}>
+                            {titleWithoutEmoji}
+                          </span>
+                          {agent.status === 'running' && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-300 animate-pulse">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-400 truncate">{agent.description}</p>
+                      </div>
+
+                      {/* Stats */}
+                      <div className="text-right flex-shrink-0">
+                        {agent.executionTime !== undefined && (
+                          <div className="text-sm font-mono font-semibold text-gray-300">
+                            {agent.executionTime.toFixed(1)}s
+                          </div>
+                        )}
+                        {/* Token Usage Display */}
+                        <div className="text-[9px] text-gray-500 font-mono">
+                          {agent.tokenUsage ? (
+                            <span title={`Prompt: ${agent.tokenUsage.promptTokens}, Completion: ${agent.tokenUsage.completionTokens}`}>
+                              {agent.tokenUsage.totalTokens.toLocaleString()} tok
+                            </span>
+                          ) : agent.status === 'completed' || agent.status === 'running' ? (
+                            <span className="opacity-50">-- tok</span>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                    {agent.executionTime !== undefined && (
-                      <span className="text-xs text-gray-500">
-                        {agent.executionTime.toFixed(1)}s
-                      </span>
+
+                    {/* Streaming Content (only for running agents) */}
+                    {agent.status === 'running' && agent.streamingContent && (
+                      <div className="px-3 pb-2">
+                        <pre className="text-[10px] font-mono text-gray-400 bg-gray-900/50 p-2 rounded max-h-20 overflow-auto whitespace-pre-wrap border border-gray-700/50">
+                          {agent.streamingContent.slice(0, 300)}
+                          {agent.streamingContent.length > 300 && '...'}
+                          <span className="inline-block w-1.5 h-3 bg-blue-400 animate-pulse ml-0.5 align-bottom" />
+                        </pre>
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">{agent.description}</p>
-                  {agent.status === 'running' && agent.streamingContent && (
-                    <pre className="mt-2 text-[10px] font-mono text-gray-500 bg-gray-900 p-2 rounded max-h-16 overflow-auto">
-                      {agent.streamingContent.slice(0, 200)}
-                      {agent.streamingContent.length > 200 && '...'}
-                    </pre>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -451,12 +433,20 @@ const WorkflowStatusPanel = ({
         )}
       </div>
 
-      {/* Footer */}
-      {!isRunning && savedFiles && savedFiles.length > 0 && (
-        <div className="px-4 py-3 bg-gray-800 border-t border-gray-700">
+      {/* Compact Footer with Quick Stats */}
+      {savedFiles && savedFiles.length > 0 && (
+        <div className="px-3 py-2 bg-gray-800 border-t border-gray-700">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-green-400">✅ Workflow Complete</span>
-            <span className="text-gray-500">{formatTime(elapsedTime)} total</span>
+            <div className="flex items-center gap-3">
+              <span className="text-gray-400">
+                <span className="text-green-400 font-medium">{savedFiles.filter(f => f.saved).length}</span>
+                <span className="mx-1">/</span>
+                <span>{savedFiles.length}</span> files
+              </span>
+            </div>
+            {!isRunning && (
+              <span className="text-green-400 text-[10px]">✓ Complete</span>
+            )}
           </div>
         </div>
       )}

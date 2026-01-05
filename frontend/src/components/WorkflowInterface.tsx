@@ -12,6 +12,7 @@ import WorkspaceProjectSelector from './WorkspaceProjectSelector';
 import DebugPanel from './DebugPanel';
 import HITLModal from './HITLModal';
 import WorkflowStatusPanel from './WorkflowStatusPanel';
+import DashboardHeader from './DashboardHeader';
 import apiClient from '../api/client';
 
 // Agent status for progress tracking
@@ -22,6 +23,12 @@ interface AgentProgressStatus {
   status: 'pending' | 'running' | 'completed' | 'error';
   executionTime?: number;
   streamingContent?: string;
+  // Token usage tracking
+  tokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 interface DebugLog {
@@ -167,7 +174,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
 
   // Track elapsed time during workflow
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
     if (isRunning && workflowStartTime) {
       interval = setInterval(() => {
         setElapsedTime((Date.now() - workflowStartTime) / 1000);
@@ -204,8 +211,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     setLiveOutputs(new Map());  // Clear live outputs on new workflow
   };
 
-  // Refinement loop state
-  const [refinementIteration, setRefinementIteration] = useState(0);
+  // Refinement loop state (tracked for potential future UI display)
+  const [_refinementIteration, setRefinementIteration] = useState(0);
 
   // Update agent progress from event
   const updateAgentProgress = (event: any) => {
@@ -337,6 +344,17 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             }
           }
 
+          // Capture token usage if provided in event
+          const eventTokenUsage = event.updates?.token_usage;
+          let tokenUsage = agent.tokenUsage;
+          if (eventTokenUsage) {
+            tokenUsage = {
+              promptTokens: eventTokenUsage.prompt_tokens || eventTokenUsage.promptTokens || 0,
+              completionTokens: eventTokenUsage.completion_tokens || eventTokenUsage.completionTokens || 0,
+              totalTokens: eventTokenUsage.total_tokens || eventTokenUsage.totalTokens || 0,
+            };
+          }
+
           return {
             ...agent,
             title: agentTitle || agent.title,
@@ -344,6 +362,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             status: newStatus,
             executionTime: executionTime !== undefined ? executionTime : agent.executionTime,
             streamingContent: streamingContent || agent.streamingContent,
+            tokenUsage: tokenUsage,
           };
         }
         return agent;
@@ -892,9 +911,26 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   };
 
   return (
-    <div className="flex h-full bg-[#FAF9F7]">
-      {/* LEFT PANEL - Conversation Area */}
-      <div className="flex flex-col flex-1 min-w-0">
+    <div className="flex flex-col h-full bg-[#FAF9F7]">
+      {/* Dashboard Header - Shows when workflow is active */}
+      {(isRunning || totalProgress > 0 || savedFiles.length > 0) && (
+        <DashboardHeader
+          projectName={currentProjectName || projectName}
+          projectDir={currentProjectDir}
+          workspace={workspace}
+          isRunning={isRunning}
+          totalProgress={totalProgress}
+          elapsedTime={elapsedTime}
+          estimatedTimeRemaining={estimatedTimeRemaining}
+          agents={agentProgress}
+          onWorkspaceClick={() => setShowWorkspaceDialog(true)}
+        />
+      )}
+
+      {/* Main Content Area - Conversation + Status Panel */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* LEFT PANEL - Conversation Area (60%) */}
+        <div className="flex flex-col flex-1 min-w-0">
       {/* Workspace Configuration Dialog */}
       {showWorkspaceDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1654,9 +1690,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       </div>
       </div>{/* End of LEFT PANEL */}
 
-      {/* RIGHT PANEL - Workflow Status (50% width for 5:5 ratio) */}
+      {/* RIGHT PANEL - Workflow Status (40% width for 6:4 ratio) */}
       {showStatusPanel && (isRunning || savedFiles.length > 0 || totalProgress > 0) && (
-        <div className="w-1/2 min-w-[400px] max-w-[800px] border-l border-gray-200 flex-shrink-0 overflow-hidden">
+        <div className="w-2/5 min-w-[320px] max-w-[500px] border-l border-gray-200 flex-shrink-0 overflow-hidden">
           <WorkflowStatusPanel
             isRunning={isRunning}
             agents={agentProgress}
@@ -1673,6 +1709,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           />
         </div>
       )}
+      </div>{/* End of Main Content Area */}
 
       {/* Modals - Positioned outside panels */}
       <SharedContextViewer

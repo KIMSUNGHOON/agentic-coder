@@ -1178,6 +1178,16 @@ export function main() {{
         """Create standardized update for frontend"""
         agent_info = self._get_agent_info(node)
 
+        # Extract token_usage if present in data and normalize the structure
+        token_usage = data.get("token_usage")
+        if token_usage:
+            # Ensure consistent snake_case format for frontend
+            data["token_usage"] = {
+                "prompt_tokens": token_usage.get("prompt_tokens", 0),
+                "completion_tokens": token_usage.get("completion_tokens", 0),
+                "total_tokens": token_usage.get("total_tokens", 0),
+            }
+
         return {
             "node": node,
             "status": status,
