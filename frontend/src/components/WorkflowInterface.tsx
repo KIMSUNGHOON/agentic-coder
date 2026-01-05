@@ -411,8 +411,17 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       return merged;
     };
 
-    // DEBUG: Log all events for artifact tracking
+    // DEBUG: Log all events for artifact and status tracking
     console.log(`[Event] node=${nodeName} status=${status} hasArtifacts=${!!event.updates?.artifacts} hasSavedFiles=${!!event.updates?.saved_files}`);
+
+    // DEBUG: Track agent status changes
+    setAgentProgress(current => {
+      const agent = current.find(a => a.name === nodeName);
+      if (agent) {
+        console.log(`[AgentStatus] ${nodeName}: ${agent.status} -> ${status}`);
+      }
+      return current;
+    });
 
     // Capture saved files from persistence - MERGE instead of replace
     if (nodeName === 'persistence' && status === 'completed') {
@@ -748,11 +757,15 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             }
 
             // Check for workflow completion - set isRunning to false immediately
-            if (
-              (update.type === 'completed' && update.agent === 'Workflow') ||
-              (update.type === 'completed' && update.agent === 'Orchestrator' && update.status === 'finished') ||
+            // Use event.node (lowercase 'workflow') instead of update.agent (has emoji)
+            const isWorkflowComplete = (
+              (event.status === 'completed' && event.node === 'workflow') ||
+              (event.status === 'finished') ||
               (update.status === 'finished')
-            ) {
+            );
+
+            if (isWorkflowComplete) {
+              console.log('[Workflow] Completion detected - forcing all agents to completed state');
               // Workflow is complete, stop showing running state
               setIsRunning(false);
 
