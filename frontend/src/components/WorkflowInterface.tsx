@@ -365,11 +365,21 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       console.log(`[Parallel Coder] Batch ${batchInfo.current}/${batchInfo.total}, ${batchInfo.files_in_batch} files`);
     }
 
-    // Capture saved files from persistence
+    // Helper function to merge files with deduplication by filename
+    const mergeFiles = (prevFiles: any[], newFiles: any[]) => {
+      const fileMap = new Map<string, any>();
+      // Add existing files first
+      prevFiles.forEach(f => fileMap.set(f.filename, f));
+      // Add/update new files (newer versions overwrite)
+      newFiles.forEach(f => fileMap.set(f.filename, f));
+      return Array.from(fileMap.values());
+    };
+
+    // Capture saved files from persistence - MERGE instead of replace
     if (nodeName === 'persistence' && status === 'completed') {
       const files = event.updates?.saved_files || event.updates?.artifacts || event.updates?.final_artifacts || [];
       if (files.length > 0) {
-        setSavedFiles(files);
+        setSavedFiles(prev => mergeFiles(prev, files));
         console.log(`[Persistence] Saved ${files.length} files:`, files.map((f: any) => f.filename));
       }
       // Also update project info if present
@@ -381,20 +391,20 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       }
     }
 
-    // Also capture final artifacts from workflow completion
+    // Also capture final artifacts from workflow completion - MERGE
     if (nodeName === 'workflow' && status === 'completed') {
       const files = event.updates?.final_artifacts || event.updates?.artifacts || [];
       if (files.length > 0) {
-        setSavedFiles(prev => prev.length > 0 ? prev : files);
+        setSavedFiles(prev => mergeFiles(prev, files));
       }
     }
 
-    // Capture artifacts from coder output
+    // Capture artifacts from coder output - MERGE instead of replace
     if (nodeName === 'coder' && status === 'completed') {
       const coderOutput = event.updates?.coder_output;
       if (coderOutput?.artifacts && coderOutput.artifacts.length > 0) {
         console.log(`[Coder] Generated ${coderOutput.artifacts.length} artifacts`);
-        setSavedFiles(coderOutput.artifacts);
+        setSavedFiles(prev => mergeFiles(prev, coderOutput.artifacts));
       }
     }
   };
@@ -687,6 +697,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             ) {
               // Workflow is complete, stop showing running state
               setIsRunning(false);
+
+              // Force all running/pending agents to completed state
+              setAgentProgress(prev => prev.map(agent => ({
+                ...agent,
+                status: agent.status === 'error' ? 'error' : 'completed',
+              })));
+              setTotalProgress(100);
             }
 
             // Save artifacts when they're created
@@ -723,6 +740,12 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       ]);
     } finally {
       setIsRunning(false);
+      // Ensure all agents show completed state when workflow ends
+      setAgentProgress(prev => prev.map(agent => ({
+        ...agent,
+        status: agent.status === 'error' ? 'error' : 'completed',
+      })));
+      setTotalProgress(100);
     }
   };
 
