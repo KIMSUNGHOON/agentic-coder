@@ -140,12 +140,29 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [currentStreamingFile, setCurrentStreamingFile] = useState<string | null>(null);
   const [currentStreamingContent, setCurrentStreamingContent] = useState<string>('');
   const [savedFiles, setSavedFiles] = useState<Artifact[]>([]);
+
+  // Live Output state for conversation area - track outputs from each agent
+  const [liveOutputs, setLiveOutputs] = useState<Map<string, {
+    agentName: string;
+    agentTitle: string;
+    content: string;
+    status: string;
+    timestamp: number;
+  }>>(new Map());
   const [showStatusPanel, setShowStatusPanel] = useState(true);
   const [currentProjectName, setCurrentProjectName] = useState<string | undefined>();
   const [currentProjectDir, setCurrentProjectDir] = useState<string | undefined>();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Format elapsed time
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs.toFixed(0)}s`;
   };
 
   // Track elapsed time during workflow
@@ -184,6 +201,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     setSavedFiles([]);
     setCurrentProjectName(undefined);
     setCurrentProjectDir(undefined);
+    setLiveOutputs(new Map());  // Clear live outputs on new workflow
   };
 
   // Refinement loop state
@@ -357,6 +375,22 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     }
     if (event.updates?.streaming_content) {
       setCurrentStreamingContent(event.updates.streaming_content);
+
+      // Update live outputs for conversation area display
+      const agentInfo = agentProgress.find(a => a.name === nodeName);
+      if (agentInfo) {
+        setLiveOutputs(prev => {
+          const newMap = new Map(prev);
+          newMap.set(nodeName, {
+            agentName: nodeName,
+            agentTitle: event.agent_title || agentInfo.title,
+            content: event.updates.streaming_content,
+            status: status,
+            timestamp: Date.now(),
+          });
+          return newMap;
+        });
+      }
     }
 
     // Handle parallel file progress info
@@ -372,8 +406,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       prevFiles.forEach(f => fileMap.set(f.filename, f));
       // Add/update new files (newer versions overwrite)
       newFiles.forEach(f => fileMap.set(f.filename, f));
-      return Array.from(fileMap.values());
+      const merged = Array.from(fileMap.values());
+      console.log(`[mergeFiles] ${prevFiles.length} prev + ${newFiles.length} new = ${merged.length} total`);
+      return merged;
     };
+
+    // DEBUG: Log all events for artifact tracking
+    console.log(`[Event] node=${nodeName} status=${status} hasArtifacts=${!!event.updates?.artifacts} hasSavedFiles=${!!event.updates?.saved_files}`);
 
     // Capture saved files from persistence - MERGE instead of replace
     if (nodeName === 'persistence' && status === 'completed') {
@@ -381,6 +420,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       if (files.length > 0) {
         setSavedFiles(prev => mergeFiles(prev, files));
         console.log(`[Persistence] Saved ${files.length} files:`, files.map((f: any) => f.filename));
+      } else {
+        console.warn(`[Persistence] No files found in event`);
       }
       // Also update project info if present
       if (event.updates?.project_name) {
@@ -389,6 +430,12 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       if (event.updates?.project_dir) {
         setCurrentProjectDir(event.updates.project_dir);
       }
+    }
+
+    // Also try to capture artifacts from ANY node that has them
+    if (event.updates?.artifacts && Array.isArray(event.updates.artifacts) && event.updates.artifacts.length > 0) {
+      console.log(`[${nodeName}] Found ${event.updates.artifacts.length} artifacts`);
+      setSavedFiles(prev => mergeFiles(prev, event.updates.artifacts));
     }
 
     // Also capture final artifacts from workflow completion - MERGE
@@ -400,11 +447,22 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     }
 
     // Capture artifacts from coder output - MERGE instead of replace
+    // Backend sends artifacts in multiple places: coder_output.artifacts AND updates.artifacts
     if (nodeName === 'coder' && status === 'completed') {
-      const coderOutput = event.updates?.coder_output;
-      if (coderOutput?.artifacts && coderOutput.artifacts.length > 0) {
-        console.log(`[Coder] Generated ${coderOutput.artifacts.length} artifacts`);
-        setSavedFiles(prev => mergeFiles(prev, coderOutput.artifacts));
+      // Try direct artifacts first (backend sends both)
+      let artifacts = event.updates?.artifacts || [];
+
+      // Fallback to nested coder_output.artifacts
+      if (artifacts.length === 0) {
+        const coderOutput = event.updates?.coder_output;
+        artifacts = coderOutput?.artifacts || [];
+      }
+
+      if (artifacts.length > 0) {
+        console.log(`[Coder] Generated ${artifacts.length} artifacts:`, artifacts.map((a: any) => a.filename));
+        setSavedFiles(prev => mergeFiles(prev, artifacts));
+      } else {
+        console.warn(`[Coder] No artifacts found in event:`, JSON.stringify(event.updates, null, 2).slice(0, 500));
       }
     }
   };
@@ -1088,6 +1146,60 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           {/* Workflow Graph Visualization */}
           {currentWorkflowInfo && isRunning && (
             <WorkflowGraph workflowInfo={currentWorkflowInfo} isRunning={isRunning} />
+          )}
+
+          {/* Live Output in Conversation Area - Real-time agent outputs */}
+          {isRunning && liveOutputs.size > 0 && (
+            <div className="mb-6 bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
+              <div className="px-4 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  <span className="text-sm font-semibold text-white">Live Output</span>
+                  <span className="text-xs text-gray-400">({liveOutputs.size} agents)</span>
+                </div>
+                <span className="text-xs text-gray-500">{formatTime(elapsedTime)}</span>
+              </div>
+              <div className="max-h-96 overflow-y-auto divide-y divide-gray-700">
+                {/* Show all active agent outputs sorted by timestamp (most recent first) */}
+                {Array.from(liveOutputs.values())
+                  .sort((a, b) => b.timestamp - a.timestamp)
+                  .slice(0, 5)  // Show last 5 agents
+                  .map((output) => (
+                    <div key={output.agentName} className="p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          output.status === 'completed' ? 'bg-green-600/30 text-green-400' :
+                          output.status === 'running' || output.status === 'streaming' ? 'bg-blue-600/30 text-blue-400' :
+                          output.status === 'error' ? 'bg-red-600/30 text-red-400' :
+                          'bg-gray-600/30 text-gray-400'
+                        }`}>
+                          {output.status === 'running' || output.status === 'streaming' ? (
+                            <div className="w-2 h-2 border border-current border-t-transparent rounded-full animate-spin mr-1" />
+                          ) : output.status === 'completed' ? (
+                            <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          ) : null}
+                          {output.agentTitle}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {new Date(output.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap bg-gray-900/50 p-2 rounded max-h-32 overflow-y-auto">
+                        {output.content.slice(0, 500)}
+                        {output.content.length > 500 && '...'}
+                        {(output.status === 'running' || output.status === 'streaming') && (
+                          <span className="inline-block w-1.5 h-4 bg-green-400 animate-pulse ml-0.5 align-bottom" />
+                        )}
+                      </pre>
+                    </div>
+                  ))}
+              </div>
+            </div>
           )}
 
           {/* Execution Mode & SharedContext Button */}
