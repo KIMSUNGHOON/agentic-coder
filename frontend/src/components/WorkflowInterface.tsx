@@ -394,22 +394,33 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     }
     if (event.updates?.streaming_content) {
       setCurrentStreamingContent(event.updates.streaming_content);
+    }
 
-      // Update live outputs for conversation area display
-      const agentInfo = agentProgress.find(a => a.name === nodeName);
-      if (agentInfo) {
-        setLiveOutputs(prev => {
-          const newMap = new Map(prev);
+    // ALWAYS update live outputs for agent status changes (not just when streaming_content exists)
+    // This ensures running indicators update correctly when agents complete
+    const agentInfo = agentProgress.find(a => a.name === nodeName);
+    if (agentInfo) {
+      setLiveOutputs(prev => {
+        const newMap = new Map(prev);
+        const existing = prev.get(nodeName);
+
+        // Only update if status changed or new content available
+        const newContent = event.updates?.streaming_content || existing?.content || '';
+        const shouldUpdate = !existing ||
+          existing.status !== status ||
+          event.updates?.streaming_content;
+
+        if (shouldUpdate) {
           newMap.set(nodeName, {
             agentName: nodeName,
             agentTitle: event.agent_title || agentInfo.title,
-            content: event.updates.streaming_content,
+            content: newContent,
             status: status,
             timestamp: Date.now(),
           });
-          return newMap;
-        });
-      }
+        }
+        return newMap;
+      });
     }
 
     // Handle parallel file progress info
@@ -430,76 +441,57 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       return merged;
     };
 
-    // DEBUG: Log all events for artifact and status tracking
-    console.log(`[Event] node=${nodeName} status=${status} hasArtifacts=${!!event.updates?.artifacts} hasSavedFiles=${!!event.updates?.saved_files}`);
+    // CONSOLIDATED ARTIFACT CAPTURE
+    // Capture artifacts from multiple sources and merge them together
+    // Priority: 1. Direct artifacts, 2. saved_files, 3. final_artifacts, 4. coder_output.artifacts
+    const captureArtifacts = () => {
+      let artifactsToCapture: any[] = [];
 
-    // DEBUG: Track agent status changes
-    setAgentProgress(current => {
-      const agent = current.find(a => a.name === nodeName);
-      if (agent) {
-        console.log(`[AgentStatus] ${nodeName}: ${agent.status} -> ${status}`);
+      // Source 1: Direct artifacts (most common)
+      if (event.updates?.artifacts && Array.isArray(event.updates.artifacts) && event.updates.artifacts.length > 0) {
+        artifactsToCapture = event.updates.artifacts;
+        console.log(`[${nodeName}:${status}] Captured ${artifactsToCapture.length} direct artifacts`);
       }
-      return current;
-    });
 
-    // Capture saved files from persistence - MERGE instead of replace
-    if (nodeName === 'persistence' && status === 'completed') {
-      const files = event.updates?.saved_files || event.updates?.artifacts || event.updates?.final_artifacts || [];
-      if (files.length > 0) {
-        setSavedFiles(prev => mergeFiles(prev, files));
-        console.log(`[Persistence] Saved ${files.length} files:`, files.map((f: any) => f.filename));
-      } else {
-        console.warn(`[Persistence] No files found in event`);
+      // Source 2: saved_files (from persistence)
+      if (artifactsToCapture.length === 0 && event.updates?.saved_files && Array.isArray(event.updates.saved_files)) {
+        artifactsToCapture = event.updates.saved_files;
+        console.log(`[${nodeName}:${status}] Captured ${artifactsToCapture.length} from saved_files`);
       }
-      // Also update project info if present
-      if (event.updates?.project_name) {
-        setCurrentProjectName(event.updates.project_name);
+
+      // Source 3: final_artifacts (from workflow completion)
+      if (artifactsToCapture.length === 0 && event.updates?.final_artifacts && Array.isArray(event.updates.final_artifacts)) {
+        artifactsToCapture = event.updates.final_artifacts;
+        console.log(`[${nodeName}:${status}] Captured ${artifactsToCapture.length} from final_artifacts`);
       }
-      if (event.updates?.project_dir) {
-        setCurrentProjectDir(event.updates.project_dir);
+
+      // Source 4: Nested coder_output.artifacts (fallback for coder)
+      if (artifactsToCapture.length === 0 && nodeName === 'coder' && event.updates?.coder_output?.artifacts) {
+        artifactsToCapture = event.updates.coder_output.artifacts;
+        console.log(`[${nodeName}:${status}] Captured ${artifactsToCapture.length} from coder_output.artifacts`);
       }
+
+      // Merge captured artifacts if any found
+      if (artifactsToCapture.length > 0) {
+        setSavedFiles(prev => {
+          const merged = mergeFiles(prev, artifactsToCapture);
+          console.log(`[Artifacts] After merge: ${merged.length} total files`);
+          return merged;
+        });
+      }
+    };
+
+    // Capture artifacts on completed events or when artifacts are present
+    if (status === 'completed' || event.updates?.artifacts || event.updates?.saved_files) {
+      captureArtifacts();
     }
 
-    // Also try to capture artifacts from ANY node that has them
-    if (event.updates?.artifacts && Array.isArray(event.updates.artifacts) && event.updates.artifacts.length > 0) {
-      console.log(`[${nodeName}] Found ${event.updates.artifacts.length} artifacts`);
-      setSavedFiles(prev => mergeFiles(prev, event.updates.artifacts));
+    // Update project info from any source
+    if (event.updates?.project_name) {
+      setCurrentProjectName(event.updates.project_name);
     }
-
-    // Also capture final artifacts from workflow completion - MERGE
-    if (nodeName === 'workflow' && status === 'completed') {
-      const files = event.updates?.final_artifacts || event.updates?.artifacts || [];
-      if (files.length > 0) {
-        setSavedFiles(prev => mergeFiles(prev, files));
-      }
-    }
-
-    // Capture artifacts from coder output - MERGE instead of replace
-    // Backend sends artifacts in multiple places: coder_output.artifacts AND updates.artifacts
-    if (nodeName === 'coder' && status === 'completed') {
-      console.log(`[Coder Complete] Full event.updates keys:`, Object.keys(event.updates || {}));
-
-      // Try direct artifacts first (backend sends both)
-      let artifacts = event.updates?.artifacts || [];
-
-      // Fallback to nested coder_output.artifacts
-      if (artifacts.length === 0) {
-        const coderOutput = event.updates?.coder_output;
-        console.log(`[Coder] coder_output keys:`, Object.keys(coderOutput || {}));
-        artifacts = coderOutput?.artifacts || [];
-      }
-
-      if (artifacts.length > 0) {
-        console.log(`[Coder] Generated ${artifacts.length} artifacts:`, artifacts.map((a: any) => a.filename));
-        setSavedFiles(prev => mergeFiles(prev, artifacts));
-      } else {
-        console.warn(`[Coder] No artifacts found! Event updates:`, JSON.stringify(event.updates, null, 2).slice(0, 1000));
-      }
-    }
-
-    // Also capture from persistence completed event - this is the final source of truth
-    if (nodeName === 'persistence' && status === 'completed') {
-      console.log(`[Persistence Complete] Full event.updates keys:`, Object.keys(event.updates || {}));
+    if (event.updates?.project_dir) {
+      setCurrentProjectDir(event.updates.project_dir);
     }
   };
 
