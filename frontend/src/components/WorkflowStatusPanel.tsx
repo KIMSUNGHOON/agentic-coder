@@ -28,8 +28,11 @@ interface FileTreeNode {
   language?: string;
   saved?: boolean;
   savedPath?: string;
+  relativePath?: string;
   description?: string;
   content?: string;
+  action?: 'created' | 'modified';
+  sizeBytes?: number;
   children?: FileTreeNode[];
 }
 
@@ -89,8 +92,11 @@ const WorkflowStatusPanel = ({
               language: file.language,
               saved: file.saved,
               savedPath: file.saved_path || undefined,
+              relativePath: file.relative_path || undefined,
               description: file.description || undefined,
               content: file.content?.slice(0, 100) || undefined,
+              action: file.action || undefined,
+              sizeBytes: file.size_bytes || undefined,
             }),
           };
           if (!isLastPart) {
@@ -163,11 +169,28 @@ const WorkflowStatusPanel = ({
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="flex-shrink-0">{getFileIcon(node.name)}</span>
                   <span className="text-gray-200 font-medium truncate">{node.name}</span>
+                  {/* Action badge - Created or Modified */}
+                  {node.action && (
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                      node.action === 'created'
+                        ? 'bg-emerald-600/30 text-emerald-300'
+                        : 'bg-amber-600/30 text-amber-300'
+                    }`}>
+                      {node.action === 'created' ? '✨ NEW' : '📝 Modified'}
+                    </span>
+                  )}
                   {node.language && (
                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/30 text-blue-300 flex-shrink-0">{node.language}</span>
                   )}
-                  {node.saved && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-600/30 text-green-400 flex-shrink-0">✓ saved</span>
+                  {/* File size */}
+                  {node.sizeBytes !== undefined && (
+                    <span className="text-[9px] text-gray-500 flex-shrink-0">
+                      {node.sizeBytes < 1024
+                        ? `${node.sizeBytes}B`
+                        : node.sizeBytes < 1024 * 1024
+                          ? `${(node.sizeBytes / 1024).toFixed(1)}KB`
+                          : `${(node.sizeBytes / 1024 / 1024).toFixed(1)}MB`}
+                    </span>
                   )}
                 </div>
                 {/* File description/comment */}
@@ -176,10 +199,10 @@ const WorkflowStatusPanel = ({
                     💬 {node.description}
                   </div>
                 )}
-                {/* Saved path */}
-                {node.savedPath && (
-                  <div className="mt-0.5 text-[10px] text-green-500/70 font-mono pl-5 truncate">
-                    📂 {node.savedPath}
+                {/* Relative path - more readable than full path */}
+                {node.relativePath && (
+                  <div className="mt-0.5 text-[10px] text-gray-500 font-mono pl-5 truncate">
+                    ./{node.relativePath}
                   </div>
                 )}
               </div>
@@ -387,50 +410,75 @@ const WorkflowStatusPanel = ({
         </div>
 
         {/* Files Section */}
-        {savedFiles && savedFiles.length > 0 && (
-          <div className="border-b border-gray-700">
-            <button
-              onClick={() => toggleSection('files')}
-              className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-300 hover:bg-gray-800"
-            >
-              <span>📁 Generated Files ({savedFiles.length})</span>
-              <svg className={`w-4 h-4 transition-transform ${expandedSections.files ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-              </svg>
-            </button>
-            {expandedSections.files && (
-              <div className="px-2 pb-3">
-                {/* Workspace info */}
-                {workspaceRoot && (
-                  <div className="px-2 py-1 mb-2 text-xs text-gray-500 font-mono border-b border-gray-700">
-                    📂 {workspaceRoot}
-                  </div>
-                )}
-                {/* File tree */}
-                <div className="bg-gray-800 rounded-lg p-2">
-                  {renderFileTree(fileTree)}
+        {savedFiles && savedFiles.length > 0 && (() => {
+          const createdCount = savedFiles.filter(f => f.action === 'created').length;
+          const modifiedCount = savedFiles.filter(f => f.action === 'modified').length;
+          const projectRoot = savedFiles[0]?.project_root || workspaceRoot;
+
+          return (
+            <div className="border-b border-gray-700">
+              <button
+                onClick={() => toggleSection('files')}
+                className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium text-gray-300 hover:bg-gray-800"
+              >
+                <div className="flex items-center gap-2">
+                  <span>📁 Files ({savedFiles.length})</span>
+                  {createdCount > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-600/30 text-emerald-300">
+                      +{createdCount} new
+                    </span>
+                  )}
+                  {modifiedCount > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-600/30 text-amber-300">
+                      {modifiedCount} modified
+                    </span>
+                  )}
                 </div>
-                {/* Summary */}
-                <div className="mt-2 px-2 grid grid-cols-3 gap-2">
-                  <div className="text-center p-2 bg-gray-800 rounded">
-                    <div className="text-lg font-bold text-green-400">{savedFiles.filter(f => f.saved).length}</div>
-                    <div className="text-[10px] text-gray-500">Saved</div>
-                  </div>
-                  <div className="text-center p-2 bg-gray-800 rounded">
-                    <div className="text-lg font-bold text-blue-400">{savedFiles.length}</div>
-                    <div className="text-[10px] text-gray-500">Total</div>
-                  </div>
-                  <div className="text-center p-2 bg-gray-800 rounded">
-                    <div className="text-lg font-bold text-yellow-400">
-                      {new Set(savedFiles.map(f => f.filename.split('/').slice(0, -1).join('/'))).size}
+                <svg className={`w-4 h-4 transition-transform ${expandedSections.files ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+              {expandedSections.files && (
+                <div className="px-2 pb-3">
+                  {/* Project root info - more prominent */}
+                  {projectRoot && (
+                    <div className="px-2 py-2 mb-2 bg-gray-800/50 rounded-lg border border-gray-700">
+                      <div className="text-[10px] text-gray-400 mb-1">Project Directory</div>
+                      <div className="text-xs text-blue-300 font-mono break-all">
+                        {projectRoot}
+                      </div>
                     </div>
-                    <div className="text-[10px] text-gray-500">Dirs</div>
+                  )}
+                  {/* File tree */}
+                  <div className="bg-gray-800 rounded-lg p-2">
+                    {renderFileTree(fileTree)}
+                  </div>
+                  {/* Summary - Enhanced with action counts */}
+                  <div className="mt-2 px-2 grid grid-cols-4 gap-2">
+                    <div className="text-center p-2 bg-gray-800 rounded">
+                      <div className="text-lg font-bold text-emerald-400">{createdCount}</div>
+                      <div className="text-[10px] text-gray-500">New</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-800 rounded">
+                      <div className="text-lg font-bold text-amber-400">{modifiedCount}</div>
+                      <div className="text-[10px] text-gray-500">Modified</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-800 rounded">
+                      <div className="text-lg font-bold text-blue-400">{savedFiles.length}</div>
+                      <div className="text-[10px] text-gray-500">Total</div>
+                    </div>
+                    <div className="text-center p-2 bg-gray-800 rounded">
+                      <div className="text-lg font-bold text-gray-400">
+                        {new Set(savedFiles.map(f => f.filename.split('/').slice(0, -1).join('/'))).size}
+                      </div>
+                      <div className="text-[10px] text-gray-500">Dirs</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Compact Footer with Quick Stats */}

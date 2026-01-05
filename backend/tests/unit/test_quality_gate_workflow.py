@@ -422,3 +422,59 @@ class TestCoderNode:
             assert "prompt_tokens" in token_usage
             assert "completion_tokens" in token_usage
             assert "total_tokens" in token_usage
+
+    def test_coder_artifact_has_action_field(self):
+        """Test that artifacts include action field (created/modified)"""
+        from app.agent.langgraph.nodes.coder import coder_node
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = create_initial_state(
+                user_request="Create a simple hello world app",
+                workspace_root=tmpdir,
+                task_type="implementation"
+            )
+            state["enable_debug"] = True
+
+            result = coder_node(state)
+
+            # Check that artifacts have action field
+            artifacts = result.get("artifacts", [])
+            if artifacts:
+                for artifact in artifacts:
+                    assert "action" in artifact, "Artifact should have action field"
+                    assert artifact["action"] in ["created", "modified"], \
+                        f"Action should be 'created' or 'modified', got {artifact['action']}"
+                    assert "relative_path" in artifact, "Artifact should have relative_path"
+                    assert "project_root" in artifact, "Artifact should have project_root"
+
+    def test_coder_detects_modified_files(self):
+        """Test that coder correctly identifies modified vs created files"""
+        from app.agent.langgraph.nodes.coder import coder_node
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create an existing file first
+            existing_file = os.path.join(tmpdir, "main.py")
+            with open(existing_file, "w") as f:
+                f.write("# Old content")
+
+            state = create_initial_state(
+                user_request="Update the main.py file",
+                workspace_root=tmpdir,
+                task_type="implementation"
+            )
+            state["enable_debug"] = True
+
+            result = coder_node(state)
+
+            # Find main.py artifact if it exists
+            artifacts = result.get("artifacts", [])
+            main_artifact = next((a for a in artifacts if "main.py" in a.get("filename", "")), None)
+
+            if main_artifact:
+                # Since main.py existed, it should be marked as modified
+                assert main_artifact.get("action") == "modified", \
+                    "Existing file should be marked as 'modified'"

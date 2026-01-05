@@ -50,7 +50,7 @@ export interface ChecklistItem {
 }
 
 export interface Artifact {
-  type: string;
+  type?: string;
   language: string;
   filename: string;
   content: string;
@@ -59,6 +59,13 @@ export interface Artifact {
   saved_path?: string | null;  // Path where the file was saved
   saved_at?: string | null;  // Timestamp when file was saved
   error?: string | null;  // Error message if save failed
+  // Enhanced fields for better UI display
+  action?: 'created' | 'modified';  // Whether file was created or modified
+  relative_path?: string;  // Path relative to project root
+  project_root?: string;  // Project root directory
+  file_path?: string;  // Full absolute path
+  size_bytes?: number;  // File size in bytes
+  checksum?: string;  // File checksum for integrity
 }
 
 export interface CompletedTask {

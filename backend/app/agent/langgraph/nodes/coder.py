@@ -162,11 +162,17 @@ def coder_node(state: QualityGateState) -> Dict:
         )
 
         # Write files and create artifacts
+        import os
         for file_info in generated_files:
             filename = file_info["filename"]
             content = file_info["content"]
             language = file_info.get("language", "python")
             description = file_info.get("description", "")
+
+            # Check if file already exists to determine action
+            full_path = os.path.join(workspace_root, filename)
+            file_existed = os.path.exists(full_path)
+            action = "modified" if file_existed else "created"
 
             # Write file to workspace
             result = write_file_tool(
@@ -176,19 +182,27 @@ def coder_node(state: QualityGateState) -> Dict:
             )
 
             if result["success"]:
-                logger.info(f"✅ Generated: {filename}")
+                action_emoji = "📝" if action == "modified" else "✨"
+                logger.info(f"{action_emoji} {action.capitalize()}: {filename}")
 
-                # Create artifact
+                # Calculate relative path from workspace root
+                saved_path = result["file_path"]
+                relative_path = os.path.relpath(saved_path, workspace_root) if saved_path.startswith(workspace_root) else filename
+
+                # Create artifact with enhanced metadata
                 artifacts.append({
                     "filename": filename,
-                    "file_path": result["file_path"],
+                    "file_path": saved_path,
+                    "relative_path": relative_path,
+                    "project_root": workspace_root,
                     "language": language,
                     "content": content,
                     "description": description,
                     "size_bytes": len(content),
                     "checksum": f"sha256_{hash(content) % (10 ** 8):08x}",
                     "saved": True,
-                    "saved_path": result["file_path"]
+                    "saved_path": saved_path,
+                    "action": action,  # "created" or "modified"
                 })
             else:
                 logger.error(f"❌ Failed to write {filename}: {result['error']}")
