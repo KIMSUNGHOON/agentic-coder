@@ -1,6 +1,11 @@
 """Application configuration."""
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List, Literal, Optional
+
+# Get the backend directory path for .env file
+BACKEND_DIR = Path(__file__).parent.parent.parent
+ENV_FILE = BACKEND_DIR / ".env"
 
 
 def detect_model_type(model_name: str) -> str:
@@ -116,8 +121,16 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
     class Config:
-        env_file = ".env"
+        env_file = str(ENV_FILE)
         case_sensitive = False
 
 
+# Create settings instance
 settings = Settings()
+
+# Log loaded configuration at startup (helps debug .env loading issues)
+import logging
+_logger = logging.getLogger(__name__)
+_logger.info(f"📁 Config loaded from: {ENV_FILE} (exists: {ENV_FILE.exists()})")
+_logger.info(f"🔧 Coding endpoint: {settings.get_coding_endpoint}")
+_logger.info(f"🔧 Reasoning endpoint: {settings.get_reasoning_endpoint}")
