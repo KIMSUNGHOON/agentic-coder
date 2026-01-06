@@ -173,7 +173,8 @@ class EnhancedWorkflow:
         enable_debug: bool = True,
         retry_count: int = 0,
         retry_feedback: str = None,
-        max_retries: int = 3
+        max_retries: int = 3,
+        system_prompt: str = ""
     ) -> AsyncGenerator[Dict, None]:
         """Execute enhanced workflow with streaming
 
@@ -184,10 +185,17 @@ class EnhancedWorkflow:
         - Execution times
 
         Args:
+            user_request: User's coding request
+            workspace_root: Base directory for file operations
+            task_type: Type of task (general, implementation, etc.)
+            enable_debug: Enable debug logging
             retry_count: Current retry attempt (0 = first run)
             retry_feedback: Feedback from previous HITL rejection
             max_retries: Maximum number of retry attempts
+            system_prompt: Optional custom system prompt (for future use)
         """
+        # Note: system_prompt is accepted but not yet used in this workflow
+        # It can be integrated with the supervisor or agent nodes in the future
         workflow_id = f"workflow_{datetime.utcnow().timestamp()}"
         start_time = time.time()
         agent_times: Dict[str, float] = {}

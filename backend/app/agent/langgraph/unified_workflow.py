@@ -56,7 +56,8 @@ class UnifiedLangGraphWorkflow:
         user_request: str,
         workspace_root: str,
         task_type: str = "general",
-        enable_debug: bool = True
+        enable_debug: bool = True,
+        system_prompt: str = ""
     ) -> AsyncGenerator[Dict, None]:
         """Execute Supervisor-led dynamic workflow with REAL operations
 
@@ -72,6 +73,8 @@ class UnifiedLangGraphWorkflow:
             user_request: User's request
             workspace_root: Workspace root directory
             task_type: Type of task (optional, Supervisor will determine)
+            enable_debug: Enable debug logging
+            system_prompt: Optional custom system prompt (for future use)
             enable_debug: Whether to enable debug logging
 
         Yields:
