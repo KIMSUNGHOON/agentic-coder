@@ -1,12 +1,31 @@
 """GPT-OSS LLM Adapter
 
 Specialized adapter for OpenAI's GPT-OSS-120B and GPT-OSS-20B models.
-Supports Harmony response format and reasoning levels.
+Supports Harmony response format, reasoning levels, and function calling.
+
+Model Specifications:
+- gpt-oss-120b: 117B params (5.1B active), fits single 80GB GPU (H100/MI300X)
+- gpt-oss-20b: 21B params (3.6B active), runs in ~16GB memory
+- Default context: 8,192 tokens (configurable)
+- Quantization: MXFP4 for MoE weights
+- License: Apache 2.0
+
+Features:
+- Harmony response format (required)
+- Reasoning effort levels (low, medium, high)
+- Native function/tool calling support
+- Structured outputs
 
 References:
 - https://github.com/openai/gpt-oss
 - https://github.com/openai/harmony
 - https://huggingface.co/openai/gpt-oss-120b
+- https://arxiv.org/abs/2508.10925 (Model Card)
+- https://cookbook.openai.com/topic/gpt-oss
+
+Safety Note:
+- Chain-of-thought reasoning is available for debugging
+- CoT should NOT be shown to end users (may contain unfiltered content)
 """
 
 import logging
@@ -14,7 +33,8 @@ import httpx
 import asyncio
 import time
 import re
-from typing import Optional, AsyncGenerator, Dict, List, Any
+import json
+from typing import Optional, AsyncGenerator, Dict, List, Any, Callable
 
 from shared.llm.base import (
     BaseLLMProvider,
@@ -36,11 +56,17 @@ def _calculate_backoff(attempt: int, base_delay: float = 1.0, max_delay: float =
 logger = logging.getLogger(__name__)
 
 
-# Reasoning effort levels for GPT-OSS
+# GPT-OSS Model Constants
+GPT_OSS_120B = "openai/gpt-oss-120b"
+GPT_OSS_20B = "openai/gpt-oss-20b"
+DEFAULT_CONTEXT_LENGTH = 8192
+
+
+# Reasoning effort levels for GPT-OSS (default is LOW per official docs)
 class ReasoningEffort:
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+    LOW = "low"      # Default - faster responses
+    MEDIUM = "medium"  # Balanced
+    HIGH = "high"    # Deep reasoning - slower but more thorough
 
 
 # GPT-OSS specific system prompts with Harmony format awareness
@@ -154,19 +180,28 @@ class GptOssAdapter(BaseLLMProvider):
     """Adapter for OpenAI GPT-OSS models (120B and 20B)
 
     GPT-OSS models use the Harmony response format which provides:
-    - analysis channel: Chain-of-thought reasoning
+    - analysis channel: Chain-of-thought reasoning (for debugging, not user display)
     - commentary channel: Tool calls
     - final channel: User-facing response
 
-    When using vLLM, the Harmony format is handled automatically.
+    Features:
+    - Native function/tool calling support
+    - Reasoning effort levels (low, medium, high)
+    - Structured outputs
+    - vLLM handles Harmony format automatically
+
+    Hardware Requirements:
+    - gpt-oss-120b: Single 80GB GPU (H100, MI300X)
+    - gpt-oss-20b: ~16GB GPU memory
     """
 
     def __init__(
         self,
         endpoint: str,
-        model: str = "openai/gpt-oss-120b",
+        model: str = GPT_OSS_120B,
         config: Optional[LLMConfig] = None,
-        reasoning_effort: str = ReasoningEffort.MEDIUM,
+        reasoning_effort: str = ReasoningEffort.LOW,  # Default is LOW per official docs
+        tools: Optional[List[Dict[str, Any]]] = None,
     ):
         """Initialize GPT-OSS adapter
 
@@ -175,11 +210,16 @@ class GptOssAdapter(BaseLLMProvider):
             model: Model name (gpt-oss-120b or gpt-oss-20b)
             config: Default LLM configuration
             reasoning_effort: Default reasoning level (low, medium, high)
+            tools: Optional list of tools/functions for function calling
         """
         super().__init__(endpoint, model, config or GPT_OSS_TASK_CONFIGS[TaskType.GENERAL])
         self.reasoning_effort = reasoning_effort
+        self.tools = tools
+        self._hide_cot = True  # Safety: hide chain-of-thought from users by default
         logger.info(f"GPT-OSS Adapter initialized: {model} @ {endpoint}")
         logger.info(f"Default reasoning effort: {reasoning_effort}")
+        if tools:
+            logger.info(f"Function calling enabled with {len(tools)} tools")
 
     def format_system_prompt(self, task_type: TaskType) -> str:
         """Get task-specific system prompt with reasoning effort"""
@@ -252,6 +292,24 @@ class GptOssAdapter(BaseLLMProvider):
             thinking_blocks=[reasoning] if reasoning else [],
         )
 
+    def set_tools(self, tools: List[Dict[str, Any]]) -> None:
+        """Set tools for function calling
+
+        Args:
+            tools: List of tool definitions in OpenAI format
+                   Example: [{"type": "function", "function": {"name": "...", "parameters": {...}}}]
+        """
+        self.tools = tools
+        logger.info(f"Updated tools: {len(tools)} functions available")
+
+    def set_hide_cot(self, hide: bool) -> None:
+        """Set whether to hide chain-of-thought from responses
+
+        Args:
+            hide: If True, CoT is filtered from user-facing responses (recommended)
+        """
+        self._hide_cot = hide
+
     async def generate(
         self,
         prompt: str,
@@ -259,6 +317,7 @@ class GptOssAdapter(BaseLLMProvider):
         config_override: Optional[LLMConfig] = None,
         max_retries: int = 3,
         reasoning_effort: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """Generate response from GPT-OSS with retry and backoff
 
@@ -268,21 +327,25 @@ class GptOssAdapter(BaseLLMProvider):
             config_override: Override default config
             max_retries: Number of retries on failure
             reasoning_effort: Override default reasoning effort
+            tools: Optional tools for this specific request (overrides instance tools)
         """
         config = config_override or self.get_config_for_task(task_type)
         formatted_prompt = self.format_prompt(prompt, task_type)
         system_prompt = self.format_system_prompt(task_type)
 
         # Adjust reasoning effort in system prompt if specified
-        if reasoning_effort:
-            system_prompt = re.sub(
-                r'Reasoning effort: \w+',
-                f'Reasoning effort: {reasoning_effort}',
-                system_prompt
-            )
+        effective_reasoning = reasoning_effort or self.reasoning_effort
+        system_prompt = re.sub(
+            r'Reasoning effort: \w+',
+            f'Reasoning effort: {effective_reasoning}',
+            system_prompt
+        )
 
         prompt_tokens_estimate = len(f"{system_prompt}\n\n{formatted_prompt}") // 4
-        logger.debug(f"GPT-OSS request: ~{prompt_tokens_estimate} tokens, task={task_type.value}")
+        logger.debug(f"GPT-OSS request: ~{prompt_tokens_estimate} tokens, task={task_type.value}, reasoning={effective_reasoning}")
+
+        # Use request-specific tools or instance tools
+        effective_tools = tools or self.tools
 
         for attempt in range(max_retries + 1):
             try:
@@ -292,24 +355,47 @@ class GptOssAdapter(BaseLLMProvider):
                         {"role": "user", "content": formatted_prompt}
                     ]
 
+                    # Build request payload
+                    request_payload = {
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": config.temperature,
+                        "max_tokens": config.max_tokens,
+                        "top_p": config.top_p,
+                        "stop": config.stop_sequences if config.stop_sequences else None,
+                    }
+
+                    # Add tools if available (for function calling)
+                    if effective_tools:
+                        request_payload["tools"] = effective_tools
+                        request_payload["tool_choice"] = "auto"
+
                     response = await client.post(
                         f"{self.endpoint}/chat/completions",
-                        json={
-                            "model": self.model,
-                            "messages": messages,
-                            "temperature": config.temperature,
-                            "max_tokens": config.max_tokens,
-                            "top_p": config.top_p,
-                            "stop": config.stop_sequences if config.stop_sequences else None,
-                        }
+                        json=request_payload
                     )
 
                     if response.status_code == 200:
                         result = response.json()
-                        content = result["choices"][0].get("message", {}).get("content", "")
+                        message = result["choices"][0].get("message", {})
+                        content = message.get("content", "")
+                        tool_calls = message.get("tool_calls", [])
+                        finish_reason = result.get("choices", [{}])[0].get("finish_reason", "unknown")
+
+                        # Handle tool calls (function calling)
+                        if tool_calls:
+                            logger.info(f"GPT-OSS returned {len(tool_calls)} tool calls")
+                            llm_response = LLMResponse(
+                                content=content or "",
+                                model=self.model,
+                                finish_reason=finish_reason,
+                            )
+                            llm_response.tool_calls = tool_calls
+                            llm_response.usage = result.get("usage")
+                            llm_response.raw_response = result
+                            return llm_response
 
                         if not content or not content.strip():
-                            finish_reason = result.get("choices", [{}])[0].get("finish_reason", "unknown")
                             usage = result.get("usage", {})
                             logger.warning(
                                 f"Empty response from GPT-OSS: "
@@ -362,8 +448,18 @@ class GptOssAdapter(BaseLLMProvider):
         config_override: Optional[LLMConfig] = None,
         max_retries: int = 3,
         reasoning_effort: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> LLMResponse:
-        """Synchronous generation for GPT-OSS"""
+        """Synchronous generation for GPT-OSS with function calling support
+
+        Args:
+            prompt: User prompt
+            task_type: Type of task for prompt/config selection
+            config_override: Override default config
+            max_retries: Number of retries on failure
+            reasoning_effort: Override default reasoning effort
+            tools: Optional tools for this specific request (overrides instance tools)
+        """
         config = config_override or self.get_config_for_task(task_type)
         formatted_prompt = self.format_prompt(prompt, task_type)
         system_prompt = self.format_system_prompt(task_type)
@@ -375,6 +471,9 @@ class GptOssAdapter(BaseLLMProvider):
                 system_prompt
             )
 
+        # Use request-specific tools or instance tools
+        effective_tools = tools or self.tools
+
         for attempt in range(max_retries + 1):
             try:
                 with httpx.Client(timeout=180.0) as client:
@@ -383,21 +482,45 @@ class GptOssAdapter(BaseLLMProvider):
                         {"role": "user", "content": formatted_prompt}
                     ]
 
+                    # Build request payload
+                    request_payload = {
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": config.temperature,
+                        "max_tokens": config.max_tokens,
+                        "top_p": config.top_p,
+                        "stop": config.stop_sequences if config.stop_sequences else None,
+                    }
+
+                    # Add tools if available (for function calling)
+                    if effective_tools:
+                        request_payload["tools"] = effective_tools
+                        request_payload["tool_choice"] = "auto"
+
                     response = client.post(
                         f"{self.endpoint}/chat/completions",
-                        json={
-                            "model": self.model,
-                            "messages": messages,
-                            "temperature": config.temperature,
-                            "max_tokens": config.max_tokens,
-                            "top_p": config.top_p,
-                            "stop": config.stop_sequences if config.stop_sequences else None,
-                        }
+                        json=request_payload
                     )
 
                     if response.status_code == 200:
                         result = response.json()
-                        content = result["choices"][0].get("message", {}).get("content", "")
+                        message = result["choices"][0].get("message", {})
+                        content = message.get("content", "")
+                        tool_calls = message.get("tool_calls", [])
+                        finish_reason = result.get("choices", [{}])[0].get("finish_reason", "unknown")
+
+                        # Handle tool calls (function calling)
+                        if tool_calls:
+                            logger.info(f"GPT-OSS (sync) returned {len(tool_calls)} tool calls")
+                            llm_response = LLMResponse(
+                                content=content or "",
+                                model=self.model,
+                                finish_reason=finish_reason,
+                            )
+                            llm_response.tool_calls = tool_calls
+                            llm_response.usage = result.get("usage")
+                            llm_response.raw_response = result
+                            return llm_response
 
                         if not content or not content.strip():
                             if attempt < max_retries:
@@ -410,6 +533,7 @@ class GptOssAdapter(BaseLLMProvider):
                                 return LLMResponse(
                                     content="[LLM returned empty response - please retry]",
                                     model=self.model,
+                                    finish_reason=finish_reason,
                                 )
 
                         llm_response = self.parse_response(content, task_type)
