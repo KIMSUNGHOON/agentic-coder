@@ -616,7 +616,10 @@ class EnhancedWorkflow:
             # ==================== PHASE 6: HITL FINAL APPROVAL ====================
             hitl_approved = True  # Default to approved if no HITL needed
 
-            if complexity in ["complex", "critical"] or not all_passed:
+            # Always show HITL for final approval (can skip if all gates passed)
+            # Previously: only showed for complex/critical tasks or when gates failed
+            # Changed: always show to give user control over generated code
+            if True:  # Always trigger HITL for user review
                 hitl_request_id = f"final_review_{workflow_id}"
 
                 # Collect all quality gate results for HITL display
@@ -648,59 +651,63 @@ class EnhancedWorkflow:
                 summary_parts.append(f"\n📁 생성된 파일: {len(final_artifacts)}개")
 
                 # Create and register HITL request with detailed content
-                hitl_request = self._create_hitl_request(
-                    request_id=hitl_request_id,
-                    workflow_id=workflow_id,
-                    stage_id="final_approval",
-                    checkpoint_type=HITLCheckpointType.APPROVAL if all_passed else HITLCheckpointType.REVIEW,
-                    title="최종 검토 필요" if all_passed else "⚠️ 이슈 발견 - 검토 필요",
-                    description="생성된 코드를 저장하기 전에 검토해주세요.",
-                    content={
+                # NOTE: content must match HITLContent model structure
+                # HITLContent fields: summary (str), details (Dict[str, Any])
+                hitl_content = {
+                    "summary": "\n".join(summary_parts),
+                    "details": {
                         "type": "code_review",
-                        "summary": "\n".join(summary_parts),
                         "artifacts_count": len(final_artifacts),
                         "quality_summary": {
                             "security_passed": state.get("security_passed"),
                             "tests_passed": state.get("tests_passed"),
                             "review_approved": state.get("review_approved"),
                         },
-                        "details": {
-                            "artifacts": [
-                                {
-                                    "filename": a.get("filename"),
-                                    "file_path": a.get("file_path"),
-                                    "language": a.get("language"),
-                                    "description": a.get("description"),
-                                    "action": a.get("action"),
-                                }
-                                for a in final_artifacts[:10]  # Limit to 10 for display
-                            ],
-                            "security_findings": [
-                                {
-                                    "severity": f.get("severity"),
-                                    "category": f.get("category"),
-                                    "description": f.get("description"),
-                                    "file_path": f.get("file_path"),
-                                    "line_number": f.get("line_number"),
-                                    "recommendation": f.get("recommendation"),
-                                }
-                                for f in security_findings
-                            ],
-                            "qa_results": [
-                                {
-                                    "test_name": t.get("test_name"),
-                                    "passed": t.get("passed"),
-                                    "error": t.get("error"),
-                                }
-                                for t in qa_test_results
-                            ],
-                            "review_issues": review_feedback.get("issues", []),
-                            "review_suggestions": review_feedback.get("suggestions", []),
-                            "quality_score": review_feedback.get("quality_score", 0),
-                        }
-                    },
-                    priority="critical" if not all_passed else "high",
-                    allow_skip=all_passed
+                        "artifacts": [
+                            {
+                                "filename": a.get("filename"),
+                                "file_path": a.get("file_path"),
+                                "language": a.get("language"),
+                                "description": a.get("description"),
+                                "action": a.get("action"),
+                            }
+                            for a in final_artifacts[:10]  # Limit to 10 for display
+                        ],
+                        "security_findings": [
+                            {
+                                "severity": f.get("severity"),
+                                "category": f.get("category"),
+                                "description": f.get("description"),
+                                "file_path": f.get("file_path"),
+                                "line_number": f.get("line_number"),
+                                "recommendation": f.get("recommendation"),
+                            }
+                            for f in security_findings
+                        ],
+                        "qa_results": [
+                            {
+                                "test_name": t.get("test_name"),
+                                "passed": t.get("passed"),
+                                "error": t.get("error"),
+                            }
+                            for t in qa_test_results
+                        ],
+                        "review_issues": review_feedback.get("issues", []),
+                        "review_suggestions": review_feedback.get("suggestions", []),
+                        "quality_score": review_feedback.get("quality_score", 0),
+                    }
+                }
+
+                hitl_request = self._create_hitl_request(
+                    request_id=hitl_request_id,
+                    workflow_id=workflow_id,
+                    stage_id="final_approval",
+                    checkpoint_type=HITLCheckpointType.APPROVAL if all_passed else HITLCheckpointType.REVIEW,
+                    title="✅ 최종 검토" if all_passed else "⚠️ 이슈 발견 - 검토 필요",
+                    description="생성된 코드를 저장하기 전에 검토해주세요.",
+                    content=hitl_content,
+                    priority="normal" if all_passed else "critical",
+                    allow_skip=all_passed  # Can skip only if all gates passed
                 )
 
                 yield self._create_update("hitl", "awaiting_approval", {
