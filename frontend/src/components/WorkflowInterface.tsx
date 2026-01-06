@@ -207,6 +207,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     setCurrentProjectName(undefined);
     setCurrentProjectDir(undefined);
     setLiveOutputs(new Map());  // Clear live outputs on new workflow
+    // Clear thinking state on new workflow
+    setIsThinking(false);
+    setThinkingStream([]);
   };
 
   // Refinement loop state (tracked for potential future UI display)
@@ -707,9 +710,10 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
               setThinkingStream(event.updates.thinking_stream || []);
             }
 
-            // Clear thinking when moving past thinking status
-            if (event.status === 'running' && isThinking) {
+            // Clear thinking when moving past thinking status or completing
+            if (event.status === 'running' || event.status === 'completed' || event.status === 'finished') {
               setIsThinking(false);
+              setThinkingStream([]);
             }
 
             // Convert unified format to WorkflowUpdate format
@@ -787,6 +791,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
               console.log('[Workflow] Completion detected - forcing all agents to completed state');
               // Workflow is complete, stop showing running state
               setIsRunning(false);
+              // Clear thinking indicator
+              setIsThinking(false);
+              setThinkingStream([]);
 
               // Force all running/pending agents to completed state
               setAgentProgress(prev => prev.map(agent => ({
@@ -830,6 +837,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       ]);
     } finally {
       setIsRunning(false);
+      // Clear thinking indicator when workflow ends
+      setIsThinking(false);
+      setThinkingStream([]);
       // Ensure all agents show completed state when workflow ends
       setAgentProgress(prev => prev.map(agent => ({
         ...agent,
@@ -1309,6 +1319,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             workspaceRoot={workspace}
             projectName={currentProjectName}
             projectDir={currentProjectDir}
+            sessionId={sessionId}
           />
         </div>
       )}

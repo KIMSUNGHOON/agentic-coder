@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import { Artifact } from '../types/api';
+import apiClient from '../api/client';
 
 interface AgentProgressStatus {
   name: string;
@@ -47,6 +48,7 @@ interface WorkflowStatusPanelProps {
   workspaceRoot?: string;
   projectName?: string;
   projectDir?: string;
+  sessionId?: string;  // For download functionality
 }
 
 // 한글 에이전트 이름 매핑
@@ -69,6 +71,7 @@ const WorkflowStatusPanel = ({
   streamingContent,
   savedFiles,
   projectDir,
+  sessionId,
 }: WorkflowStatusPanelProps) => {
   const [expandedSections, setExpandedSections] = useState({
     output: true,
@@ -278,6 +281,31 @@ const WorkflowStatusPanel = ({
                 <div className="bg-gray-800/30 rounded p-1">
                   {renderFileTree(fileTree)}
                 </div>
+                {/* ZIP 다운로드 버튼 */}
+                {!isRunning && sessionId && (
+                  <div className="mt-2 flex gap-1.5">
+                    <button
+                      onClick={() => apiClient.downloadSessionWorkspace(sessionId, 'zip')}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] lg:text-xs rounded transition-colors"
+                      title="ZIP으로 다운로드"
+                    >
+                      <svg className="w-3 h-3 lg:w-3.5 lg:h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      <span>ZIP</span>
+                    </button>
+                    <button
+                      onClick={() => apiClient.downloadSessionWorkspace(sessionId, 'tar')}
+                      className="flex items-center justify-center gap-1 px-2 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-[10px] lg:text-xs rounded transition-colors"
+                      title="TAR로 다운로드"
+                    >
+                      <svg className="w-3 h-3 lg:w-3.5 lg:h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      <span>TAR</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
