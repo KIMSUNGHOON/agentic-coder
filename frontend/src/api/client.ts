@@ -9,6 +9,9 @@ import {
   ModelsResponse,
   Conversation,
   ConversationListResponse,
+  UnifiedChatResponse,
+  UnifiedStreamUpdate,
+  UnifiedContext,
 } from '../types/api';
 
 class ApiClient {
@@ -72,6 +75,104 @@ class ApiClient {
       throw error;
     }
   }
+
+  // ==================== Unified Chat API ====================
+
+  /**
+   * Send a message using the unified endpoint (non-streaming)
+   * This routes through Supervisor for intelligent handling.
+   */
+  async unifiedChat(request: ChatRequest & { workspace?: string }): Promise<UnifiedChatResponse> {
+    const response = await this.client.post<UnifiedChatResponse>('/chat/unified', request);
+    return response.data;
+  }
+
+  /**
+   * Stream a message using the unified endpoint
+   * Returns SSE stream with progress updates.
+   */
+  async *unifiedChatStream(
+    request: ChatRequest & { workspace?: string }
+  ): AsyncGenerator<UnifiedStreamUpdate, void, unknown> {
+    try {
+      const baseURL = this.client.defaults.baseURL || '/api';
+      const response = await fetch(`${baseURL}/chat/unified/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Response body is not readable');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE format
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6).trim();
+              if (data === '[DONE]') {
+                return;
+              }
+              try {
+                const update = JSON.parse(data) as UnifiedStreamUpdate;
+                yield update;
+              } catch {
+                // Skip invalid JSON
+                console.warn('Invalid SSE data:', data);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error('Unified chat stream error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get conversation context for a session
+   */
+  async getUnifiedContext(sessionId: string): Promise<UnifiedContext> {
+    const response = await this.client.get<UnifiedContext>(
+      `/chat/unified/context/${sessionId}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Clear conversation context for a session
+   */
+  async clearUnifiedContext(sessionId: string): Promise<{ message: string }> {
+    const response = await this.client.delete<{ message: string }>(
+      `/chat/unified/context/${sessionId}`
+    );
+    return response.data;
+  }
+
+  // ==================== Legacy Agent API ====================
 
   /**
    * Get agent status for a session

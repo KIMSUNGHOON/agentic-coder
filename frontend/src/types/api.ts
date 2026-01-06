@@ -42,6 +42,83 @@ export interface ErrorResponse {
   detail?: string;
 }
 
+// ==================== Unified Chat Response Types ====================
+
+/**
+ * Artifact information in unified response
+ */
+export interface UnifiedArtifactInfo {
+  filename: string;
+  language: string;
+  content?: string;
+  saved_path?: string;
+  size?: number;
+}
+
+/**
+ * Supervisor analysis summary
+ */
+export interface UnifiedAnalysisSummary {
+  complexity?: 'simple' | 'moderate' | 'complex' | 'critical';
+  task_type?: string;
+  required_agents: string[];
+  confidence?: number;
+  workflow_strategy?: string;
+}
+
+/**
+ * Response types from unified endpoint
+ */
+export type UnifiedResponseType =
+  | 'quick_qa'
+  | 'planning'
+  | 'code_generation'
+  | 'code_review'
+  | 'debugging';
+
+/**
+ * Unified chat response from /chat/unified endpoint
+ * This is the new standard response format that includes
+ * structured information about artifacts and suggested next actions.
+ */
+export interface UnifiedChatResponse {
+  response_type: UnifiedResponseType;
+  content: string;
+  artifacts: UnifiedArtifactInfo[];
+  plan_file?: string;
+  analysis?: UnifiedAnalysisSummary;
+  next_actions: string[];
+  session_id: string;
+  metadata?: Record<string, unknown>;
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Streaming update from unified endpoint
+ */
+export interface UnifiedStreamUpdate {
+  agent: string;
+  update_type: 'thinking' | 'artifact' | 'progress' | 'completed' | 'error' | 'analysis' | 'done';
+  status: 'running' | 'completed' | 'error';
+  message: string;
+  data?: Record<string, unknown>;
+  timestamp?: string;
+}
+
+/**
+ * Context information for a session
+ */
+export interface UnifiedContext {
+  session_id: string;
+  message_count: number;
+  artifact_count: number;
+  workspace?: string;
+  last_analysis?: UnifiedAnalysisSummary;
+  created_at: string;
+  updated_at: string;
+}
+
 // Workflow types
 export interface ChecklistItem {
   id: number;

@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { WorkflowUpdate, Artifact, WorkflowInfo, HITLRequest, HITLCheckpointType } from '../types/api';
+import { WorkflowUpdate, Artifact, WorkflowInfo, HITLRequest, HITLCheckpointType, UnifiedStreamUpdate } from '../types/api';
 import SharedContextViewer from './SharedContextViewer';
 import WorkflowGraph from './WorkflowGraph';
 import WorkspaceProjectSelector from './WorkspaceProjectSelector';
@@ -131,10 +131,10 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [thinkingStream, setThinkingStream] = useState<string[]>([]);
   const [isThinking, setIsThinking] = useState(false);
 
-  // Execution mode: "auto" (detect), "quick" (Q&A only), "full" (code generation)
-  const [executionMode, setExecutionModeState] = useState<'auto' | 'quick' | 'full'>(() => {
+  // Execution mode: "auto" (detect), "quick" (Q&A only), "full" (code generation), "unified" (new Claude-style API)
+  const [executionMode, setExecutionModeState] = useState<'auto' | 'quick' | 'full' | 'unified'>(() => {
     const saved = localStorage.getItem('workflow_execution_mode');
-    return (saved as 'auto' | 'quick' | 'full') || 'auto';
+    return (saved as 'auto' | 'quick' | 'full' | 'unified') || 'auto';
   });
 
   // System prompt customization
@@ -573,6 +573,110 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     });
   }, []);
 
+  // Execute workflow using the new Unified API (Claude Code style)
+  const executeUnifiedWorkflow = async (userMessage: string, allUpdates: WorkflowUpdate[]) => {
+    try {
+      // Stream from unified API
+      for await (const update of apiClient.unifiedChatStream({
+        message: userMessage,
+        session_id: sessionId,
+        workspace: workspace,
+      })) {
+        // Convert UnifiedStreamUpdate to WorkflowUpdate
+        const workflowUpdate: WorkflowUpdate = {
+          agent: update.agent,
+          agent_title: update.agent,
+          status: update.status,
+          message: update.message,
+          type: update.update_type,
+          timestamp: update.timestamp || new Date().toISOString(),
+        };
+
+        // Handle different update types
+        if (update.update_type === 'analysis' && update.data) {
+          workflowUpdate.task_analysis = {
+            response_type: update.data.response_type as string,
+            complexity: update.data.complexity as string,
+            task_type: update.data.task_type as string,
+          };
+        }
+
+        if (update.update_type === 'completed' && update.data) {
+          // Extract artifacts from completed update
+          if (update.data.artifacts) {
+            workflowUpdate.artifacts = (update.data.artifacts as any[]).map(a => ({
+              filename: a.filename,
+              language: a.language || 'text',
+              content: a.content || '',
+              saved_path: a.saved_path,
+            }));
+            setSavedFiles(prev => [...prev, ...workflowUpdate.artifacts!]);
+          }
+          // Extract full content for display
+          if (update.data.full_content) {
+            workflowUpdate.streaming_content = update.data.full_content as string;
+          }
+        }
+
+        if (update.update_type === 'thinking' || update.update_type === 'progress') {
+          setIsThinking(true);
+          workflowUpdate.streaming_content = update.message;
+        }
+
+        if (update.update_type === 'done') {
+          setIsThinking(false);
+        }
+
+        // Update agent progress
+        updateAgentProgress(workflowUpdate);
+
+        // Add to updates
+        allUpdates.push(workflowUpdate);
+        setUpdates(prev => [...prev, workflowUpdate]);
+      }
+
+      // Save final state
+      if (allUpdates.length > 0) {
+        const lastUpdate = allUpdates[allUpdates.length - 1];
+        const finalContent = lastUpdate.streaming_content || lastUpdate.message || '';
+
+        setConversationHistory(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: finalContent,
+            updates: [...allUpdates],
+            artifacts: collectArtifactsFromUpdates(allUpdates),
+            timestamp: Date.now()
+          }
+        ]);
+
+        // Save to conversation
+        try {
+          await apiClient.addMessage(sessionId, 'assistant', finalContent, 'UnifiedAgent', 'workflow');
+        } catch (err) {
+          console.error('Failed to save assistant message:', err);
+        }
+
+        await saveWorkflowState(allUpdates);
+      }
+
+    } catch (error) {
+      console.error('Unified workflow error:', error);
+      const errorUpdate: WorkflowUpdate = {
+        agent: 'System',
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        type: 'error',
+      };
+      allUpdates.push(errorUpdate);
+      setUpdates(prev => [...prev, errorUpdate]);
+    } finally {
+      setIsRunning(false);
+      setIsThinking(false);
+    }
+  };
+
   // Save workflow state after updates complete
   const saveWorkflowState = async (workflowUpdates: WorkflowUpdate[], forcePrompt: boolean = false) => {
     // Check if we should prompt user
@@ -667,7 +771,13 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     resetProgress();
 
     try {
-      // Use unified LangGraph workflow endpoint
+      // Use unified Claude-style API if selected
+      if (executionMode === 'unified') {
+        await executeUnifiedWorkflow(userMessage, allUpdates);
+        return;
+      }
+
+      // Use LangGraph workflow endpoint for other modes
       const response = await fetch('/api/langgraph/execute', {
         method: 'POST',
         headers: {
@@ -1333,10 +1443,26 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
               >
                 코드 생성
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExecutionModeState('unified');
+                  localStorage.setItem('workflow_execution_mode', 'unified');
+                }}
+                className={`px-2 py-0.5 text-[9px] sm:text-[10px] rounded transition-colors ${
+                  executionMode === 'unified'
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                title="통합 API - Claude Code 방식 (Supervisor 라우팅)"
+              >
+                Unified
+              </button>
               <span className="text-[8px] sm:text-[9px] text-gray-600 ml-2 hidden sm:inline">
                 {executionMode === 'auto' && '(요청에 따라 자동 결정)'}
                 {executionMode === 'quick' && '(빠른 응답, 코드 생성 안함)'}
                 {executionMode === 'full' && '(전체 에이전트 파이프라인)'}
+                {executionMode === 'unified' && '(Claude Code 방식 통합 API)'}
               </span>
             </div>
             {/* 컨텍스트 클리어 및 설정 버튼 */}
