@@ -1,6 +1,6 @@
 """Database configuration and session management."""
 import os
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -69,7 +69,49 @@ def get_db_context():
         db.close()
 
 
+def _run_migrations():
+    """Run database migrations for schema changes.
+
+    SQLite doesn't support ALTER TABLE ADD COLUMN IF NOT EXISTS,
+    so we check and add missing columns manually.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    with engine.connect() as conn:
+        # Check if conversations table exists
+        result = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
+        )
+        if not result.fetchone():
+            return  # Table doesn't exist yet, will be created by create_all
+
+        # Get existing columns
+        result = conn.execute(text("PRAGMA table_info(conversations)"))
+        existing_columns = {row[1] for row in result.fetchall()}
+
+        # Add missing columns
+        migrations = [
+            ("workspace_path", "VARCHAR(500)"),
+            ("framework", "VARCHAR(20) DEFAULT 'standard'"),
+        ]
+
+        for column_name, column_type in migrations:
+            if column_name not in existing_columns:
+                try:
+                    conn.execute(text(f"ALTER TABLE conversations ADD COLUMN {column_name} {column_type}"))
+                    conn.commit()
+                    logger.info(f"Migration: Added column '{column_name}' to conversations table")
+                except Exception as e:
+                    logger.warning(f"Migration: Could not add column '{column_name}': {e}")
+
+
 def init_db():
-    """Initialize database tables."""
+    """Initialize database tables and run migrations."""
     from . import models  # Import models to register them
+
+    # Run migrations first (for existing databases)
+    _run_migrations()
+
+    # Create all tables (for new databases)
     Base.metadata.create_all(bind=engine)
