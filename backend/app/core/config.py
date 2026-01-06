@@ -1,4 +1,6 @@
 """Application configuration."""
+import os
+import platform
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List, Literal, Optional
@@ -6,6 +8,25 @@ from typing import List, Literal, Optional
 # Get the project root directory path for .env file
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
+
+
+def get_default_workspace() -> str:
+    """Get default workspace path based on OS.
+
+    Returns:
+        str: Default workspace path
+        - Windows: C:\\Users\\<username>\\workspace
+        - Linux/Mac: /home/user/workspace (or ~/workspace)
+    """
+    if platform.system() == "Windows":
+        # Windows: use user's home directory
+        return str(Path.home() / "workspace")
+    else:
+        # Linux/Mac
+        return "/home/user/workspace"
+
+
+DEFAULT_WORKSPACE = get_default_workspace()
 
 
 def detect_model_type(model_name: str) -> str:
@@ -120,6 +141,12 @@ class Settings(BaseSettings):
     # Coder batch size - for parallel file generation display
     # Higher values for powerful GPUs (H100: 10-15, A100: 8-10, RTX 4090: 5-8)
     coder_batch_size: int = 10  # Default optimized for H100
+
+    # =========================
+    # Workspace Configuration
+    # =========================
+    # Default workspace path (auto-detected based on OS if not set)
+    default_workspace: str = DEFAULT_WORKSPACE
 
     # =========================
     # API Configuration

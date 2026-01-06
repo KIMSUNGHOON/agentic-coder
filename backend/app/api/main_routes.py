@@ -419,7 +419,7 @@ async def get_current_framework():
 @router.post("/framework/select")
 async def select_framework(
     session_id: str,
-    framework: str = Query(..., regex="^(standard|deepagents)$")
+    framework: str = Query(..., pattern="^(standard|deepagents)$")
 ):
     """Select workflow framework for a session.
 
@@ -1360,7 +1360,7 @@ async def set_workspace(request: dict):
     Returns:
         Success status and current workspace
     """
-    BASE_WORKSPACE = "/home/user/workspace"
+    BASE_WORKSPACE = settings.default_workspace
     session_id = request.get("session_id", "default")
     workspace_path = request.get("workspace_path", BASE_WORKSPACE)
 
@@ -1480,7 +1480,7 @@ async def read_workspace_file(session_id: str = "default", filename: str = ""):
 
 
 @router.get("/workspace/projects")
-async def list_projects(base_workspace: str = "/home/user/workspace"):
+async def list_projects(base_workspace: str = None):
     """List all project directories in the base workspace.
 
     Args:
@@ -1492,7 +1492,8 @@ async def list_projects(base_workspace: str = "/home/user/workspace"):
     import os
     from datetime import datetime
 
-    BASE_ALLOWED = "/home/user/workspace"
+    BASE_ALLOWED = settings.default_workspace
+    base_workspace = base_workspace or BASE_ALLOWED
 
     try:
         # Validate base_workspace path
@@ -1727,7 +1728,7 @@ async def list_all_sessions(db: Session = Depends(get_db)):
 
         sessions = []
         for conv in conversations:
-            workspace_path = conv.workspace_path or "/home/user/workspace"
+            workspace_path = conv.workspace_path or settings.default_workspace
 
             # Check if workspace exists and get file count
             file_count = 0
@@ -1954,7 +1955,7 @@ async def read_session_file(
 @router.get("/sessions/{session_id}/download")
 async def download_session_workspace(
     session_id: str,
-    format: str = Query("zip", regex="^(zip|tar)$")
+    format: str = Query("zip", pattern="^(zip|tar)$")
 ):
     """Download session workspace as a ZIP or TAR archive.
 
@@ -2344,7 +2345,7 @@ async def upload_directory_structure(
 async def read_file_content(path: str):
     """Read file content by absolute path.
 
-    Security: Only allows reading from /home/user/workspace.
+    Security: Only allows reading from configured workspace.
 
     Args:
         path: Absolute path to file
@@ -2354,7 +2355,7 @@ async def read_file_content(path: str):
     """
     import os
 
-    BASE_WORKSPACE = Path("/home/user/workspace")
+    BASE_WORKSPACE = Path(settings.default_workspace)
 
     try:
         # Validate path is within allowed base
@@ -2389,7 +2390,7 @@ async def read_file_content(path: str):
 @router.get("/workspace/download")
 async def download_workspace_path(
     workspace_path: str,
-    format: str = Query("zip", regex="^(zip|tar)$")
+    format: str = Query("zip", pattern="^(zip|tar)$")
 ):
     """Download any workspace directory as archive.
 
@@ -2407,7 +2408,7 @@ async def download_workspace_path(
     from datetime import datetime
 
     # Security: Validate path is within allowed base
-    BASE_WORKSPACE = Path("/home/user/workspace")
+    BASE_WORKSPACE = Path(settings.default_workspace)
 
     try:
         validated_path = sanitize_path(workspace_path, BASE_WORKSPACE, allow_creation=False)

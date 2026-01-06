@@ -164,7 +164,7 @@ class DeepAgentWorkflowManager(BaseWorkflow):
         enable_filesystem: bool = True,
         enable_parallel: bool = True,
         max_parallel_agents: int = 25,
-        workspace: str = "/home/user/workspace"
+        workspace: str = None
     ):
         """
         Initialize Hybrid DeepAgent workflow manager.
@@ -188,7 +188,7 @@ class DeepAgentWorkflowManager(BaseWorkflow):
         self.agent_id = agent_id
         self.model_name = model_name
         self.temperature = temperature
-        self.workspace = workspace
+        self.workspace = workspace or settings.default_workspace
         self.enable_parallel = enable_parallel
         self.max_parallel_agents = max_parallel_agents
         self.adaptive_parallelism = True  # Adjust based on task count
@@ -1384,13 +1384,13 @@ class DeepAgentWorkflowManagerV2:
     def get_or_create_workflow(
         self,
         session_id: str,
-        workspace: str = "/home/user/workspace"
+        workspace: str = None
     ) -> DeepAgentWorkflowManager:
         """Get existing or create new workflow for session."""
         if session_id not in self.workflows:
             self.workflows[session_id] = DeepAgentWorkflowManager(
                 agent_id=f"hybrid_{session_id}",
-                workspace=workspace,
+                workspace=workspace or settings.default_workspace,
                 enable_parallel=True,
                 max_parallel_agents=25
             )

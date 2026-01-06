@@ -5,6 +5,8 @@ from typing import Dict, Optional, Literal, Callable
 from collections import defaultdict
 import logging
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 FrameworkType = Literal["standard", "deepagents"]
@@ -139,7 +141,7 @@ class SessionStore:
     async def get_workspace(
         self,
         session_id: str,
-        default: str = "/home/user/workspace"
+        default: str = None
     ) -> str:
         """
         Get workspace path for session.
@@ -162,7 +164,7 @@ class SessionStore:
                 self._workspaces[session_id] = config["workspace_path"]
                 return config["workspace_path"]
 
-            return default
+            return default or settings.default_workspace
 
     async def set_workspace(self, session_id: str, workspace: str) -> None:
         """
@@ -219,7 +221,7 @@ class SessionStore:
             return {
                 "session_id": session_id,
                 "framework": self._frameworks.get(session_id, "standard"),
-                "workspace": self._workspaces.get(session_id, "/home/user/workspace"),
+                "workspace": self._workspaces.get(session_id, settings.default_workspace),
                 "exists": session_id in self._frameworks or session_id in self._workspaces,
                 "persisted": config is not None
             }

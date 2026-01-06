@@ -7,7 +7,7 @@ Claude Code / OpenAI Codex 방식의 통합 워크플로우를 구현합니다:
 User Prompt → Supervisor → Handler → Response
 """
 import logging
-from typing import Dict, Any, Optional, Union, AsyncGenerator
+from typing import Dict, Any, Optional, Union, AsyncGenerator, List
 from datetime import datetime
 
 from core.supervisor import SupervisorAgent

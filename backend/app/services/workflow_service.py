@@ -133,7 +133,7 @@ Examples:
             return existing_workspace
 
         # Create new workspace for first request in this session
-        base_workspace = base_workspace or "/home/user/workspace"
+        base_workspace = base_workspace or settings.default_workspace
 
         # Check if base_workspace is already a project directory
         if self._is_project_directory(base_workspace):
@@ -141,11 +141,9 @@ Examples:
             logger.info(f"Using existing project directory: {workspace}")
         else:
             # Need to create a new project directory
-            if not base_workspace.endswith("/workspace"):
-                workspace_root = (
-                    base_workspace if os.path.basename(base_workspace) == "workspace"
-                    else base_workspace
-                )
+            # Cross-platform check: use os.path.basename instead of string matching
+            if os.path.basename(base_workspace) == "workspace":
+                workspace_root = base_workspace
             else:
                 workspace_root = base_workspace
 
