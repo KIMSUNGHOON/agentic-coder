@@ -272,9 +272,26 @@ const TerminalOutput = ({ updates, isRunning, liveOutputs, savedFiles = [] }: Te
 
               {/* 스트리밍 콘텐츠 */}
               {update.streaming_content && (
-                <pre className="text-gray-500 whitespace-pre-wrap ml-2 sm:ml-4 mt-1 text-[9px] sm:text-[10px] overflow-x-auto max-h-40 overflow-y-auto">
-                  {update.streaming_content}
-                </pre>
+                <div className="relative group ml-2 sm:ml-4 mt-1">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(update.streaming_content || '');
+                      const btn = document.getElementById(`copy-content-${index}`);
+                      if (btn) {
+                        btn.textContent = '✓';
+                        setTimeout(() => { btn.textContent = '복사'; }, 1500);
+                      }
+                    }}
+                    id={`copy-content-${index}`}
+                    className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-gray-200 rounded transition-all z-10"
+                    title="콘텐츠 복사"
+                  >
+                    복사
+                  </button>
+                  <pre className="text-gray-500 whitespace-pre-wrap text-[9px] sm:text-[10px] overflow-x-auto max-h-40 overflow-y-auto pr-10">
+                    {update.streaming_content}
+                  </pre>
+                </div>
               )}
 
               {/* Artifacts */}

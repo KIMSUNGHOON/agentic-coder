@@ -95,6 +95,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [showSharedContext, setShowSharedContext] = useState(false);
   const [, setExecutionMode] = useState<'sequential' | 'parallel' | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Workspace configuration
@@ -179,8 +180,23 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const scrollToBottom = useCallback(() => {
     // Use setTimeout to ensure DOM is updated before scrolling
     setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      }
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 50);
+    }, 100);
+  }, []);
+
+  // Copy text to clipboard
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      // Show brief visual feedback (could be enhanced with toast notification)
+      return true;
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      return false;
+    }
   }, []);
 
   // Track elapsed time during workflow
@@ -1128,7 +1144,10 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       )}
 
       {/* 워크플로우 출력 영역 - 터미널 스타일 */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900"
+      >
         <div className="p-2 sm:p-3">
           {/* 빈 상태 - 터미널 스타일 */}
           {conversationHistory.length === 0 && updates.length === 0 && !isRunning && (
@@ -1183,8 +1202,26 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                       </div>
                     </div>
                   ) : (
-                    <div className="border-l-2 border-gray-800 pl-2 text-gray-400">
-                      <div className="text-green-400 text-[9px] sm:text-[10px]">✓ 완료</div>
+                    <div className="border-l-2 border-gray-800 pl-2 text-gray-400 group relative">
+                      <div className="flex items-center justify-between">
+                        <div className="text-green-400 text-[9px] sm:text-[10px]">✓ 완료</div>
+                        {/* Copy button for assistant response */}
+                        <button
+                          onClick={async () => {
+                            const success = await copyToClipboard(turn.content);
+                            const btn = document.getElementById(`copy-btn-${turnIndex}`);
+                            if (btn && success) {
+                              btn.textContent = '✓';
+                              setTimeout(() => { btn.textContent = '복사'; }, 1500);
+                            }
+                          }}
+                          id={`copy-btn-${turnIndex}`}
+                          className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 text-[9px] sm:text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 rounded transition-all"
+                          title="응답 복사"
+                        >
+                          복사
+                        </button>
+                      </div>
                       <div className="prose prose-sm prose-invert max-w-none
                         prose-headings:text-gray-300 prose-headings:font-semibold prose-headings:mt-2 prose-headings:mb-1
                         prose-p:text-gray-400 prose-p:my-1
