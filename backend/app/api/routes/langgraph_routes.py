@@ -182,20 +182,25 @@ async def quick_qa_response(user_request: str, workspace_root: str, system_promp
         if system_prompt:
             context["system_prompt"] = system_prompt
 
-        # Get quick response from supervisor
-        analysis = await supervisor.analyze_request(user_request, context=context)
+        # Get quick response from supervisor (synchronous method returns Dict)
+        analysis = supervisor.analyze_request(user_request, context=context)
 
         execution_time = time.time() - start_time
+
+        # Extract values from dict (analyze_request returns a dict, not an object)
+        task_type = analysis.get('task_type', 'general')
+        complexity = analysis.get('complexity', 'medium')
+        reasoning = analysis.get('reasoning', analysis.get('workflow_strategy', 'No detailed analysis available.'))
 
         # Format response
         response_content = f"""## 분석 결과
 
-**질문 유형:** {analysis.task_type}
-**복잡도:** {analysis.complexity}
+**질문 유형:** {task_type}
+**복잡도:** {complexity}
 
 ### 응답
 
-{analysis.reasoning}
+{reasoning}
 
 ---
 *Quick Q&A 모드로 응답했습니다. 코드 생성이 필요하면 "코드 생성" 모드를 선택하세요.*
@@ -212,9 +217,9 @@ async def quick_qa_response(user_request: str, workspace_root: str, system_promp
                 "streaming_content": response_content,
                 "execution_time": execution_time,
                 "analysis": {
-                    "task_type": analysis.task_type,
-                    "complexity": analysis.complexity,
-                    "reasoning": analysis.reasoning,
+                    "task_type": task_type,
+                    "complexity": complexity,
+                    "reasoning": reasoning,
                 }
             }
         }

@@ -94,6 +94,7 @@ def _run_migrations():
         migrations = [
             ("workspace_path", "VARCHAR(500)"),
             ("framework", "VARCHAR(20) DEFAULT 'standard'"),
+            ("task_type", "VARCHAR(30) DEFAULT 'auto'"),
         ]
 
         for column_name, column_type in migrations:
