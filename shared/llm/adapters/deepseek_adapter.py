@@ -241,7 +241,7 @@ Provide review in JSON format:
         prompt: str,
         task_type: TaskType = TaskType.GENERAL,
         config_override: Optional[LLMConfig] = None,
-        max_retries: int = 2
+        max_retries: int = 3
     ) -> LLMResponse:
         """Generate response from DeepSeek-R1 with retry and exponential backoff"""
         config = config_override or self.get_config_for_task(task_type)
@@ -249,6 +249,10 @@ Provide review in JSON format:
         system_prompt = self.format_system_prompt(task_type)
 
         full_prompt = f"{system_prompt}\n\n{formatted_prompt}"
+
+        # Log prompt size for debugging
+        prompt_tokens_estimate = len(full_prompt) // 4  # Rough estimate
+        logger.debug(f"DeepSeek request: ~{prompt_tokens_estimate} tokens, task={task_type.value}")
 
         for attempt in range(max_retries + 1):
             try:
@@ -268,13 +272,29 @@ Provide review in JSON format:
 
                         # Retry on empty response with backoff
                         if not content or not content.strip():
+                            # Log more details about empty response
+                            finish_reason = result.get("choices", [{}])[0].get("finish_reason", "unknown")
+                            usage = result.get("usage", {})
+                            logger.warning(
+                                f"Empty response from DeepSeek: "
+                                f"finish_reason={finish_reason}, "
+                                f"prompt_tokens={usage.get('prompt_tokens', 'N/A')}, "
+                                f"completion_tokens={usage.get('completion_tokens', 'N/A')}"
+                            )
+
                             if attempt < max_retries:
                                 backoff = _calculate_backoff(attempt)
-                                logger.warning(f"Empty response from DeepSeek, retrying in {backoff:.1f}s ({attempt + 1}/{max_retries})...")
+                                logger.warning(f"Retrying in {backoff:.1f}s ({attempt + 1}/{max_retries})...")
                                 await asyncio.sleep(backoff)
                                 continue
                             else:
                                 logger.error("Empty response from DeepSeek after all retries")
+                                # Return a placeholder response instead of empty
+                                return LLMResponse(
+                                    content="[LLM returned empty response - please retry]",
+                                    model=self.model,
+                                    finish_reason=finish_reason,
+                                )
 
                         llm_response = self.parse_response(content, task_type)
                         llm_response.usage = result.get("usage")
@@ -307,7 +327,7 @@ Provide review in JSON format:
         prompt: str,
         task_type: TaskType = TaskType.GENERAL,
         config_override: Optional[LLMConfig] = None,
-        max_retries: int = 2
+        max_retries: int = 3
     ) -> LLMResponse:
         """Synchronous generation for DeepSeek-R1 with retry and exponential backoff"""
         config = config_override or self.get_config_for_task(task_type)
@@ -315,6 +335,10 @@ Provide review in JSON format:
         system_prompt = self.format_system_prompt(task_type)
 
         full_prompt = f"{system_prompt}\n\n{formatted_prompt}"
+
+        # Log prompt size for debugging
+        prompt_tokens_estimate = len(full_prompt) // 4
+        logger.debug(f"DeepSeek sync request: ~{prompt_tokens_estimate} tokens, task={task_type.value}")
 
         for attempt in range(max_retries + 1):
             try:
@@ -334,13 +358,28 @@ Provide review in JSON format:
 
                         # Retry on empty response with backoff
                         if not content or not content.strip():
+                            # Log more details about empty response
+                            finish_reason = result.get("choices", [{}])[0].get("finish_reason", "unknown")
+                            usage = result.get("usage", {})
+                            logger.warning(
+                                f"Empty response from DeepSeek (sync): "
+                                f"finish_reason={finish_reason}, "
+                                f"prompt_tokens={usage.get('prompt_tokens', 'N/A')}, "
+                                f"completion_tokens={usage.get('completion_tokens', 'N/A')}"
+                            )
+
                             if attempt < max_retries:
                                 backoff = _calculate_backoff(attempt)
-                                logger.warning(f"Empty response from DeepSeek (sync), retrying in {backoff:.1f}s ({attempt + 1}/{max_retries})...")
+                                logger.warning(f"Retrying in {backoff:.1f}s ({attempt + 1}/{max_retries})...")
                                 time.sleep(backoff)
                                 continue
                             else:
                                 logger.error("Empty response from DeepSeek (sync) after all retries")
+                                return LLMResponse(
+                                    content="[LLM returned empty response - please retry]",
+                                    model=self.model,
+                                    finish_reason=finish_reason,
+                                )
 
                         llm_response = self.parse_response(content, task_type)
                         llm_response.usage = result.get("usage")
