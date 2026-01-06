@@ -15,6 +15,7 @@ class Conversation(Base):
     session_id = Column(String(100), unique=True, index=True, nullable=False)
     title = Column(String(500), default="New Conversation")
     mode = Column(String(20), default="chat")  # "chat" or "workflow"
+    task_type = Column(String(30), default="auto")  # "auto", "question", "codegen"
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -36,6 +37,7 @@ class Conversation(Base):
             "session_id": self.session_id,
             "title": self.title,
             "mode": self.mode,
+            "task_type": self.task_type,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "message_count": len(self.messages) if self.messages else 0,

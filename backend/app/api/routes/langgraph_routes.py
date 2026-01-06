@@ -25,8 +25,10 @@ class WorkflowRequest(BaseModel):
     user_request: str
     workspace_root: str
     task_type: str = "general"
+    execution_mode: str = "auto"  # "auto", "quick" (Q&A only), "full" (full pipeline)
     enable_debug: bool = True
     use_enhanced: bool = True  # Use enhanced workflow by default
+    system_prompt: str = ""  # Optional custom system prompt for context
 
 
 class ApprovalRequest(BaseModel):
@@ -48,7 +50,12 @@ async def execute_workflow(request: WorkflowRequest):
     - Execution times per agent
     - ETA updates
 
-    CRITICAL: This endpoint performs REAL file operations.
+    Supports different execution modes:
+    - "auto": Automatically detect if full pipeline is needed
+    - "quick": Q&A mode - uses Supervisor only for fast responses
+    - "full": Full code generation pipeline with all agents
+
+    CRITICAL: This endpoint performs REAL file operations in "full" mode.
 
     Args:
         request: Workflow execution request
@@ -59,29 +66,57 @@ async def execute_workflow(request: WorkflowRequest):
     logger.info(f"🚀 Starting workflow execution")
     logger.info(f"   Request: {request.user_request[:100]}")
     logger.info(f"   Workspace: {request.workspace_root}")
+    logger.info(f"   Execution Mode: {request.execution_mode}")
     logger.info(f"   Enhanced Mode: {request.use_enhanced}")
+
+    # Determine actual execution mode
+    execution_mode = request.execution_mode
+    if execution_mode == "auto":
+        # Simple heuristic: if request contains code-related keywords, use full pipeline
+        code_keywords = ["코드", "구현", "개발", "프로젝트", "앱", "애플리케이션", "함수", "클래스",
+                        "code", "implement", "develop", "create", "build", "app", "application",
+                        "function", "class", "api", "서비스", "service", "make", "만들"]
+        if any(kw in request.user_request.lower() for kw in code_keywords):
+            execution_mode = "full"
+        else:
+            execution_mode = "quick"
+        logger.info(f"   Auto-detected mode: {execution_mode}")
 
     async def event_stream() -> AsyncGenerator[str, None]:
         """Stream workflow events to client"""
         try:
-            # Choose workflow based on request
-            workflow = enhanced_workflow if request.use_enhanced else unified_workflow
+            if execution_mode == "quick":
+                # Quick Q&A mode - use Supervisor only
+                async for update in quick_qa_response(
+                    request.user_request,
+                    request.workspace_root,
+                    request.system_prompt
+                ):
+                    enriched_update = {
+                        **update,
+                        "workflow_type": "quick_qa",
+                        "execution_mode": execution_mode,
+                    }
+                    event_data = json.dumps(enriched_update, default=str)
+                    yield f"data: {event_data}\n\n"
+            else:
+                # Full pipeline mode
+                workflow = enhanced_workflow if request.use_enhanced else unified_workflow
 
-            async for update in workflow.execute(
-                user_request=request.user_request,
-                workspace_root=request.workspace_root,
-                task_type=request.task_type,
-                enable_debug=request.enable_debug
-            ):
-                # Enrich update with metadata
-                enriched_update = {
-                    **update,
-                    "workflow_type": "enhanced" if request.use_enhanced else "unified",
-                }
-
-                # Format as Server-Sent Events
-                event_data = json.dumps(enriched_update, default=str)
-                yield f"data: {event_data}\n\n"
+                async for update in workflow.execute(
+                    user_request=request.user_request,
+                    workspace_root=request.workspace_root,
+                    task_type=request.task_type,
+                    enable_debug=request.enable_debug,
+                    system_prompt=request.system_prompt
+                ):
+                    enriched_update = {
+                        **update,
+                        "workflow_type": "enhanced" if request.use_enhanced else "unified",
+                        "execution_mode": execution_mode,
+                    }
+                    event_data = json.dumps(enriched_update, default=str)
+                    yield f"data: {event_data}\n\n"
 
         except Exception as e:
             logger.error(f"❌ Error in workflow execution: {e}", exc_info=True)
@@ -103,6 +138,109 @@ async def execute_workflow(request: WorkflowRequest):
             "Connection": "keep-alive"
         }
     )
+
+
+async def quick_qa_response(user_request: str, workspace_root: str, system_prompt: str = "") -> AsyncGenerator[dict, None]:
+    """Quick Q&A mode - uses Supervisor for fast responses without full pipeline
+
+    This mode is optimized for:
+    - General questions about coding concepts
+    - Quick explanations
+    - Simple queries that don't require code generation
+    """
+    import time
+    from core.supervisor import SupervisorAgent
+
+    start_time = time.time()
+
+    # Emit starting status
+    yield {
+        "node": "supervisor",
+        "status": "starting",
+        "agent_title": "🧠 Supervisor",
+        "agent_description": "Quick Response Mode",
+        "updates": {"message": "Processing your question..."}
+    }
+
+    try:
+        supervisor = SupervisorAgent(use_api=True)
+
+        # Emit thinking status
+        yield {
+            "node": "supervisor",
+            "status": "thinking",
+            "agent_title": "🧠 Supervisor",
+            "agent_description": "Analyzing question",
+            "updates": {"message": "Analyzing your question..."}
+        }
+
+        # Build context with optional system prompt
+        context = {
+            "workspace_root": workspace_root,
+            "mode": "quick_qa"
+        }
+        if system_prompt:
+            context["system_prompt"] = system_prompt
+
+        # Get quick response from supervisor
+        analysis = await supervisor.analyze_request(user_request, context=context)
+
+        execution_time = time.time() - start_time
+
+        # Format response
+        response_content = f"""## 분석 결과
+
+**질문 유형:** {analysis.task_type}
+**복잡도:** {analysis.complexity}
+
+### 응답
+
+{analysis.reasoning}
+
+---
+*Quick Q&A 모드로 응답했습니다. 코드 생성이 필요하면 "코드 생성" 모드를 선택하세요.*
+"""
+
+        # Emit completed status with response
+        yield {
+            "node": "supervisor",
+            "status": "completed",
+            "agent_title": "🧠 Supervisor",
+            "agent_description": "Response Ready",
+            "updates": {
+                "message": "Response generated",
+                "streaming_content": response_content,
+                "execution_time": execution_time,
+                "analysis": {
+                    "task_type": analysis.task_type,
+                    "complexity": analysis.complexity,
+                    "reasoning": analysis.reasoning,
+                }
+            }
+        }
+
+        # Emit workflow completion
+        yield {
+            "node": "workflow",
+            "status": "completed",
+            "agent_title": "✅ Complete",
+            "agent_description": "Quick Q&A Complete",
+            "updates": {
+                "message": "Quick response generated",
+                "execution_time": execution_time,
+                "is_final": True,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error in quick Q&A: {e}", exc_info=True)
+        yield {
+            "node": "supervisor",
+            "status": "error",
+            "agent_title": "❌ Error",
+            "agent_description": "Failed to generate response",
+            "updates": {"error": str(e)}
+        }
 
 
 @router.post("/approve")

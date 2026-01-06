@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.routes.langgraph_routes import router as langgraph_router
 from app.api.routes.hitl_routes import router as hitl_router
+from app.api.routes.cache_routes import router as cache_router
 
 # Lazy import of optional dependencies
 try:
@@ -94,6 +95,10 @@ logger.info("✅ LangGraph routes registered at /api/langgraph")
 # Include HITL routes
 app.include_router(hitl_router, prefix="/api")
 logger.info("✅ HITL routes registered")
+
+# Include Cache management routes
+app.include_router(cache_router, prefix="/api")
+logger.info("✅ Cache management routes registered at /api/cache")
 
 
 @app.get("/")

@@ -1049,6 +1049,83 @@ class ApiClient {
       };
     }
   }
+
+  // ==================== Cache Management ====================
+
+  /**
+   * Get LLM cache statistics
+   */
+  async getCacheStats(): Promise<{
+    backend: string;
+    entry_count: number;
+    ttl_hours: number;
+    used_memory?: string;
+    cache_dir?: string;
+  }> {
+    const response = await this.client.get('/cache/stats');
+    return response.data;
+  }
+
+  /**
+   * Clear all LLM response cache
+   */
+  async clearLMCache(): Promise<{
+    success: boolean;
+    cleared_count: number;
+    message: string;
+  }> {
+    const response = await this.client.post('/cache/clear');
+    return response.data;
+  }
+
+  /**
+   * Clear session context (messages, workflow state)
+   */
+  async clearSessionContext(
+    sessionId: string,
+    options: {
+      clearMessages?: boolean;
+      clearWorkflowState?: boolean;
+      clearWorkspaceContext?: boolean;
+    } = {}
+  ): Promise<{
+    success: boolean;
+    cleared_count: number;
+    message: string;
+  }> {
+    const response = await this.client.post(`/cache/sessions/${sessionId}/clear`, {
+      clear_messages: options.clearMessages ?? true,
+      clear_workflow_state: options.clearWorkflowState ?? true,
+      clear_workspace_context: options.clearWorkspaceContext ?? false,
+    });
+    return response.data;
+  }
+
+  /**
+   * Clear workspace context file (.ai_context.json)
+   */
+  async clearWorkspaceContext(workspacePath: string): Promise<{
+    success: boolean;
+    cleared_count: number;
+    message: string;
+  }> {
+    const response = await this.client.post('/cache/workspace/clear', null, {
+      params: { workspace_path: workspacePath }
+    });
+    return response.data;
+  }
+
+  /**
+   * Clear all caches
+   */
+  async clearAllCache(): Promise<{
+    success: boolean;
+    cleared_count: number;
+    message: string;
+  }> {
+    const response = await this.client.post('/cache/clear-all');
+    return response.data;
+  }
 }
 
 // Export singleton instance

@@ -130,6 +130,19 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [thinkingStream, setThinkingStream] = useState<string[]>([]);
   const [isThinking, setIsThinking] = useState(false);
 
+  // Execution mode: "auto" (detect), "quick" (Q&A only), "full" (code generation)
+  const [executionMode, setExecutionModeState] = useState<'auto' | 'quick' | 'full'>(() => {
+    const saved = localStorage.getItem('workflow_execution_mode');
+    return (saved as 'auto' | 'quick' | 'full') || 'auto';
+  });
+
+  // System prompt customization
+  const [systemPrompt, setSystemPrompt] = useState<string>(() => {
+    return localStorage.getItem('workflow_system_prompt') || '';
+  });
+  const [showSystemPromptModal, setShowSystemPromptModal] = useState(false);
+  const [tempSystemPrompt, setTempSystemPrompt] = useState('');
+
   // Enhanced progress tracking (including refiner for refinement loop)
   const [agentProgress, setAgentProgress] = useState<AgentProgressStatus[]>([
     { name: 'supervisor', title: '🧠 Supervisor', description: 'Task Analysis', status: 'pending' },
@@ -648,6 +661,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           user_request: userMessage,
           workspace_root: workspace,
           task_type: 'general',
+          execution_mode: executionMode,  // "auto", "quick", or "full"
+          system_prompt: systemPrompt,  // Custom system prompt
           enable_debug: true,  // Enable debug logging
         }),
       });
@@ -1225,6 +1240,117 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       {/* 입력 영역 */}
       <div className="border-t border-gray-800 bg-gray-900">
         <div className="px-2 sm:px-3 py-1.5 sm:py-2">
+          {/* 모드 선택 탭 */}
+          <div className="flex items-center justify-between gap-1 mb-2">
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] sm:text-[10px] text-gray-500 mr-1">모드:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setExecutionModeState('auto');
+                  localStorage.setItem('workflow_execution_mode', 'auto');
+                }}
+                className={`px-2 py-0.5 text-[9px] sm:text-[10px] rounded transition-colors ${
+                  executionMode === 'auto'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                title="요청 내용에 따라 자동으로 모드 결정"
+              >
+                자동
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExecutionModeState('quick');
+                  localStorage.setItem('workflow_execution_mode', 'quick');
+                }}
+                className={`px-2 py-0.5 text-[9px] sm:text-[10px] rounded transition-colors ${
+                  executionMode === 'quick'
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                title="빠른 Q&A - 코드 생성 없이 질문에 답변"
+              >
+                Q&A
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExecutionModeState('full');
+                  localStorage.setItem('workflow_execution_mode', 'full');
+                }}
+                className={`px-2 py-0.5 text-[9px] sm:text-[10px] rounded transition-colors ${
+                  executionMode === 'full'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                title="코드 생성 - 전체 파이프라인으로 코드 생성"
+              >
+                코드 생성
+              </button>
+              <span className="text-[8px] sm:text-[9px] text-gray-600 ml-2 hidden sm:inline">
+                {executionMode === 'auto' && '(요청에 따라 자동 결정)'}
+                {executionMode === 'quick' && '(빠른 응답, 코드 생성 안함)'}
+                {executionMode === 'full' && '(전체 에이전트 파이프라인)'}
+              </span>
+            </div>
+            {/* 컨텍스트 클리어 및 설정 버튼 */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setTempSystemPrompt(systemPrompt);
+                  setShowSystemPromptModal(true);
+                }}
+                className={`px-2 py-0.5 text-[9px] sm:text-[10px] rounded transition-colors ${
+                  systemPrompt
+                    ? 'bg-cyan-900/50 text-cyan-400 hover:bg-cyan-800/50'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+                title="시스템 프롬프트 설정"
+              >
+                {systemPrompt ? '프롬프트 ✓' : '프롬프트'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (confirm('대화 기록과 워크플로우 상태를 초기화하시겠습니까?')) {
+                    try {
+                      await apiClient.clearSessionContext(sessionId);
+                      setConversationHistory([]);
+                      setUpdates([]);
+                      setSavedFiles([]);
+                      resetProgress();
+                    } catch (e) {
+                      console.error('Failed to clear context:', e);
+                    }
+                  }
+                }}
+                className="px-2 py-0.5 text-[9px] sm:text-[10px] rounded bg-gray-800 text-gray-400 hover:bg-red-900/50 hover:text-red-400 transition-colors"
+                title="대화 기록 및 워크플로우 상태 초기화"
+              >
+                새 대화
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (confirm('LLM 응답 캐시를 모두 삭제하시겠습니까?')) {
+                    try {
+                      const result = await apiClient.clearLMCache();
+                      alert(`캐시 ${result.cleared_count}개 삭제됨`);
+                    } catch (e) {
+                      console.error('Failed to clear cache:', e);
+                    }
+                  }
+                }}
+                className="px-2 py-0.5 text-[9px] sm:text-[10px] rounded bg-gray-800 text-gray-400 hover:bg-orange-900/50 hover:text-orange-400 transition-colors hidden sm:block"
+                title="LLM 응답 캐시 삭제"
+              >
+                캐시 삭제
+              </button>
+            </div>
+          </div>
           <form onSubmit={handleSubmit}>
             <div className="flex items-center gap-1.5 sm:gap-2">
               {/* 작업공간 선택기 */}
@@ -1331,6 +1457,85 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
         isVisible={showSharedContext}
         onClose={() => setShowSharedContext(false)}
       />
+
+      {/* System Prompt Modal */}
+      {showSystemPromptModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg shadow-2xl max-w-2xl w-full p-5 border border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-cyan-600 flex items-center justify-center">
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-gray-100">시스템 프롬프트</h2>
+                <p className="text-xs text-gray-500">AI 에이전트의 동작 방식을 커스터마이징합니다</p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-400 mb-2">
+                커스텀 시스템 프롬프트 (선택)
+              </label>
+              <textarea
+                value={tempSystemPrompt}
+                onChange={(e) => setTempSystemPrompt(e.target.value)}
+                placeholder="예: 모든 코드는 TypeScript로 작성하고, 함수형 프로그래밍 스타일을 사용해주세요. 주석은 한글로 작성해주세요."
+                className="w-full px-3 py-2 bg-gray-800 text-gray-100 placeholder-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-cyan-500 border border-gray-700 text-sm font-mono resize-none"
+                rows={6}
+              />
+              <p className="mt-2 text-xs text-gray-600">
+                이 프롬프트는 모든 요청에 추가되어 AI의 응답 스타일을 조정합니다.
+                비워두면 기본 동작을 사용합니다.
+              </p>
+            </div>
+
+            <div className="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+              <p className="text-xs text-gray-400 mb-2">예시:</p>
+              <ul className="text-xs text-gray-500 space-y-1">
+                <li>• "모든 코드에 상세한 주석을 한글로 작성해주세요"</li>
+                <li>• "React 컴포넌트는 함수형으로 작성하고 hooks를 사용해주세요"</li>
+                <li>• "에러 처리를 철저히 하고 로깅을 추가해주세요"</li>
+                <li>• "코드 설명은 초보자도 이해할 수 있게 해주세요"</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowSystemPromptModal(false)}
+                className="px-3 py-2 rounded-lg border border-gray-700 hover:bg-gray-800 text-gray-400 text-sm transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  setSystemPrompt(tempSystemPrompt);
+                  localStorage.setItem('workflow_system_prompt', tempSystemPrompt);
+                  setShowSystemPromptModal(false);
+                }}
+                className="flex-1 px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium transition-colors"
+              >
+                저장
+              </button>
+              {systemPrompt && (
+                <button
+                  onClick={() => {
+                    setTempSystemPrompt('');
+                    setSystemPrompt('');
+                    localStorage.removeItem('workflow_system_prompt');
+                    setShowSystemPromptModal(false);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-red-900/50 hover:bg-red-800/50 text-red-400 text-sm transition-colors"
+                >
+                  초기화
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {hitlRequest && (
         <HITLModal
