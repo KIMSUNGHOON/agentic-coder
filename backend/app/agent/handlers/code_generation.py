@@ -63,9 +63,12 @@ class CodeGenerationHandler(BaseHandler):
             updates = []
             agents_used = set()
 
+            # 대화 컨텍스트를 포함한 enriched user message 생성
+            enriched_message = self._build_enriched_message(user_message, context)
+
             self.logger.info(f"Starting code generation: {user_message[:50]}...")
 
-            async for update in workflow.execute_stream(user_message, workflow_context):
+            async for update in workflow.execute_stream(enriched_message, workflow_context):
                 updates.append(update)
 
                 # 에이전트 추적
@@ -149,7 +152,10 @@ class CodeGenerationHandler(BaseHandler):
             workflow = await self._get_workflow(context)
             artifacts = []
 
-            async for update in workflow.execute_stream(user_message, workflow_context):
+            # 대화 컨텍스트를 포함한 enriched user message 생성
+            enriched_message = self._build_enriched_message(user_message, context)
+
+            async for update in workflow.execute_stream(enriched_message, workflow_context):
                 # 워크플로우 업데이트를 StreamUpdate로 변환
                 agent = update.get("agent", "Workflow")
                 update_type = update.get("type", "progress")
@@ -247,10 +253,10 @@ class CodeGenerationHandler(BaseHandler):
         for artifact in artifacts[:3]:  # 처음 3개 파일만 표시
             filename = artifact.get('filename', 'code')
             language = artifact.get('language', 'text')
-            content = artifact.get('content', '')
+            content = artifact.get('content') or ''  # None 처리
 
             # 너무 긴 코드는 잘라서 표시
-            if len(content) > 2000:
+            if content and len(content) > 2000:
                 content = content[:2000] + "\n\n... (truncated)"
 
             code_blocks.append(f"### {filename}\n\n```{language}\n{content}\n```")
@@ -283,3 +289,53 @@ class CodeGenerationHandler(BaseHandler):
             if update.get("status") == "error" or update.get("type") == "error":
                 return update.get("message") or update.get("error")
         return None
+
+    def _build_enriched_message(self, user_message: str, context: Any) -> str:
+        """대화 컨텍스트를 포함한 확장 메시지 생성
+
+        사용자의 현재 메시지만으로는 무엇을 구현해야 할지 알 수 없을 때,
+        이전 대화 컨텍스트를 포함하여 전체 맥락을 전달합니다.
+
+        Args:
+            user_message: 현재 사용자 메시지
+            context: 대화 컨텍스트
+
+        Returns:
+            str: 컨텍스트가 포함된 확장 메시지
+        """
+        if not context or not hasattr(context, 'messages'):
+            return user_message
+
+        # 이전 대화 내용 추출
+        messages = context.messages if hasattr(context, 'messages') else []
+        if not messages:
+            return user_message
+
+        # 최근 대화 히스토리 구성 (최대 10개 메시지)
+        recent_messages = messages[-10:] if len(messages) > 10 else messages
+
+        # 대화 요약 생성
+        conversation_history = []
+        for msg in recent_messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            # 긴 메시지는 요약
+            if len(content) > 500:
+                content = content[:500] + "..."
+            conversation_history.append(f"[{role}]: {content}")
+
+        history_text = "\n".join(conversation_history)
+
+        # 확장 메시지 구성
+        enriched = f"""## Previous Conversation Context
+{history_text}
+
+## Current User Request
+{user_message}
+
+## Instructions
+Based on the conversation context above, implement the code as discussed.
+Focus on the specific requirements mentioned in the previous conversation."""
+
+        self.logger.info(f"Built enriched message with {len(recent_messages)} context messages")
+        return enriched

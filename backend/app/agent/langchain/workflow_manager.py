@@ -159,14 +159,40 @@ class WorkflowState(TypedDict):
 
 
 def parse_checklist(text: str) -> List[Dict[str, Any]]:
-    """Parse text into checklist items."""
+    """Parse text into checklist items.
+
+    Handles deepseek-r1 output format with <think> tags by:
+    1. Stripping <think>...</think> reasoning blocks
+    2. Looking for numbered lists or bullet points
+
+    Args:
+        text: Raw LLM output text
+
+    Returns:
+        List of checklist items
+    """
     items = []
+
+    # Step 1: Remove <think> tags and their content (deepseek-r1 reasoning)
+    # This regex handles multi-line think blocks
+    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Also remove any orphaned opening/closing tags
+    clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
+
+    # Step 2: Try to find output_format section first (more reliable)
+    output_match = re.search(r'<output(?:_format)?>(.*?)</output(?:_format)?>', clean_text, re.DOTALL | re.IGNORECASE)
+    if output_match:
+        clean_text = output_match.group(1)
+
+    # Step 3: Parse numbered lists and bullet points
     pattern = r'(?:^|\n)\s*(?:(\d+)[.\)]\s*|[-*]\s*)(.+?)(?=\n|$)'
-    matches = re.findall(pattern, text)
+    matches = re.findall(pattern, clean_text)
 
     for i, (num, task) in enumerate(matches, 1):
         task = task.strip()
-        if task:
+        # Filter out markdown headers, empty lines, and template placeholders
+        if task and not task.startswith('#') and '[' not in task[:5]:
             items.append({
                 "id": int(num) if num else i,
                 "task": task,
@@ -174,14 +200,41 @@ def parse_checklist(text: str) -> List[Dict[str, Any]]:
                 "artifacts": []
             })
 
+    # Fallback: If no items found, try alternative patterns
+    if not items:
+        # Try parsing lines that look like tasks (sentences starting with verbs)
+        lines = clean_text.strip().split('\n')
+        for i, line in enumerate(lines, 1):
+            line = line.strip()
+            # Skip empty lines and headers
+            if not line or line.startswith('#') or line.startswith('<'):
+                continue
+            # Accept lines that look like task descriptions
+            if len(line) > 10 and not line.startswith('```'):
+                items.append({
+                    "id": i,
+                    "task": line,
+                    "completed": False,
+                    "artifacts": []
+                })
+
+    logger.debug(f"parse_checklist: found {len(items)} items from text length {len(text)}")
     return items
 
 
 def parse_code_blocks(text: str) -> List[Dict[str, Any]]:
-    """Extract code blocks from text with unique filename generation."""
+    """Extract code blocks from text with unique filename generation.
+
+    Handles deepseek-r1 output format with <think> tags.
+    """
     artifacts = []
+
+    # Remove <think> tags and their content first (deepseek-r1 reasoning)
+    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
+
     pattern = r'```(\w+)?(?:\s+(\S+))?\n(.*?)```'
-    matches = re.findall(pattern, text, re.DOTALL)
+    matches = re.findall(pattern, clean_text, re.DOTALL)
 
     extensions = {
         "python": "py", "javascript": "js", "typescript": "ts",
@@ -245,6 +298,8 @@ def parse_code_blocks(text: str) -> List[Dict[str, Any]]:
 def parse_review(text: str) -> Dict[str, Any]:
     """Parse review text into structured format with line-specific issues.
 
+    Handles deepseek-r1 output format with <think> tags.
+
     Expected format:
     ANALYSIS: [summary]
     ISSUES:
@@ -264,22 +319,26 @@ def parse_review(text: str) -> Dict[str, Any]:
     approved = False
     analysis = ""
 
+    # Remove <think> tags and their content first (deepseek-r1 reasoning)
+    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
+
     # Parse ANALYSIS
-    analysis_match = re.search(r'ANALYSIS:\s*(.+?)(?=\n\n|ISSUES:|$)', text, re.IGNORECASE | re.DOTALL)
+    analysis_match = re.search(r'ANALYSIS:\s*(.+?)(?=\n\n|ISSUES:|$)', clean_text, re.IGNORECASE | re.DOTALL)
     if analysis_match:
         analysis = analysis_match.group(1).strip()
 
     # Parse STATUS field explicitly - this takes precedence
-    status_match = re.search(r'STATUS:\s*(APPROVED|NEEDS_REVISION)', text, re.IGNORECASE)
+    status_match = re.search(r'STATUS:\s*(APPROVED|NEEDS_REVISION)', clean_text, re.IGNORECASE)
     if status_match:
         approved = status_match.group(1).upper() == "APPROVED"
     else:
         # Fallback: if no explicit status, check for approval keywords
-        if re.search(r'\b(?:lgtm|looks good|no issues found)\b', text, re.IGNORECASE):
+        if re.search(r'\b(?:lgtm|looks good|no issues found)\b', clean_text, re.IGNORECASE):
             approved = True
 
     # Parse ISSUES section with structured format
-    issues_section = re.search(r'ISSUES:\s*(.*?)(?=SUGGESTIONS:|STATUS:|```|$)', text, re.IGNORECASE | re.DOTALL)
+    issues_section = re.search(r'ISSUES:\s*(.*?)(?=SUGGESTIONS:|STATUS:|```|$)', clean_text, re.IGNORECASE | re.DOTALL)
     if issues_section:
         issues_text = issues_section.group(1).strip()
 
@@ -318,7 +377,7 @@ def parse_review(text: str) -> Dict[str, Any]:
                     issues.append({"issue": simple_match.group(1).strip(), "severity": "warning"})
 
     # Parse SUGGESTIONS section with structured format
-    suggestions_section = re.search(r'SUGGESTIONS:\s*(.*?)(?=STATUS:|ISSUES:|```|$)', text, re.IGNORECASE | re.DOTALL)
+    suggestions_section = re.search(r'SUGGESTIONS:\s*(.*?)(?=STATUS:|ISSUES:|```|$)', clean_text, re.IGNORECASE | re.DOTALL)
     if suggestions_section:
         suggestions_text = suggestions_section.group(1).strip()
 
@@ -361,20 +420,23 @@ def parse_review(text: str) -> Dict[str, Any]:
         "issues": issues,
         "suggestions": suggestions,
         "approved": approved,
-        "corrected_artifacts": parse_code_blocks(text)
+        "corrected_artifacts": parse_code_blocks(clean_text)
     }
 
 
 def parse_task_type(text: str) -> TaskType:
     """Parse task type from supervisor analysis.
 
+    Handles deepseek-r1 output format with <think> tags.
     First tries to find explicit TASK_TYPE: declaration,
     then falls back to keyword matching.
     """
-    import re
+    # Remove <think> tags and their content first (deepseek-r1 reasoning)
+    clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    clean_text = re.sub(r'</?think>', '', clean_text, flags=re.IGNORECASE)
 
     # Try to find explicit TASK_TYPE declaration
-    task_type_match = re.search(r'TASK_TYPE:\s*(\w+)', text, re.IGNORECASE)
+    task_type_match = re.search(r'TASK_TYPE:\s*(\w+)', clean_text, re.IGNORECASE)
     if task_type_match:
         task_type_str = task_type_match.group(1).lower()
         # Validate it's a known type
@@ -383,7 +445,7 @@ def parse_task_type(text: str) -> TaskType:
         logger.warning(f"Found TASK_TYPE but unknown value: {task_type_str}, falling back to keyword matching")
 
     # Fallback to keyword matching
-    text_lower = text.lower()
+    text_lower = clean_text.lower()
 
     if any(kw in text_lower for kw in ["code_generation", "create new", "implement new", "build new"]):
         return "code_generation"
@@ -487,12 +549,13 @@ class DynamicLangGraphWorkflow(BaseWorkflow):
         # Shared context for parallel agent execution
         self.shared_context: Optional[SharedContext] = None
 
-        # Parallel execution settings
-        # Optimized for H100 96GB NVL GPUs with vLLM continuous batching
-        # H100's high VRAM (96GB) and vLLM's efficient batching allow much higher parallelism
-        self.max_parallel_agents = 25  # Max concurrent coding agents (optimized for H100)
-        self.enable_parallel_coding = True  # Feature flag
+        # Parallel execution settings (loaded from config)
+        # RTX 3090 + Ollama: 1-2, H100 + vLLM: 25
+        self.max_parallel_agents = getattr(settings, 'max_parallel_agents', 2)
+        self.enable_parallel_coding = getattr(settings, 'enable_parallel_coding', True)
         self.adaptive_parallelism = True  # Adjust based on task count
+
+        logger.info(f"Parallel execution: max_agents={self.max_parallel_agents}, enabled={self.enable_parallel_coding}")
 
         # Supervisor prompt for task analysis with context awareness
         self.supervisor_prompt = """You are a Supervisor Agent that analyzes user requests and determines the best workflow.
@@ -1216,6 +1279,7 @@ PRIORITY: [high/medium/low for each]
         if template["has_review_loop"]:
             review_iteration = 0
             approved = False
+            review_result = {"approved": False, "issues": [], "suggestions": [], "corrected_artifacts": [], "analysis": ""}  # Initialize
             review_prompt = self.prompts["ReviewAgent"]
             fix_prompt_template = self.prompts["FixCodeAgent"]
 
@@ -1243,6 +1307,8 @@ PRIORITY: [high/medium/low for each]
 
                     # Execute parallel review
                     review_completed = False
+                    # Keep default review_result from line 1220 initialization
+                    # Will be updated when parallel review completes
                     async for update in self._execute_parallel_review(
                         artifacts=all_artifacts,
                         user_request=user_request,
@@ -1254,6 +1320,13 @@ PRIORITY: [high/medium/low for each]
                         if update.get("type") == "completed" and update.get("agent") == "ReviewAgent":
                             # Extract review result from parallel review
                             approved = update.get("approved", False)
+                            review_result = {
+                                "approved": approved,
+                                "issues": update.get("issues", []),
+                                "suggestions": update.get("suggestions", []),
+                                "corrected_artifacts": update.get("corrected_artifacts", []),
+                                "analysis": update.get("analysis", "")
+                            }
                             review_completed = True
 
                         yield update
@@ -1261,6 +1334,13 @@ PRIORITY: [high/medium/low for each]
                     if not review_completed:
                         # Fallback if parallel review didn't complete properly
                         approved = False
+                        review_result = {
+                            "approved": False,
+                            "issues": [],
+                            "suggestions": [],
+                            "corrected_artifacts": [],
+                            "analysis": "Review did not complete properly"
+                        }
 
                 else:
                     # Sequential review for single file or few files
@@ -2391,6 +2471,24 @@ class LangGraphWorkflowManager(BaseWorkflowManager):
             self.workflows[session_id] = DynamicLangGraphWorkflow(enable_deepagents=enable_deepagents)
             logger.info(f"Created new dynamic workflow for session {session_id} (deepagents={enable_deepagents})")
         return self.workflows[session_id]
+
+    async def get_workflow(
+        self,
+        session_id: str,
+        workspace: Optional[str] = None,
+        enable_deepagents: bool = False
+    ) -> DynamicLangGraphWorkflow:
+        """Async wrapper for get_or_create_workflow (for CodeGenerationHandler compatibility).
+
+        Args:
+            session_id: Session identifier
+            workspace: Workspace path (currently unused, reserved for future use)
+            enable_deepagents: Whether to enable DeepAgents middleware
+
+        Returns:
+            DynamicLangGraphWorkflow instance
+        """
+        return self.get_or_create_workflow(session_id, enable_deepagents)
 
     def delete_workflow(self, session_id: str) -> None:
         """Delete workflow for session."""
