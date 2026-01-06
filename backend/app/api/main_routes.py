@@ -201,12 +201,14 @@ async def unified_chat_stream(request: ChatRequest):
 
         async def generate():
             try:
-                async for update in unified_manager.process_request(
+                # process_request는 async def이므로 먼저 await 필요
+                stream_generator = await unified_manager.process_request(
                     session_id=request.session_id,
                     user_message=request.message,
                     workspace=request.workspace,
                     stream=True
-                ):
+                )
+                async for update in stream_generator:
                     yield f"data: {json.dumps(update.to_dict())}\n\n"
 
                 yield "data: [DONE]\n\n"
@@ -2333,6 +2335,55 @@ async def upload_directory_structure(
     except Exception as e:
         logger.error(f"Error uploading directory structure: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ==================== File Read Endpoint ====================
+
+
+@router.get("/files/read")
+async def read_file_content(path: str):
+    """Read file content by absolute path.
+
+    Security: Only allows reading from /home/user/workspace.
+
+    Args:
+        path: Absolute path to file
+
+    Returns:
+        File content and metadata
+    """
+    import os
+
+    BASE_WORKSPACE = Path("/home/user/workspace")
+
+    try:
+        # Validate path is within allowed base
+        validated_path = sanitize_path(path, BASE_WORKSPACE, allow_creation=False)
+
+        if not validated_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if not validated_path.is_file():
+            raise HTTPException(status_code=400, detail="Path is not a file")
+
+        # Read file content
+        content = validated_path.read_text(encoding='utf-8')
+
+        return {
+            "success": True,
+            "path": str(validated_path),
+            "content": content,
+            "size": validated_path.stat().st_size
+        }
+
+    except SecurityError as e:
+        logger.warning(f"Security violation in read_file_content: {e}")
+        raise HTTPException(status_code=403, detail="Access denied")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File is not a text file")
+    except Exception as e:
+        logger.error(f"Error reading file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/workspace/download")

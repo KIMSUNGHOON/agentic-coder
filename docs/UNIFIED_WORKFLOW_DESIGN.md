@@ -1,8 +1,9 @@
 # Unified Workflow Architecture Design
 
 **작성일**: 2026-01-06
-**버전**: 1.0
+**버전**: 2.0 (구현 완료)
 **목적**: Claude Code / OpenAI Codex 방식의 통합 워크플로우 아키텍처 설계
+**상태**: ✅ 구현 완료
 
 ---
 
@@ -821,4 +822,121 @@ class UnifiedChatResponse(BaseModel):
 
 ---
 
-*이 문서는 구현 진행 시 참조용으로 작성되었습니다.*
+## 9. 구현 결과 (2026-01-06)
+
+### 9.1 구현된 백엔드 컴포넌트
+
+| 파일 | 상태 | 설명 |
+|------|------|------|
+| `backend/core/response_aggregator.py` | ✅ 완료 | UnifiedResponse, HandlerResult, StreamUpdate 정의 |
+| `backend/core/context_store.py` | ✅ 완료 | ConversationContext, ContextStore (DB 영속성 포함) |
+| `backend/app/agent/unified_agent_manager.py` | ✅ 완료 | 통합 에이전트 매니저 |
+| `backend/app/agent/handlers/base.py` | ✅ 완료 | BaseHandler 추상 클래스, StreamUpdate |
+| `backend/app/agent/handlers/quick_qa.py` | ✅ 완료 | QUICK_QA 핸들러 |
+| `backend/app/agent/handlers/planning.py` | ✅ 완료 | PLANNING 핸들러 (계획 파일 저장 포함) |
+| `backend/app/agent/handlers/code_generation.py` | ✅ 완료 | CODE_GENERATION 핸들러 |
+| `backend/app/api/main_routes.py` | ✅ 완료 | `/chat/unified`, `/chat/unified/stream` 엔드포인트 |
+
+### 9.2 구현된 프론트엔드 컴포넌트
+
+| 파일 | 상태 | 설명 |
+|------|------|------|
+| `frontend/src/types/api.ts` | ✅ 완료 | UnifiedChatResponse, UnifiedStreamUpdate 타입 |
+| `frontend/src/api/client.ts` | ✅ 완료 | unifiedChat(), unifiedChatStream() 메서드 |
+| `frontend/src/components/WorkflowInterface.tsx` | ✅ 완료 | Unified 모드 지원, Next Actions 연동 |
+| `frontend/src/components/NextActionsPanel.tsx` | ✅ 완료 | 다음 행동 버튼 UI |
+| `frontend/src/components/PlanFileViewer.tsx` | ✅ 완료 | 계획 파일 미리보기 모달 |
+
+### 9.3 주요 기능
+
+#### 9.3.1 Next Actions UI
+- 워크플로우 완료 후 자동으로 다음 행동 버튼 표시
+- 응답 타입별 맞춤형 제안:
+  - QUICK_QA: "추가 질문하기"
+  - PLANNING: "코드 생성 시작", "계획 수정 요청", "계획 파일 확인"
+  - CODE_GENERATION: "테스트 실행", "코드 리뷰 요청", "추가 기능 구현"
+  - CODE_REVIEW: "수정 사항 적용", "추가 리뷰 요청"
+  - DEBUGGING: "수정 사항 적용", "테스트 실행"
+
+#### 9.3.2 Plan File Viewer
+- 복잡한 작업의 경우 계획을 마크다운 파일로 저장
+- 저장 위치: `{workspace}/.plans/PLAN_{keyword}_{timestamp}.md`
+- 모달 UI로 계획 내용 미리보기
+- "코드 생성 시작" 버튼으로 바로 구현 시작 가능
+
+#### 9.3.3 DB 영속성 (ContextStore)
+- SQLAlchemy를 통한 대화 컨텍스트 DB 저장
+- 메모리 캐시 + DB 영속성 하이브리드 방식
+- 저장 데이터:
+  - 대화 메시지 (role, content, timestamp)
+  - 생성된 아티팩트 (filename, language, content)
+  - Supervisor 분석 결과 (last_analysis)
+  - 워크스페이스 경로
+
+### 9.4 API 엔드포인트
+
+#### POST `/chat/unified`
+통합 채팅 (비스트리밍)
+
+**Request:**
+```json
+{
+  "message": "Python으로 계산기 만들어줘",
+  "session_id": "session-123",
+  "workspace": "/home/user/workspace/calculator"
+}
+```
+
+**Response:**
+```json
+{
+  "response_type": "code_generation",
+  "content": "## 코드 생성 완료\n\n다음 파일들이 생성되었습니다...",
+  "artifacts": [
+    {
+      "filename": "calculator.py",
+      "language": "python",
+      "content": "...",
+      "saved_path": "/home/user/workspace/calculator/calculator.py"
+    }
+  ],
+  "plan_file": null,
+  "analysis": {
+    "complexity": "moderate",
+    "task_type": "implementation",
+    "required_agents": ["coder", "reviewer"],
+    "confidence": 0.85
+  },
+  "next_actions": ["테스트 실행", "코드 리뷰 요청", "추가 기능 구현"],
+  "session_id": "session-123",
+  "success": true
+}
+```
+
+#### POST `/chat/unified/stream`
+통합 채팅 (스트리밍)
+
+**Request:** 동일
+
+**Response:** Server-Sent Events
+```
+data: {"agent": "Supervisor", "type": "analysis", "status": "completed", "message": "분석 완료: code_generation", "data": {...}}
+
+data: {"agent": "CodeGenerationHandler", "type": "progress", "status": "running", "message": "코드 생성 워크플로우를 시작합니다..."}
+
+data: {"agent": "Coder", "type": "artifact", "status": "running", "message": "calculator.py 생성 중..."}
+
+data: {"agent": "UnifiedAgentManager", "type": "done", "status": "completed", "message": "모든 처리가 완료되었습니다.", "data": {"next_actions": [...], "plan_file": null}}
+
+data: [DONE]
+```
+
+### 9.5 해결된 이슈
+
+1. **async for 오류** - `process_request` 반환값에 `await` 누락 수정
+2. **StreamUpdate 타입 불일치** - 모든 모듈에서 동일한 필드 사용
+3. **collectArtifactsFromUpdates 참조 오류** - `extractArtifacts`로 통합
+
+---
+
+*이 문서는 Unified Workflow Architecture의 설계 및 구현 결과를 기록합니다.*

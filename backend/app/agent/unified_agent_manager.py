@@ -207,6 +207,7 @@ class UnifiedAgentManager:
         # 핸들러 스트리밍 실행
         artifacts = []
         final_content = ""
+        plan_file = None
 
         async for update in handler.execute_stream(user_message, analysis, context):
             yield update
@@ -217,6 +218,8 @@ class UnifiedAgentManager:
                     artifacts.extend(update.data["artifacts"])
                 if update.data.get("full_content"):
                     final_content = update.data["full_content"]
+                if update.data.get("plan_file"):
+                    plan_file = update.data["plan_file"]
 
         # 컨텍스트 저장
         await self.context_store.save(
@@ -227,6 +230,13 @@ class UnifiedAgentManager:
             artifacts=artifacts
         )
 
+        # 다음 행동 제안 생성
+        next_actions = self._suggest_next_actions(
+            analysis.get("response_type", ResponseType.QUICK_QA),
+            artifacts,
+            plan_file
+        )
+
         # 최종 완료 업데이트
         yield StreamUpdate(
             agent="UnifiedAgentManager",
@@ -235,7 +245,9 @@ class UnifiedAgentManager:
             message="모든 처리가 완료되었습니다.",
             data={
                 "session_id": session_id,
-                "artifact_count": len(artifacts)
+                "artifact_count": len(artifacts),
+                "next_actions": next_actions,
+                "plan_file": plan_file
             }
         )
 
@@ -270,6 +282,50 @@ class UnifiedAgentManager:
             "handlers": list(self.handlers.keys()),
             "supervisor_model": self.supervisor.model_type
         }
+
+    def _suggest_next_actions(
+        self,
+        response_type: str,
+        artifacts: List[Dict[str, Any]],
+        plan_file: Optional[str]
+    ) -> List[str]:
+        """응답 타입과 결과에 따른 다음 행동 제안
+
+        Args:
+            response_type: 응답 타입
+            artifacts: 생성된 아티팩트
+            plan_file: 계획 파일 경로
+
+        Returns:
+            List[str]: 제안된 다음 행동 목록
+        """
+        actions = []
+
+        if response_type == ResponseType.QUICK_QA:
+            actions.append("추가 질문하기")
+
+        elif response_type == ResponseType.PLANNING:
+            actions.append("코드 생성 시작")
+            actions.append("계획 수정 요청")
+            if plan_file:
+                actions.append("계획 파일 확인")
+
+        elif response_type == ResponseType.CODE_GENERATION:
+            if artifacts:
+                actions.append("테스트 실행")
+                actions.append("코드 리뷰 요청")
+            actions.append("추가 기능 구현")
+            actions.append("코드 수정 요청")
+
+        elif response_type == ResponseType.CODE_REVIEW:
+            actions.append("수정 사항 적용")
+            actions.append("추가 리뷰 요청")
+
+        elif response_type == ResponseType.DEBUGGING:
+            actions.append("수정 사항 적용")
+            actions.append("테스트 실행")
+
+        return actions
 
 
 # 싱글톤 인스턴스

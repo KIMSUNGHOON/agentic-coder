@@ -41,12 +41,14 @@ class StreamUpdate:
         status: 상태 (running, completed, error)
         message: 상태 메시지
         data: 추가 데이터
+        timestamp: 타임스탬프
     """
     agent: str
     update_type: str
     status: str
     message: str
     data: Optional[Dict[str, Any]] = None
+    timestamp: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -58,6 +60,8 @@ class StreamUpdate:
         }
         if self.data:
             result["data"] = self.data
+        if self.timestamp:
+            result["timestamp"] = self.timestamp
         return result
 
 

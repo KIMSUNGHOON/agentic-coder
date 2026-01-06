@@ -16,6 +16,8 @@ import HITLModal from './HITLModal';
 import WorkflowStatusPanel from './WorkflowStatusPanel';
 import DashboardHeader from './DashboardHeader';
 import TerminalOutput from './TerminalOutput';
+import NextActionsPanel from './NextActionsPanel';
+import PlanFileViewer from './PlanFileViewer';
 import apiClient from '../api/client';
 
 // Agent status for progress tracking
@@ -165,6 +167,11 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [currentStreamingContent, setCurrentStreamingContent] = useState<string>('');
   const [savedFiles, setSavedFiles] = useState<Artifact[]>([]);
 
+  // Unified API response state (Next Actions, Plan File)
+  const [nextActions, setNextActions] = useState<string[]>([]);
+  const [planFilePath, setPlanFilePath] = useState<string | null>(null);
+  const [isPlanViewerOpen, setIsPlanViewerOpen] = useState(false);
+
   // Live Output state for conversation area - track outputs from each agent
   const [liveOutputs, setLiveOutputs] = useState<Map<string, {
     agentName: string;
@@ -239,6 +246,9 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     // Clear thinking state on new workflow
     setIsThinking(false);
     setThinkingStream([]);
+    // Clear unified response state
+    setNextActions([]);
+    setPlanFilePath(null);
   };
 
   // Refinement loop state (tracked for potential future UI display)
@@ -625,6 +635,26 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
 
         if (update.update_type === 'done') {
           setIsThinking(false);
+          // Extract next_actions and plan_file from done update
+          if (update.data) {
+            if (Array.isArray(update.data.next_actions)) {
+              setNextActions(update.data.next_actions as string[]);
+            }
+            if (update.data.plan_file) {
+              setPlanFilePath(update.data.plan_file as string);
+            }
+          }
+        }
+
+        // Handle completed handler updates
+        if (update.update_type === 'completed' && update.data) {
+          // Extract next_actions and plan_file from completed update
+          if (Array.isArray(update.data.next_actions)) {
+            setNextActions(update.data.next_actions as string[]);
+          }
+          if (update.data.plan_file) {
+            setPlanFilePath(update.data.plan_file as string);
+          }
         }
 
         // Update agent progress
@@ -1387,6 +1417,20 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             </div>
           )}
 
+          {/* Next Actions Panel - Show after workflow completes */}
+          {!isRunning && (nextActions.length > 0 || planFilePath) && (
+            <NextActionsPanel
+              actions={nextActions}
+              onActionClick={(action) => {
+                setInput(action);
+                inputRef.current?.focus();
+              }}
+              isLoading={isRunning}
+              planFile={planFilePath || undefined}
+              onViewPlan={() => setIsPlanViewerOpen(true)}
+            />
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -1718,6 +1762,21 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           onRetry={(instructions) => handleHitlResponse('retry', instructions)}
           onSelect={(optionId, feedback) => handleHitlResponse('select', `Selected: ${optionId}. ${feedback || ''}`)}
           onConfirm={(feedback) => handleHitlResponse('confirm', feedback)}
+        />
+      )}
+
+      {/* Plan File Viewer Modal */}
+      {planFilePath && (
+        <PlanFileViewer
+          planFilePath={planFilePath}
+          isOpen={isPlanViewerOpen}
+          onClose={() => setIsPlanViewerOpen(false)}
+          onStartCodeGeneration={(planContent) => {
+            // Set input to "Execute the plan" or similar and auto-submit
+            setInput('위 계획대로 코드 생성을 시작해주세요.');
+            // Close the modal first
+            setIsPlanViewerOpen(false);
+          }}
         />
       )}
 

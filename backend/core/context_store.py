@@ -2,12 +2,19 @@
 
 이 모듈은 세션별 대화 컨텍스트를 관리하고
 DB와 메모리 캐시 간의 동기화를 담당합니다.
+
+SQLAlchemy를 통해 DB 영속성을 제공하며,
+메모리 캐시로 빠른 접근을 지원합니다.
 """
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+# SQLAlchemy imports
+from app.db.database import SessionLocal, get_db_context
+from app.db.models import Conversation, Message, Artifact
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +263,7 @@ class ContextStore:
         logger.info(f"Context cleared: {session_id}")
 
     async def _load_from_db(self, session_id: str) -> Optional[ConversationContext]:
-        """DB에서 컨텍스트 로드 (향후 구현)
+        """DB에서 컨텍스트 로드
 
         Args:
             session_id: 세션 ID
@@ -264,28 +271,188 @@ class ContextStore:
         Returns:
             Optional[ConversationContext]: 컨텍스트 또는 None
         """
-        # TODO: SQLAlchemy 또는 다른 DB 연동 구현
-        # 현재는 None 반환 (캐시만 사용)
-        return None
+        try:
+            with get_db_context() as db:
+                # 세션 조회
+                conversation = db.query(Conversation).filter(
+                    Conversation.session_id == session_id
+                ).first()
+
+                if not conversation:
+                    return None
+
+                # ConversationContext 생성
+                context = ConversationContext(
+                    session_id=session_id,
+                    workspace=conversation.workspace_path,
+                    created_at=conversation.created_at or datetime.now(),
+                    updated_at=conversation.updated_at or datetime.now()
+                )
+
+                # 메시지 로드
+                messages = db.query(Message).filter(
+                    Message.conversation_id == conversation.id
+                ).order_by(Message.created_at).all()
+
+                for msg in messages:
+                    context.messages.append({
+                        "role": msg.role,
+                        "content": msg.content,
+                        "timestamp": msg.created_at.isoformat() if msg.created_at else None,
+                        "agent_name": msg.agent_name,
+                        "message_type": msg.message_type
+                    })
+
+                # 아티팩트 로드
+                artifacts = db.query(Artifact).filter(
+                    Artifact.conversation_id == conversation.id
+                ).order_by(Artifact.created_at).all()
+
+                for art in artifacts:
+                    context.artifacts.append({
+                        "filename": art.filename,
+                        "language": art.language,
+                        "content": art.content,
+                        "task_num": art.task_num,
+                        "version": art.version,
+                        "added_at": art.created_at.isoformat() if art.created_at else None
+                    })
+
+                # workflow_state에서 last_analysis 복원
+                if conversation.workflow_state:
+                    context.last_analysis = conversation.workflow_state.get("last_analysis")
+
+                logger.debug(f"Context loaded from DB: {session_id}, messages={len(context.messages)}")
+                return context
+
+        except Exception as e:
+            logger.error(f"Failed to load context from DB: {e}")
+            return None
 
     async def _save_to_db(self, context: ConversationContext):
-        """DB에 컨텍스트 저장 (향후 구현)
+        """DB에 컨텍스트 저장
 
         Args:
             context: 저장할 컨텍스트
         """
-        # TODO: SQLAlchemy 또는 다른 DB 연동 구현
-        # 현재는 캐시만 사용
-        pass
+        try:
+            with get_db_context() as db:
+                # 기존 대화 조회 또는 생성
+                conversation = db.query(Conversation).filter(
+                    Conversation.session_id == context.session_id
+                ).first()
+
+                if not conversation:
+                    # 새 대화 생성
+                    conversation = Conversation(
+                        session_id=context.session_id,
+                        title=self._generate_title(context),
+                        mode="unified",
+                        workspace_path=context.workspace,
+                        created_at=context.created_at
+                    )
+                    db.add(conversation)
+                    db.flush()  # ID 할당
+                else:
+                    # 기존 대화 업데이트
+                    conversation.workspace_path = context.workspace
+                    conversation.updated_at = datetime.now()
+
+                # workflow_state 업데이트 (last_analysis 저장)
+                workflow_state = conversation.workflow_state or {}
+                if context.last_analysis:
+                    workflow_state["last_analysis"] = context.last_analysis
+                conversation.workflow_state = workflow_state
+
+                # 새 메시지만 저장 (마지막 2개: user, assistant)
+                existing_msg_count = db.query(Message).filter(
+                    Message.conversation_id == conversation.id
+                ).count()
+
+                new_messages = context.messages[existing_msg_count:]
+                for msg in new_messages:
+                    db_msg = Message(
+                        conversation_id=conversation.id,
+                        role=msg.get("role", "user"),
+                        content=msg.get("content", ""),
+                        agent_name=msg.get("agent_name"),
+                        message_type=msg.get("message_type"),
+                        created_at=datetime.fromisoformat(msg["timestamp"]) if msg.get("timestamp") else datetime.now()
+                    )
+                    db.add(db_msg)
+
+                # 새 아티팩트 저장
+                for artifact in context.artifacts:
+                    filename = artifact.get("filename")
+                    if not filename:
+                        continue
+
+                    # 기존 아티팩트 확인 (같은 파일명이면 업데이트)
+                    existing_art = db.query(Artifact).filter(
+                        Artifact.conversation_id == conversation.id,
+                        Artifact.filename == filename
+                    ).first()
+
+                    if existing_art:
+                        # 버전 업데이트
+                        existing_art.content = artifact.get("content", "")
+                        existing_art.version = (existing_art.version or 1) + 1
+                    else:
+                        # 새 아티팩트 생성
+                        db_art = Artifact(
+                            conversation_id=conversation.id,
+                            filename=filename,
+                            language=artifact.get("language", "text"),
+                            content=artifact.get("content", ""),
+                            task_num=artifact.get("task_num")
+                        )
+                        db.add(db_art)
+
+                db.commit()
+                logger.debug(f"Context saved to DB: {context.session_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to save context to DB: {e}")
 
     async def _delete_from_db(self, session_id: str):
-        """DB에서 컨텍스트 삭제 (향후 구현)
+        """DB에서 컨텍스트 삭제
 
         Args:
             session_id: 세션 ID
         """
-        # TODO: SQLAlchemy 또는 다른 DB 연동 구현
-        pass
+        try:
+            with get_db_context() as db:
+                conversation = db.query(Conversation).filter(
+                    Conversation.session_id == session_id
+                ).first()
+
+                if conversation:
+                    # cascade delete로 관련 메시지, 아티팩트도 삭제됨
+                    db.delete(conversation)
+                    db.commit()
+                    logger.info(f"Context deleted from DB: {session_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to delete context from DB: {e}")
+
+    def _generate_title(self, context: ConversationContext) -> str:
+        """대화 제목 자동 생성
+
+        Args:
+            context: 컨텍스트
+
+        Returns:
+            str: 생성된 제목
+        """
+        if context.messages:
+            # 첫 번째 사용자 메시지에서 제목 추출
+            for msg in context.messages:
+                if msg.get("role") == "user":
+                    content = msg.get("content", "")[:50]
+                    if len(msg.get("content", "")) > 50:
+                        content += "..."
+                    return content
+        return "New Conversation"
 
     def get_stats(self) -> Dict[str, Any]:
         """저장소 통계 반환
