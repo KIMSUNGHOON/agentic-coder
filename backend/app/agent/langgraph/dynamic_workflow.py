@@ -439,6 +439,28 @@ class DynamicWorkflow:
             "icon": "robot"
         })
 
+    def _strip_think_tags(self, text: str) -> str:
+        """Remove <think></think> tags from text
+
+        For models that don't use think tags (GPT-OSS, Qwen),
+        we strip any accidental <think> content from output.
+
+        Args:
+            text: Text that may contain think tags
+
+        Returns:
+            Clean text without think tags
+        """
+        import re
+        if not text:
+            return ""
+
+        # Remove <think>...</think> blocks entirely
+        clean = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+        # Clean up any extra whitespace
+        clean = re.sub(r'\n\s*\n\s*\n', '\n\n', clean)
+        return clean.strip()
+
     def _create_update(
         self,
         node: str,
@@ -464,7 +486,8 @@ class DynamicWorkflow:
         workspace_root: str,
         task_type: str = "general",
         enable_debug: bool = True,
-        system_prompt: str = ""
+        system_prompt: str = "",
+        conversation_history: List[Dict[str, str]] = None
     ) -> AsyncGenerator[Dict, None]:
         """Execute dynamic workflow with streaming
 
@@ -480,7 +503,9 @@ class DynamicWorkflow:
             task_type: Type of task (optional, Supervisor will determine)
             enable_debug: Enable debug logging
             system_prompt: Optional custom system prompt
+            conversation_history: Previous conversation for context continuity
         """
+        conversation_history = conversation_history or []
         workflow_id = f"dynamic_{datetime.utcnow().timestamp()}"
         start_time = time.time()
         agent_times: Dict[str, float] = {}
@@ -500,8 +525,34 @@ class DynamicWorkflow:
             supervisor_analysis = None
             thinking_blocks = []
 
+            # Build context from conversation history
+            context = None
+            if conversation_history:
+                context = {
+                    "conversation_history": conversation_history,
+                    "turn_count": len(conversation_history),
+                    "system_prompt": system_prompt if system_prompt else None,
+                }
+                logger.info(f"📝 Conversation context: {len(conversation_history)} previous messages")
+
+            # Build enhanced request with conversation context
+            enhanced_request = user_request
+            if conversation_history:
+                # Add recent conversation context to the request for continuity
+                recent_context = conversation_history[-6:]  # Last 3 exchanges (user + assistant)
+                context_summary = "\n".join([
+                    f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content'][:200]}..."
+                    if len(msg['content']) > 200 else f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
+                    for msg in recent_context
+                ])
+                enhanced_request = f"""이전 대화 내용:
+{context_summary}
+
+현재 요청:
+{user_request}"""
+
             # Stream supervisor thinking
-            async for update in self.supervisor.analyze_request_async(user_request):
+            async for update in self.supervisor.analyze_request_async(enhanced_request, context):
                 if update["type"] == "thinking":
                     thinking_blocks.append(update["content"])
                     yield self._create_update("supervisor", "thinking", {
@@ -511,7 +562,7 @@ class DynamicWorkflow:
                     supervisor_analysis = update["content"]
 
             if not supervisor_analysis:
-                supervisor_analysis = self.supervisor.analyze_request(user_request)
+                supervisor_analysis = self.supervisor.analyze_request(enhanced_request, context)
 
             agent_times["supervisor"] = time.time() - supervisor_start
             completed_agents.append("supervisor")
@@ -547,6 +598,8 @@ class DynamicWorkflow:
                 logger.info("🎯 Quick Q&A mode - Supervisor responds directly")
 
                 reasoning = supervisor_analysis.get("reasoning", "")
+                # Clean any <think> tags from reasoning (shouldn't be there for GPT-OSS)
+                reasoning = self._strip_think_tags(reasoning)
 
                 yield self._create_update("workflow", "completed", {
                     "workflow_id": workflow_id,
@@ -563,14 +616,54 @@ class DynamicWorkflow:
                 logger.info("🎯 Planning mode - Supervisor provides detailed plan")
 
                 reasoning = supervisor_analysis.get("reasoning", "")
+                # Clean any <think> tags from reasoning (shouldn't be there for GPT-OSS)
+                reasoning = self._strip_think_tags(reasoning)
+
+                # Save plan as markdown file
+                plan_filename = None
+                plan_filepath = None
+                try:
+                    import os
+                    from datetime import datetime as dt
+                    timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
+                    plan_filename = f"plan_{timestamp}.md"
+                    plan_filepath = os.path.join(workspace_root, plan_filename)
+
+                    # Create workspace if it doesn't exist
+                    os.makedirs(workspace_root, exist_ok=True)
+
+                    # Format the plan as markdown
+                    plan_content = f"""# 개발 계획서
+생성일: {dt.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+## 요청 내용
+{user_request}
+
+## 분석 결과
+
+{reasoning}
+
+---
+*이 파일은 AI 코드 에이전트에 의해 자동 생성되었습니다.*
+"""
+                    with open(plan_filepath, 'w', encoding='utf-8') as f:
+                        f.write(plan_content)
+
+                    logger.info(f"📄 Saved plan to: {plan_filepath}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to save plan file: {e}")
+                    plan_filename = None
+                    plan_filepath = None
 
                 yield self._create_update("workflow", "completed", {
                     "workflow_id": workflow_id,
                     "workflow_type": "planning",
                     "total_execution_time": time.time() - start_time,
-                    "streaming_content": f"## 계획/설계 분석\n\n{reasoning}\n\n*계획 모드로 응답했습니다. 코드 생성이 필요하면 명시적으로 요청해주세요.*",
+                    "streaming_content": f"## 계획/설계 분석\n\n{reasoning}\n\n" + (f"📄 계획서가 저장되었습니다: `{plan_filename}`\n\n" if plan_filename else "") + "*계획 모드로 응답했습니다. 코드 생성이 필요하면 명시적으로 요청해주세요.*",
                     "message": "Planning completed",
                     "is_final": True,
+                    "plan_file": plan_filename,
+                    "plan_filepath": plan_filepath,
                 })
                 return
 

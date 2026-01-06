@@ -21,6 +21,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/langgraph", tags=["langgraph"])
 
 
+from typing import List, Optional
+
+class ConversationMessage(BaseModel):
+    """Single message in conversation history"""
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: Optional[int] = None
+
+
 class WorkflowRequest(BaseModel):
     """Request to execute workflow"""
     user_request: str
@@ -31,6 +40,7 @@ class WorkflowRequest(BaseModel):
     use_enhanced: bool = True  # Use enhanced workflow by default
     use_dynamic: bool = True  # Use dynamic workflow (Supervisor-led agent spawning)
     system_prompt: str = ""  # Optional custom system prompt for context
+    conversation_history: List[ConversationMessage] = []  # Previous conversation for context
 
 
 class ApprovalRequest(BaseModel):
@@ -142,12 +152,19 @@ async def execute_workflow(request: WorkflowRequest):
                     workflow_type = "unified"
                     logger.info("📏 Using UNIFIED workflow (legacy)")
 
+                # Convert conversation history to simple dicts for workflow
+                conversation_context = [
+                    {"role": msg.role, "content": msg.content}
+                    for msg in request.conversation_history
+                ] if request.conversation_history else []
+
                 async for update in workflow.execute(
                     user_request=request.user_request,
                     workspace_root=request.workspace_root,
                     task_type=request.task_type,
                     enable_debug=request.enable_debug,
-                    system_prompt=request.system_prompt
+                    system_prompt=request.system_prompt,
+                    conversation_history=conversation_context
                 ):
                     enriched_update = {
                         **update,
@@ -391,3 +408,119 @@ async def get_available_agents():
         },
         "default_workflow": "dynamic"
     }
+
+
+class FileReadRequest(BaseModel):
+    """Request to read a file from workspace"""
+    workspace_root: str
+    file_path: str  # Relative path within workspace
+
+
+class WorkspaceFilesRequest(BaseModel):
+    """Request to list files in workspace"""
+    workspace_root: str
+    pattern: str = "*"  # Glob pattern (e.g., "*.md", "plan_*.md")
+
+
+@router.post("/workspace/files")
+async def list_workspace_files(request: WorkspaceFilesRequest):
+    """List files in workspace matching pattern
+
+    Returns:
+        List of file info (name, path, size, modified)
+    """
+    import os
+    import glob
+    from datetime import datetime
+
+    try:
+        workspace = request.workspace_root
+
+        if not os.path.exists(workspace):
+            return {"files": [], "error": "Workspace does not exist"}
+
+        # Find files matching pattern
+        pattern_path = os.path.join(workspace, request.pattern)
+        files = glob.glob(pattern_path, recursive=True)
+
+        file_list = []
+        for file_path in files:
+            if os.path.isfile(file_path):
+                stat = os.stat(file_path)
+                rel_path = os.path.relpath(file_path, workspace)
+                file_list.append({
+                    "name": os.path.basename(file_path),
+                    "path": rel_path,
+                    "full_path": file_path,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "is_plan": rel_path.startswith("plan_") and rel_path.endswith(".md"),
+                })
+
+        # Sort by modified time (newest first)
+        file_list.sort(key=lambda x: x["modified"], reverse=True)
+
+        return {
+            "files": file_list,
+            "workspace": workspace,
+            "pattern": request.pattern,
+            "count": len(file_list)
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing workspace files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/workspace/read")
+async def read_workspace_file(request: FileReadRequest):
+    """Read a file from workspace
+
+    Returns:
+        File content and metadata
+    """
+    import os
+
+    try:
+        workspace = request.workspace_root
+        file_path = request.file_path
+
+        # Resolve full path
+        if os.path.isabs(file_path):
+            full_path = file_path
+        else:
+            full_path = os.path.join(workspace, file_path)
+
+        # Security check: ensure file is within workspace
+        real_workspace = os.path.realpath(workspace)
+        real_file = os.path.realpath(full_path)
+
+        if not real_file.startswith(real_workspace):
+            raise HTTPException(status_code=403, detail="Access denied: file outside workspace")
+
+        if not os.path.exists(full_path):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if not os.path.isfile(full_path):
+            raise HTTPException(status_code=400, detail="Path is not a file")
+
+        # Read file content
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        stat = os.stat(full_path)
+
+        return {
+            "content": content,
+            "filename": os.path.basename(full_path),
+            "path": request.file_path,
+            "full_path": full_path,
+            "size": stat.st_size,
+            "encoding": "utf-8",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading workspace file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

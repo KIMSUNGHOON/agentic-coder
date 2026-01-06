@@ -26,11 +26,19 @@ BACKEND_ROOT = Path(__file__).parent.parent  # backend/core -> backend
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.vllm_client import vllm_router
+from app.core.config import settings
 
-# Import DeepSeek-R1 prompts
+# Import model-specific prompts
 from shared.prompts.deepseek_r1 import (
     DEEPSEEK_R1_SYSTEM_PROMPT,
     DEEPSEEK_R1_CONFIG,
+)
+from shared.prompts.gpt_oss import (
+    GPT_OSS_SYSTEM_PROMPT,
+    GPT_OSS_SUPERVISOR_PROMPT,
+    GPT_OSS_PLANNING_PROMPT,
+    GPT_OSS_QA_PROMPT,
+    GPT_OSS_CONFIG,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,25 +148,78 @@ Provide your analysis in the following JSON format AFTER your thinking:
 class SupervisorAgent:
     """The Strategist - Analyzes requests and orchestrates workflows
 
-    This agent uses DeepSeek-R1 reasoning to:
+    This agent uses LLM reasoning to:
     1. Understand user intent
     2. Assess task complexity
     3. Determine required agents
     4. Build dynamic workflow DAG
     5. Monitor execution and adjust as needed
+
+    Supports multiple LLM backends:
+    - DeepSeek-R1: Uses <think></think> tags for reasoning
+    - GPT-OSS: Uses Harmony format without <think> tags
+    - Qwen: Standard prompting
     """
 
     def __init__(self, use_api: bool = True):
         """Initialize Supervisor Agent
 
         Args:
-            use_api: Whether to use DeepSeek-R1 API (True) or rule-based fallback (False)
+            use_api: Whether to use LLM API (True) or rule-based fallback (False)
         """
-        self.system_prompt = DEEPSEEK_R1_SYSTEM_PROMPT
+        # Detect model type from settings
+        self.model_type = settings.get_reasoning_model_type
+        logger.info(f"🔍 Detected reasoning model type: {self.model_type}")
+
+        # Select appropriate prompts based on model type
+        if self.model_type == "gpt-oss":
+            self.system_prompt = GPT_OSS_SYSTEM_PROMPT
+            self.analysis_prompt = GPT_OSS_SUPERVISOR_PROMPT
+            self.planning_prompt = GPT_OSS_PLANNING_PROMPT
+            self.qa_prompt = GPT_OSS_QA_PROMPT
+            self.config = GPT_OSS_CONFIG
+            self.uses_think_tags = False
+        elif self.model_type == "deepseek":
+            self.system_prompt = DEEPSEEK_R1_SYSTEM_PROMPT
+            self.analysis_prompt = SUPERVISOR_ANALYSIS_PROMPT
+            self.planning_prompt = None  # Use default
+            self.qa_prompt = None
+            self.config = DEEPSEEK_R1_CONFIG
+            self.uses_think_tags = True
+        else:
+            # Generic/Qwen - use GPT-OSS style (no think tags)
+            self.system_prompt = GPT_OSS_SYSTEM_PROMPT
+            self.analysis_prompt = GPT_OSS_SUPERVISOR_PROMPT
+            self.planning_prompt = GPT_OSS_PLANNING_PROMPT
+            self.qa_prompt = GPT_OSS_QA_PROMPT
+            self.config = GPT_OSS_CONFIG
+            self.uses_think_tags = False
+
         self.use_api = use_api
         self._thinking_pattern = re.compile(r'<think>(.*?)</think>', re.DOTALL)
         self._json_pattern = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
-        logger.info(f"✅ Supervisor Agent initialized (API mode: {use_api})")
+        logger.info(f"✅ Supervisor Agent initialized (API mode: {use_api}, model: {self.model_type})")
+
+    def _strip_think_tags(self, text: str) -> str:
+        """Remove <think></think> tags from text
+
+        For models that don't use think tags (GPT-OSS, Qwen),
+        we strip any accidental <think> content from output.
+
+        Args:
+            text: Text that may contain think tags
+
+        Returns:
+            Clean text without think tags
+        """
+        if not text:
+            return ""
+
+        # Remove <think>...</think> blocks entirely
+        clean = self._thinking_pattern.sub('', text)
+        # Clean up any extra whitespace
+        clean = re.sub(r'\n\s*\n\s*\n', '\n\n', clean)
+        return clean.strip()
 
     async def analyze_request_async(
         self,
@@ -183,11 +244,11 @@ class SupervisorAgent:
 
         if self.use_api:
             try:
-                # Get reasoning client for DeepSeek-R1
+                # Get reasoning client
                 client = vllm_router.get_client("reasoning")
 
-                # Build prompt
-                prompt = SUPERVISOR_ANALYSIS_PROMPT.format(
+                # Build prompt using model-appropriate template
+                prompt = self.analysis_prompt.format(
                     user_request=user_request,
                     context=str(context) if context else "None"
                 )
@@ -204,36 +265,38 @@ class SupervisorAgent:
 
                 async for chunk in client.stream_chat_completion(
                     messages=messages,
-                    temperature=DEEPSEEK_R1_CONFIG["temperature"],
-                    max_tokens=DEEPSEEK_R1_CONFIG["max_tokens"]
+                    temperature=self.config.get("temperature", 0.7),
+                    max_tokens=self.config.get("max_tokens", 8000)
                 ):
                     full_response += chunk
 
-                    # Detect thinking blocks
-                    if "<think>" in chunk:
-                        in_thinking_block = True
-                        current_thinking = ""
+                    # Only process <think> tags if model uses them (DeepSeek)
+                    if self.uses_think_tags:
+                        # Detect thinking blocks
+                        if "<think>" in chunk:
+                            in_thinking_block = True
+                            current_thinking = ""
 
-                    if in_thinking_block:
-                        current_thinking += chunk
+                        if in_thinking_block:
+                            current_thinking += chunk
 
-                        # Yield partial thinking for streaming UI
-                        yield {
-                            "type": "thinking",
-                            "content": current_thinking,
-                            "is_complete": False
-                        }
+                            # Yield partial thinking for streaming UI
+                            yield {
+                                "type": "thinking",
+                                "content": current_thinking,
+                                "is_complete": False
+                            }
 
-                    if "</think>" in chunk:
-                        in_thinking_block = False
-                        thinking_buffer.append(current_thinking)
+                        if "</think>" in chunk:
+                            in_thinking_block = False
+                            thinking_buffer.append(current_thinking)
 
-                        # Yield complete thinking block
-                        yield {
-                            "type": "thinking",
-                            "content": current_thinking,
-                            "is_complete": True
-                        }
+                            # Yield complete thinking block
+                            yield {
+                                "type": "thinking",
+                                "content": current_thinking,
+                                "is_complete": True
+                            }
 
                 # Parse final analysis
                 analysis = self._parse_llm_response(full_response, user_request, thinking_buffer)
@@ -244,10 +307,10 @@ class SupervisorAgent:
                     "content": analysis
                 }
 
-                logger.info(f"✅ API Analysis Complete (DeepSeek-R1)")
+                logger.info(f"✅ API Analysis Complete (model: {self.model_type})")
 
             except Exception as e:
-                logger.warning(f"⚠️ DeepSeek-R1 API call failed: {e}, falling back to rule-based")
+                logger.warning(f"⚠️ LLM API call failed: {e}, falling back to rule-based")
                 # Fallback to rule-based
                 analysis = self._rule_based_analysis(user_request)
                 yield {
@@ -309,23 +372,38 @@ class SupervisorAgent:
         """
         import json
 
+        # Strip <think> tags from response if model doesn't use them
+        clean_response = response
+        if not self.uses_think_tags:
+            clean_response = self._strip_think_tags(response)
+
         # Extract JSON from response
-        json_match = self._json_pattern.search(response)
+        json_match = self._json_pattern.search(clean_response)
 
         if json_match:
             try:
                 parsed = json.loads(json_match.group(1))
+
+                # Clean reasoning - strip think tags if present
+                reasoning = "\n".join(thinking_blocks) if thinking_blocks else ""
+                if not self.uses_think_tags:
+                    reasoning = self._strip_think_tags(reasoning)
+                    # For GPT-OSS, use analysis_summary as reasoning if available
+                    if parsed.get("analysis_summary"):
+                        reasoning = parsed["analysis_summary"]
+
                 return {
                     "user_request": user_request,
                     "timestamp": datetime.utcnow().isoformat(),
+                    "response_type": parsed.get("response_type", self._determine_response_type(user_request)),
                     "complexity": parsed.get("complexity", TaskComplexity.MODERATE),
                     "task_type": parsed.get("task_type", "general"),
                     "required_agents": parsed.get("required_agents", [AgentCapability.IMPLEMENTATION]),
                     "workflow_strategy": parsed.get("workflow_strategy", "parallel_gates"),
                     "max_iterations": parsed.get("max_iterations", 5),
                     "requires_human_approval": parsed.get("requires_human_approval", False),
-                    "reasoning": "\n".join(thinking_blocks),
-                    "thinking_blocks": thinking_blocks,
+                    "reasoning": reasoning,
+                    "thinking_blocks": thinking_blocks if self.uses_think_tags else [],
                     "confidence_score": parsed.get("confidence_score", 0.8),
                     "api_used": True
                 }

@@ -681,6 +681,12 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
           use_dynamic: true,  // Use dynamic workflow (Supervisor-led agent spawning)
           system_prompt: systemPrompt,  // Custom system prompt
           enable_debug: true,  // Enable debug logging
+          // Pass conversation history for context continuity
+          conversation_history: conversationHistory.map(turn => ({
+            role: turn.role,
+            content: turn.content,
+            timestamp: turn.timestamp,
+          })),
         }),
       });
 
