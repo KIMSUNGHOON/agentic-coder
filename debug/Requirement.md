@@ -690,3 +690,62 @@ logger.info(f"Modifying existing file: {file_path}")
 | 5 | `frontend/src/components/WorkflowInterface.tsx` | handleDownloadZip 핸들러 추가 |
 | 6 | `backend/app/agent/unified_agent_manager.py` | 버전닝 제거, 직접 수정 |
 | 7 | `backend/app/api/main_routes.py` | 버전닝 제거, 직접 수정 |
+
+### 32. SQLite NOT NULL constraint 에러 수정 (2026-01-07)
+- **문제**: `artifacts.content`가 None인 경우 SQLite NOT NULL constraint 위반
+- **원인**: `artifact.get("content", "")`는 키가 존재하지만 값이 None인 경우 None을 반환
+- **해결**: `artifact.get("content") or ""`로 변경
+
+```python
+# Before (버그)
+content=artifact.get("content", "")  # None 반환 가능
+
+# After (수정)
+content = artifact.get("content") or ""  # 항상 문자열
+```
+
+### 33. 실시간 스트리밍 빈도 증가 (2026-01-07)
+- **문제**: 20, 15 청크마다 streaming 업데이트 → 너무 드물어 실시간 느낌 부족
+- **해결**: 5, 3 청크마다 업데이트 전송, 미리보기 줄 수 증가
+
+| 에이전트 | 이전 | 이후 | 미리보기 |
+|---------|------|------|---------|
+| Planning | 20 청크 | 5 청크 | 6줄 → 10줄 |
+| Coding | 15 청크 | 3 청크 | 8줄 → 12줄 |
+| Review | 15 청크 | 3 청크 | 6줄 → 10줄 |
+| FixCode | 15 청크 | 3 청크 | 8줄 → 12줄 |
+
+### 34. 이전 Plan 재사용 로직 추가 (2026-01-07)
+- **문제**: "Now, please implement the code." 요청 시 새 plan 생성
+- **원인**: 이전 plan 정보가 워크플로우에 전달되지 않음
+- **해결**: `_build_enriched_message()`에서 이전 plan 추출 및 포함
+
+```python
+# 이전 대화에서 plan 찾기
+for msg in reversed(messages):
+    if msg.get("role") == "assistant":
+        if "plan" in content.lower() and ("##" in content or "1." in content):
+            previous_plan = content
+            break
+
+# plan이 있으면 명시적으로 포함
+if previous_plan:
+    enriched_parts.append(f"## Previous Implementation Plan\n{previous_plan[:2000]}")
+```
+
+### 35. 이미 구현된 기능 확인 (2026-01-07)
+
+| Issue | 기능 | 상태 | 위치 |
+|-------|------|------|------|
+| Issue 2 | 파일 트리 구조 UI | 이미 구현됨 | `FileTreeViewer.tsx` |
+| Issue 3 | Zip 다운로드 | 이미 구현됨 | `client.ts`, `main_routes.py` |
+| Issue 4 | 기존 파일 modify | 이미 구현됨 | `action: "modified"` 사용 |
+| Issue 8 | 디렉토리 중복 방지 | 이미 구현됨 | `workflow_service.py` |
+
+## 수정 파일 목록 (Issue 32-35)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `backend/core/context_store.py` | artifact.content None 처리 |
+| 2 | `backend/app/agent/langchain/workflow_manager.py` | streaming 빈도 5/3 청크로 증가 |
+| 3 | `backend/app/agent/handlers/code_generation.py` | 이전 plan 재사용 로직 추가 |

@@ -395,15 +395,18 @@ class ContextStore:
 
                     if existing_art:
                         # 버전 업데이트
-                        existing_art.content = artifact.get("content", "")
+                        # Note: artifact.get("content") or "" handles both missing key AND None value
+                        existing_art.content = artifact.get("content") or ""
                         existing_art.version = (existing_art.version or 1) + 1
                     else:
                         # 새 아티팩트 생성
+                        # Ensure content is never None (SQLite NOT NULL constraint)
+                        content = artifact.get("content") or ""
                         db_art = Artifact(
                             conversation_id=conversation.id,
                             filename=filename,
-                            language=artifact.get("language", "text"),
-                            content=artifact.get("content", ""),
+                            language=artifact.get("language") or "text",
+                            content=content,
                             task_num=artifact.get("task_num")
                         )
                         db.add(db_art)

@@ -320,6 +320,18 @@ class CodeGenerationHandler(BaseHandler):
         if not messages:
             return user_message
 
+        # 이전 plan 또는 구현 계획 추출
+        previous_plan = None
+        for msg in reversed(messages):
+            content = msg.get("content", "")
+            # 이전 응답에서 계획/plan 관련 내용 찾기
+            if msg.get("role") == "assistant":
+                # Plan 파일 경로가 언급된 경우
+                if "plan" in content.lower() and ("##" in content or "1." in content):
+                    # 계획 내용이 포함된 응답 발견
+                    previous_plan = content
+                    break
+
         # 최근 대화 히스토리 구성 (최대 10개 메시지)
         recent_messages = messages[-10:] if len(messages) > 10 else messages
 
@@ -336,15 +348,20 @@ class CodeGenerationHandler(BaseHandler):
         history_text = "\n".join(conversation_history)
 
         # 확장 메시지 구성
-        enriched = f"""## Previous Conversation Context
-{history_text}
+        enriched_parts = [f"## Previous Conversation Context\n{history_text}"]
 
-## Current User Request
-{user_message}
+        # 이전 plan이 있으면 명시적으로 포함
+        if previous_plan:
+            self.logger.info("Found previous plan in conversation history, including it")
+            enriched_parts.append(f"\n## Previous Implementation Plan\n{previous_plan[:2000]}")
 
+        enriched_parts.append(f"\n## Current User Request\n{user_message}")
+        enriched_parts.append("""
 ## Instructions
-Based on the conversation context above, implement the code as discussed.
-Focus on the specific requirements mentioned in the previous conversation."""
+IMPORTANT: If a previous implementation plan exists above, USE IT DIRECTLY.
+Do NOT create a new plan - implement the code based on the existing plan.
+Focus on the specific requirements from the previous conversation and plan.""")
 
-        self.logger.info(f"Built enriched message with {len(recent_messages)} context messages")
+        enriched = "\n".join(enriched_parts)
+        self.logger.info(f"Built enriched message with {len(recent_messages)} context messages, plan included: {previous_plan is not None}")
         return enriched
