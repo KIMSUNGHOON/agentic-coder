@@ -252,10 +252,22 @@ class SessionMemory:
   - [x] Context 타입 분리
   - [x] 구조화된 메시지 형식
 
-### 🔜 Phase 2 - 구조 개선 (이후)
-- [ ] 컨텍스트 압축 로직 구현
-- [ ] 중요 정보 추출 시스템
-- [ ] 에이전트별 필터링
+### ✅ Phase 2 - 구조 개선 (완료: 2026-01-07)
+- [x] 컨텍스트 압축 로직 구현
+  - [x] ContextManager 클래스 생성
+  - [x] compress_conversation_history() - 오래된 대화 요약, 최근 대화 전체 보관
+- [x] 중요 정보 추출 시스템
+  - [x] extract_key_info() - 파일명, 에러, 결정사항, 선호도 추출
+  - [x] _summarize_messages() - 오래된 메시지 자동 요약
+- [x] 에이전트별 필터링
+  - [x] get_agent_relevant_context() - Coder/Reviewer/Refiner/Security/Testing 전용 필터
+  - [x] create_enriched_context() - 압축+필터링 통합
+  - [x] format_context_for_prompt() - 프롬프트 형식 변환
+- [x] 통합 적용
+  - [x] dynamic_workflow.py - Supervisor에 적용
+  - [x] coder.py - Coder 에이전트에 적용
+- [x] 테스트 작성 및 검증
+  - [x] test_context_manager.py - 전체 기능 테스트
 
 ### 🔜 Phase 3 - 고도화 (장기)
 - [ ] RAG 시스템 구축
@@ -279,6 +291,7 @@ class SessionMemory:
 |------|-------|------|------|
 | 2026-01-07 | Phase 1 | 긴급 개선 완료 | ✅ 완료 |
 | 2026-01-07 | - | 문서 업데이트 | ✅ 완료 |
+| 2026-01-07 | Phase 2 | 구조 개선 완료 | ✅ 완료 |
 
 **Phase 1 구현 세부사항**:
 - 컨텍스트 윈도우: 6→20 메시지 (333% 증가)
@@ -287,3 +300,12 @@ class SessionMemory:
 - conversation_history를 State에 추가하여 모든 에이전트가 접근 가능
 - GPT-OSS용 Harmony format 적용 (구조화된 컨텍스트 전달)
 - Commit: `f0e6354`
+
+**Phase 2 구현 세부사항**:
+- ContextManager 클래스 생성 (`backend/app/utils/context_manager.py`)
+- 컨텍스트 압축: 최근 10개 메시지는 전체 보관, 이전 메시지는 요약
+- 중요 정보 자동 추출: 파일명, 에러, 결정사항, 사용자 선호도
+- 에이전트별 필터링: Coder/Reviewer/Refiner/Security/Testing 각각 관련 컨텍스트만 전달
+- Supervisor, Coder 에이전트에 적용
+- 전체 기능 테스트 작성 및 통과
+- Commit: (다음)

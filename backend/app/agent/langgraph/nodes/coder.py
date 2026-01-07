@@ -31,8 +31,17 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _get_code_generation_prompt(user_request: str, task_type: str) -> tuple:
+def _get_code_generation_prompt(
+    user_request: str,
+    task_type: str,
+    conversation_history: List[Dict[str, str]] = None
+) -> tuple:
     """Get appropriate prompt and config based on model type.
+
+    Args:
+        user_request: User's request
+        task_type: Type of task
+        conversation_history: Full conversation history (Phase 2 Context Improvement)
 
     Returns:
         Tuple of (prompt, config_dict)
@@ -40,10 +49,41 @@ def _get_code_generation_prompt(user_request: str, task_type: str) -> tuple:
     model_type = settings.get_coding_model_type
     model_name = settings.get_coding_model
 
+    # Phase 2 Context Improvement: Filter conversation history for coder-relevant context
+    context_section = ""
+    if conversation_history:
+        try:
+            from backend.app.utils.context_manager import ContextManager
+
+            context_mgr = ContextManager(max_recent_messages=10)
+
+            # Get coder-specific filtered context
+            enriched_context = context_mgr.create_enriched_context(
+                history=conversation_history,
+                agent_type="coder",  # Filter for coding-related context
+                compress=True
+            )
+
+            # Format context (key files, errors, recent messages)
+            context_formatted = context_mgr.format_context_for_prompt(
+                enriched_context,
+                include_key_info=True
+            )
+
+            if context_formatted:
+                context_section = f"""
+## Previous Context
+{context_formatted}
+
+"""
+        except Exception as e:
+            logger.warning(f"Failed to process conversation context: {e}")
+            context_section = ""
+
     if model_type == "qwen" and QWEN_CODER_SYSTEM_PROMPT:
         prompt = f"""{QWEN_CODER_SYSTEM_PROMPT}
 
-Request: {user_request}
+{context_section}Request: {user_request}
 Task Type: {task_type}
 
 Generate complete, working code. Include all necessary files.
@@ -74,7 +114,7 @@ Generate the code now:"""
 4. Generate production-ready code
 </think>
 
-Request: {user_request}
+{context_section}Request: {user_request}
 Task Type: {task_type}
 
 Generate complete, working code. Include all necessary files.
@@ -98,7 +138,7 @@ Respond in JSON format:
         # Generic prompt for GPT, Claude, Llama, etc.
         prompt = f"""You are an expert software engineer. Generate production-ready code for the following request:
 
-Request: {user_request}
+{context_section}Request: {user_request}
 Task Type: {task_type}
 
 Think through the problem step by step:
@@ -168,11 +208,15 @@ def coder_node(state: QualityGateState) -> Dict:
         ))
 
     try:
+        # Get conversation history from state (Phase 2 Context Improvement)
+        conversation_history = state.get("conversation_history", [])
+
         # Generate code using vLLM (returns tuple of files, deleted_files, and token_usage)
         generated_files, deleted_files, token_usage = _generate_code_with_vllm(
             user_request=user_request,
             task_type=task_type,
-            workspace_root=workspace_root
+            workspace_root=workspace_root,
+            conversation_history=conversation_history  # Phase 2: Pass context
         )
 
         # Write files and create artifacts
@@ -325,7 +369,8 @@ def coder_node(state: QualityGateState) -> Dict:
 def _generate_code_with_vllm(
     user_request: str,
     task_type: str,
-    workspace_root: str
+    workspace_root: str,
+    conversation_history: List[Dict[str, str]] = None
 ) -> tuple:
     """Generate code using LLM via vLLM/OpenAI-compatible endpoint
 
@@ -333,6 +378,7 @@ def _generate_code_with_vllm(
         user_request: User's request
         task_type: Type of task
         workspace_root: Workspace root directory
+        conversation_history: Full conversation history (Phase 2 Context Improvement)
 
     Returns:
         Tuple of (files_list, deleted_files_list, token_usage_dict)
@@ -353,8 +399,12 @@ def _generate_code_with_vllm(
         return _fallback_code_generator(user_request, task_type), [], token_usage
 
     try:
-        # Get model-appropriate prompt and config
-        prompt, model_config = _get_code_generation_prompt(user_request, task_type)
+        # Get model-appropriate prompt and config (Phase 2: Pass conversation context)
+        prompt, model_config = _get_code_generation_prompt(
+            user_request,
+            task_type,
+            conversation_history=conversation_history
+        )
 
         # Log model info (model type auto-detected from model name)
         logger.info(f"🤖 Using model: {coding_model} (type: {settings.get_coding_model_type})")

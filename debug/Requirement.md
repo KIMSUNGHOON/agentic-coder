@@ -1247,4 +1247,185 @@ return files, deleted_files, token_usage
 - 🔄 `docs/CONTEXT_IMPROVEMENT_PLAN.md` 업데이트 진행 중
 
 ## 남은 작업
-- Phase 2 컨텍스트 개선 (문서 업데이트 후 진행)
+- Phase 3 컨텍스트 개선 (RAG 기반 고도화)
+
+---
+
+### 47. 컨텍스트 개선 Phase 2 (2026-01-07)
+- **작업**: 구조 개선 - 압축, 중요 정보 추출, 에이전트별 필터링
+- **목표**: 장기 대화에서도 중요 정보 손실 없이 효율적인 컨텍스트 전달
+
+#### 1. ContextManager 클래스 생성
+- **파일**: `backend/app/utils/context_manager.py` (NEW)
+- **기능**:
+  - `compress_conversation_history()`: 오래된 대화 요약, 최근 대화 전체 보관
+  - `extract_key_info()`: 파일명, 에러, 결정사항, 사용자 선호도 자동 추출
+  - `get_agent_relevant_context()`: 에이전트 타입별 컨텍스트 필터링
+  - `create_enriched_context()`: 압축+필터링 통합
+  - `format_context_for_prompt()`: 프롬프트 형식 변환
+
+```python
+class ContextManager:
+    """Manages conversation context with compression and filtering"""
+
+    def compress_conversation_history(self, history, max_tokens=4000):
+        """최근 N개 메시지는 전체 보관, 오래된 메시지는 요약"""
+        if len(history) <= self.max_recent_messages:
+            return history
+
+        recent = history[-self.max_recent_messages:]
+        old_messages = history[:-self.max_recent_messages]
+        summary = self._summarize_messages(old_messages)
+
+        return [{"role": "system", "content": f"이전 대화 요약:\n{summary}"}] + recent
+
+    def extract_key_info(self, history):
+        """파일명, 에러, 결정사항, 선호도 추출"""
+        # Regex로 파일명 추출 (file.py, /path/to/file.js, C:\path\file.tsx)
+        # 에러 키워드 검색 ("에러", "error", "실패", "exception")
+        # 결정사항 키워드 검색 ("해주세요", "please", "want", "need")
+        # 선호도 키워드 검색 ("선호", "prefer", "좋아", "like")
+```
+
+#### 2. 에이전트별 컨텍스트 필터링
+- **Coder**: "파일", "생성", "코드", "구현", "file", "create", "code" 등
+- **Reviewer**: "리뷰", "검토", "수정", "개선", "review", "fix" 등
+- **Refiner**: "개선", "최적화", "리팩토링", "refactor", "optimize" 등
+- **Security**: "보안", "security", "vulnerability", "취약점" 등
+- **Testing**: "테스트", "test", "검증", "validation" 등
+
+```python
+def get_agent_relevant_context(self, history, agent_type):
+    """에이전트 타입에 맞는 컨텍스트만 추출"""
+    if agent_type == "coder":
+        keywords = ["파일", "생성", "코드", "구현", "file", "create", ...]
+    elif agent_type == "reviewer":
+        keywords = ["리뷰", "검토", "수정", "개선", "review", "fix", ...]
+
+    # 키워드 포함 메시지 필터링
+    filtered = [msg for msg in history if any(kw in msg["content"].lower() for kw in keywords)]
+
+    # 최근 5개 메시지는 항상 포함 (대화 흐름 유지)
+    recent_messages = history[-5:]
+    for msg in recent_messages:
+        if msg not in filtered:
+            filtered.append(msg)
+
+    return sorted(filtered, key=lambda m: history.index(m))
+```
+
+#### 3. Supervisor 통합
+- **파일**: `backend/app/agent/langgraph/dynamic_workflow.py` (Lines 542-563)
+```python
+# Before (Phase 1)
+recent_context = conversation_history[-20:]
+context_summary = "\n".join([...])
+
+# After (Phase 2)
+from backend.app.utils.context_manager import ContextManager
+
+context_mgr = ContextManager(max_recent_messages=10)
+enriched_context = context_mgr.create_enriched_context(
+    history=conversation_history,
+    agent_type="supervisor",  # Supervisor sees all context
+    compress=True
+)
+context_summary = context_mgr.format_context_for_prompt(enriched_context, include_key_info=True)
+```
+
+#### 4. Coder 에이전트 통합
+- **파일**: `backend/app/agent/langgraph/nodes/coder.py`
+- **변경사항**:
+  - `_generate_code_with_vllm()` 함수에 `conversation_history` 파라미터 추가
+  - `_get_code_generation_prompt()` 함수에 컨텍스트 필터링 추가
+  - Qwen, DeepSeek, Generic 프롬프트에 컨텍스트 섹션 추가
+
+```python
+def _get_code_generation_prompt(user_request, task_type, conversation_history=None):
+    """Phase 2: Filter conversation history for coder-relevant context"""
+    context_section = ""
+    if conversation_history:
+        context_mgr = ContextManager(max_recent_messages=10)
+
+        enriched_context = context_mgr.create_enriched_context(
+            history=conversation_history,
+            agent_type="coder",  # Filter for coding-related context
+            compress=True
+        )
+
+        context_formatted = context_mgr.format_context_for_prompt(
+            enriched_context,
+            include_key_info=True
+        )
+
+        if context_formatted:
+            context_section = f"""
+## Previous Context
+{context_formatted}
+
+"""
+
+    # Add context_section to all model prompts (Qwen, DeepSeek, Generic)
+    prompt = f"""{SYSTEM_PROMPT}
+
+{context_section}Request: {user_request}
+..."""
+```
+
+#### 5. 테스트 작성 및 검증
+- **파일**: `backend/tests/test_context_manager.py` (NEW)
+- **테스트 항목**:
+  - `test_compress_conversation_history()`: 압축 로직 검증
+  - `test_extract_key_info()`: 파일명/에러/선호도 추출 검증
+  - `test_agent_specific_filtering()`: Coder/Reviewer/Security 필터링 검증
+  - `test_create_enriched_context()`: 통합 기능 검증
+  - `test_format_context_for_prompt()`: 프롬프트 포맷 검증
+
+**테스트 결과**:
+```
+Testing Context Manager...
+
+1. Testing compression...
+✓ Compression works
+
+2. Testing key info extraction...
+✓ Key info extraction works
+
+3. Testing agent filtering...
+✓ Agent filtering works
+
+4. Testing enriched context...
+✓ Enriched context works
+
+5. Testing prompt formatting...
+✓ Prompt formatting works
+
+✅ All tests passed!
+```
+
+## 예상 효과
+
+### Phase 2 적용 후
+- ✅ 장기 대화에서도 초기 컨텍스트 보존 (요약을 통해)
+- ✅ 중요 정보 자동 추출 및 강조 (파일명, 에러, 결정사항)
+- ✅ 에이전트별 최적화된 컨텍스트 (관련 정보만 전달)
+- ✅ 프롬프트 토큰 효율성 향상 (불필요한 정보 제거)
+- ✅ 응답 품질 향상 (관련성 높은 컨텍스트)
+
+### Phase 1 + Phase 2 Combined
+- **컨텍스트 용량**: 1,200자 → 20,000자 (Phase 1) + 스마트 압축 (Phase 2)
+- **정보 보존**: 단순 truncate → 중요 정보 추출 + 요약
+- **에이전트 효율**: 전체 컨텍스트 → 에이전트별 필터링
+- **토큰 효율**: 20,000자 무조건 → 압축 + 필터링으로 최적화
+
+## 수정 파일 목록 (Issue 47)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `backend/app/utils/context_manager.py` | ContextManager 클래스 생성 (NEW) |
+| 2 | `backend/app/agent/langgraph/dynamic_workflow.py` | ContextManager 통합 (Supervisor) |
+| 3 | `backend/app/agent/langgraph/nodes/coder.py` | conversation_history 전달, 필터링 적용 |
+| 4 | `backend/tests/test_context_manager.py` | 테스트 코드 작성 (NEW) |
+| 5 | `docs/CONTEXT_IMPROVEMENT_PLAN.md` | Phase 2 완료 상태로 업데이트 |
+
+**Commit**: (다음)

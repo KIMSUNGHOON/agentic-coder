@@ -536,18 +536,28 @@ class DynamicWorkflow:
                 logger.info(f"📝 Conversation context: {len(conversation_history)} previous messages")
 
             # Build enhanced request with conversation context
-            # CONTEXT IMPROVEMENT: Expanded from 6 to 20 messages, 200 to 1000 chars
+            # CONTEXT IMPROVEMENT Phase 2: Use ContextManager for compression and key info extraction
             enhanced_request = user_request
             if conversation_history:
-                # Add recent conversation context to the request for continuity
-                recent_context = conversation_history[-20:]  # Last 10 exchanges (user + assistant) - EXPANDED
-                context_summary = "\n".join([
-                    f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content'][:1000]}..."  # EXPANDED to 1000 chars
-                    if len(msg['content']) > 1000 else f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
-                    for msg in recent_context
-                ])
-                enhanced_request = f"""이전 대화 내용:
-{context_summary}
+                from backend.app.utils.context_manager import ContextManager
+
+                # Create context manager
+                context_mgr = ContextManager(max_recent_messages=10)
+
+                # Create enriched context with compression and key info extraction
+                enriched_context = context_mgr.create_enriched_context(
+                    history=conversation_history,
+                    agent_type="supervisor",  # Supervisor sees all context
+                    compress=True
+                )
+
+                # Format context for prompt
+                context_summary = context_mgr.format_context_for_prompt(
+                    enriched_context,
+                    include_key_info=True
+                )
+
+                enhanced_request = f"""{context_summary}
 
 현재 요청:
 {user_request}"""
