@@ -146,7 +146,29 @@ class CodeIndexer:
             f"Indexing complete: {stats.indexed} files, "
             f"{stats.total_chunks} chunks, {stats.errors} errors"
         )
+
+        # Knowledge Graph 구축 (Phase 3-E)
+        await self._build_knowledge_graph(stats.files_processed)
+
         return stats
+
+    async def _build_knowledge_graph(self, file_paths: List[str]):
+        """Knowledge Graph 구축
+
+        색인된 파일들을 분석하여 Knowledge Graph를 구축합니다.
+
+        Args:
+            file_paths: 분석할 파일 경로 목록
+        """
+        try:
+            from app.services.hybrid_rag import CodeGraphBuilder
+
+            builder = CodeGraphBuilder(self.session_id, str(self.workspace))
+            nodes_added = builder.build_from_files(file_paths)
+            self.logger.info(f"Knowledge Graph built: {nodes_added} nodes")
+        except Exception as e:
+            # 그래프 구축 실패해도 색인은 완료된 것으로 처리
+            self.logger.warning(f"Knowledge Graph build failed: {e}")
 
     async def index_file(self, file_path: str) -> List[str]:
         """단일 파일 색인
