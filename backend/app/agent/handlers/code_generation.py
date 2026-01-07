@@ -332,10 +332,18 @@ class CodeGenerationHandler(BaseHandler):
             content = msg.get("content", "")
             # 이전 응답에서 계획/plan 관련 내용 찾기
             if msg.get("role") == "assistant":
-                # Plan 파일 경로가 언급된 경우
-                if "plan" in content.lower() and ("##" in content or "1." in content):
+                # Korean and English plan keywords
+                plan_keywords = ["plan", "계획", "구현 계획", "개발 계획"]
+                content_lower = content.lower()
+
+                # Check if content contains plan keywords and has structured content (## or numbered list)
+                has_plan_keyword = any(kw in content_lower or kw in content for kw in plan_keywords)
+                has_structure = "##" in content or "1." in content or "1)" in content
+
+                if has_plan_keyword and has_structure:
                     # 계획 내용이 포함된 응답 발견
                     previous_plan = content
+                    self.logger.info(f"Found previous plan with keyword match in assistant response")
                     break
 
         # 최근 대화 히스토리 구성 (최대 10개 메시지)
