@@ -88,6 +88,7 @@ class QualityGateState(TypedDict, total=False):
     # ==================== Context ====================
     previous_context: Optional[Dict]  # Loaded from .ai_context.json
     current_files: List[str]  # Files in workspace
+    conversation_history: List[Dict[str, str]]  # CONTEXT IMPROVEMENT: Full conversation history for all agents
 
     # ==================== Workflow Tracking ====================
     current_node: str  # Current node in graph
@@ -182,7 +183,8 @@ def create_initial_state(
     workspace_root: str,
     task_type: TaskType = "general",
     max_iterations: int = 5,  # Increased default for better quality
-    enable_debug: bool = True
+    enable_debug: bool = True,
+    conversation_history: List[Dict[str, str]] = None  # CONTEXT IMPROVEMENT: Pass conversation history
 ) -> QualityGateState:
     """Create initial state for quality gate workflow
 
@@ -208,6 +210,7 @@ def create_initial_state(
         # Context
         previous_context=None,
         current_files=[],
+        conversation_history=conversation_history if conversation_history is not None else [],  # CONTEXT IMPROVEMENT
 
         # Workflow tracking
         current_node="start",

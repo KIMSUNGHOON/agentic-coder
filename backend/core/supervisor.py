@@ -221,6 +221,49 @@ class SupervisorAgent:
         clean = re.sub(r'\n\s*\n\s*\n', '\n\n', clean)
         return clean.strip()
 
+    def _format_context_harmony(self, context: Dict) -> str:
+        """Format context in Harmony-style structured format
+
+        OpenAI Harmony format emphasizes structured, hierarchical context presentation
+        for better LLM comprehension, especially for GPT-OSS models.
+
+        Args:
+            context: Context dictionary with conversation_history, system_prompt, etc.
+
+        Returns:
+            Formatted context string in Harmony format
+        """
+        if not context:
+            return "No previous context available."
+
+        formatted_parts = []
+
+        # Add system context if available
+        if context.get("system_prompt"):
+            formatted_parts.append(f"### System Context\n{context['system_prompt']}\n")
+
+        # Format conversation history (EXPANDED from 6 to 20 messages)
+        if context.get("conversation_history"):
+            history = context["conversation_history"]
+            formatted_parts.append(f"### Conversation History ({len(history)} messages)\n")
+
+            # Take recent messages (already expanded in dynamic_workflow.py)
+            for i, msg in enumerate(history, 1):
+                role = "USER" if msg.get("role") == "user" else "ASSISTANT"
+                content = msg.get("content", "")
+
+                # Truncate if too long (already expanded to 1000 chars)
+                if len(content) > 1000:
+                    content = content[:1000] + "..."
+
+                formatted_parts.append(f"**[{i}] {role}**: {content}\n")
+
+        # Add turn count
+        if context.get("turn_count"):
+            formatted_parts.append(f"\n**Total Turns**: {context['turn_count']}\n")
+
+        return "\n".join(formatted_parts) if formatted_parts else "No previous context available."
+
     async def analyze_request_async(
         self,
         user_request: str,
@@ -247,10 +290,13 @@ class SupervisorAgent:
                 # Get reasoning client
                 client = vllm_router.get_client("reasoning")
 
-                # Build prompt using model-appropriate template
+                # Build prompt using model-appropriate template with Harmony format
+                # Format conversation history in structured way
+                context_formatted = self._format_context_harmony(context) if context else "No previous context available."
+
                 prompt = self.analysis_prompt.format(
                     user_request=user_request,
-                    context=str(context) if context else "None"
+                    context=context_formatted
                 )
 
                 messages = [

@@ -536,13 +536,14 @@ class DynamicWorkflow:
                 logger.info(f"📝 Conversation context: {len(conversation_history)} previous messages")
 
             # Build enhanced request with conversation context
+            # CONTEXT IMPROVEMENT: Expanded from 6 to 20 messages, 200 to 1000 chars
             enhanced_request = user_request
             if conversation_history:
                 # Add recent conversation context to the request for continuity
-                recent_context = conversation_history[-6:]  # Last 3 exchanges (user + assistant)
+                recent_context = conversation_history[-20:]  # Last 10 exchanges (user + assistant) - EXPANDED
                 context_summary = "\n".join([
-                    f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content'][:200]}..."
-                    if len(msg['content']) > 200 else f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
+                    f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content'][:1000]}..."  # EXPANDED to 1000 chars
+                    if len(msg['content']) > 1000 else f"{'사용자' if msg['role'] == 'user' else 'AI'}: {msg['content']}"
                     for msg in recent_context
                 ])
                 enhanced_request = f"""이전 대화 내용:
@@ -679,7 +680,8 @@ class DynamicWorkflow:
                     user_request=user_request,
                     workspace_root=workspace_root,
                     task_type=supervisor_analysis.get("task_type", "implementation"),
-                    enable_debug=enable_debug
+                    enable_debug=enable_debug,
+                    conversation_history=conversation_history  # CONTEXT IMPROVEMENT: Pass to all agents
                 )
                 state["supervisor_analysis"] = supervisor_analysis
                 state["max_iterations"] = supervisor_analysis.get("max_iterations", 5)

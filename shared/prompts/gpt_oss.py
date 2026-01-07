@@ -49,16 +49,16 @@ When analyzing complex problems, structure your thinking clearly:
 - Conclusions must be justified
 - Edge cases should be addressed"""
 
-# Supervisor Analysis Prompt for GPT-OSS
+# Supervisor Analysis Prompt for GPT-OSS (Harmony Format Enhanced)
 GPT_OSS_SUPERVISOR_PROMPT = """Analyze the following user request and determine the optimal workflow strategy.
 
-USER REQUEST:
+## USER REQUEST
 {user_request}
 
-CONTEXT (if available):
+## CONVERSATION CONTEXT
 {context}
 
-ANALYSIS REQUIREMENTS:
+## ANALYSIS REQUIREMENTS:
 1. Assess task complexity (simple, moderate, complex, critical)
 2. Determine primary task type (implementation, review, testing, security_audit, general)
 3. Identify required agent capabilities
