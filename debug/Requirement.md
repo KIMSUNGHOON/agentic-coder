@@ -844,3 +844,16 @@ if os.path.exists(candidate_workspace):
 | 순서 | 파일 | 변경 내용 |
 |-----|------|---------|
 | 1 | `frontend/src/components/WorkflowInterface.tsx` | FileTreeViewer import 및 대화 히스토리 적용 |
+
+### 41. 실시간 토큰 사용량 표시 (2026-01-07)
+- **문제**: 토큰 사용량 indicator가 동작하지 않음
+- **원인**: workflow_manager.py가 token_usage를 SSE 이벤트에 포함하지 않음
+- **해결**:
+  1. 토큰 추정 함수 추가 (`estimate_tokens`, `create_token_usage`)
+  2. Planning/Coding 스트리밍 및 완료 이벤트에 token_usage 포함
+
+## 수정 파일 목록 (Issue 41)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `backend/app/agent/langchain/workflow_manager.py` | estimate_tokens, create_token_usage 추가, SSE에 token_usage 포함 |

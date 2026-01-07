@@ -25,6 +25,36 @@ from app.agent.langchain.shared_context import SharedContext, ContextEntry
 
 logger = logging.getLogger(__name__)
 
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count from text.
+
+    Rough estimation: ~4 chars per token for English, ~1.5 chars for Korean/CJK.
+    Uses a weighted average assuming mixed content.
+    """
+    if not text:
+        return 0
+
+    # Count CJK characters (Korean, Chinese, Japanese)
+    cjk_count = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\uac00' <= c <= '\ud7af' or '\u3040' <= c <= '\u30ff')
+    ascii_count = len(text) - cjk_count
+
+    # CJK: ~1.5 chars/token, ASCII: ~4 chars/token
+    estimated = (cjk_count / 1.5) + (ascii_count / 4)
+    return int(estimated)
+
+
+def create_token_usage(prompt_text: str, completion_text: str) -> Dict[str, int]:
+    """Create token_usage dict from prompt and completion texts."""
+    prompt_tokens = estimate_tokens(prompt_text)
+    completion_tokens = estimate_tokens(completion_text)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens
+    }
+
+
 # Check for DeepAgents availability
 DEEPAGENTS_AVAILABLE = False
 deepagents_middleware = {}
@@ -1164,22 +1194,37 @@ PRIORITY: [high/medium/low for each]
                         lines = plan_text.split('\n')
                         # 마지막 10줄 미리보기 (더 많은 컨텍스트)
                         preview = '\n'.join(lines[-10:] if len(lines) > 10 else lines)
+                        # 실시간 토큰 추정
+                        current_tokens = estimate_tokens(plan_text)
+                        prompt_tokens = estimate_tokens(f"{planning_prompt}\n{user_request}")
                         yield {
                             "agent": planning_agent,
                             "type": "streaming",
                             "status": "running",
                             "message": f"계획 수립 중... ({len(plan_text):,} 자)",
-                            "streaming_content": preview
+                            "streaming_content": preview,
+                            "token_usage": {
+                                "prompt_tokens": prompt_tokens,
+                                "completion_tokens": current_tokens,
+                                "total_tokens": prompt_tokens + current_tokens
+                            }
                         }
             latency_ms = int((time.time() - start_time) * 1000)
 
         checklist = parse_checklist(plan_text)
+
+        # Calculate token usage for planning
+        planning_token_usage = create_token_usage(
+            prompt_text=f"{planning_prompt}\n{user_request}",
+            completion_text=plan_text
+        )
 
         yield {
             "agent": planning_agent,
             "type": "completed",
             "status": "completed",
             "items": checklist,
+            "token_usage": planning_token_usage,
             "prompt_info": {
                 "system_prompt": planning_prompt,
                 "user_prompt": user_request,
@@ -1252,6 +1297,7 @@ PRIORITY: [high/medium/low for each]
             all_artifacts = []
             code_text = ""
             existing_code = ""
+            total_coding_tokens = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
             for idx, task_item in enumerate(checklist):
                 task_num = idx + 1
@@ -1289,14 +1335,30 @@ PRIORITY: [high/medium/low for each]
                             # 마지막 12줄 미리보기 (더 많은 컨텍스트)
                             lines = task_code.split('\n')
                             preview = '\n'.join(lines[-12:] if len(lines) > 12 else lines)
+                            # 실시간 토큰 추정 (현재까지의 completion)
+                            current_tokens = estimate_tokens(task_code)
                             yield {
                                 "agent": coding_agent,
                                 "type": "streaming",
                                 "status": "running",
                                 "message": f"코드 생성 중... ({len(task_code):,} 자)",
-                                "streaming_content": preview
+                                "streaming_content": preview,
+                                "token_usage": {
+                                    "prompt_tokens": total_coding_tokens["prompt_tokens"],
+                                    "completion_tokens": total_coding_tokens["completion_tokens"] + current_tokens,
+                                    "total_tokens": total_coding_tokens["total_tokens"] + current_tokens
+                                }
                             }
                 task_latency_ms = int((time.time() - start_time) * 1000)
+
+                # Calculate token usage for this task
+                task_token_usage = create_token_usage(
+                    prompt_text=f"{coding_prompt}\n{user_prompt}",
+                    completion_text=task_code
+                )
+                total_coding_tokens["prompt_tokens"] += task_token_usage["prompt_tokens"]
+                total_coding_tokens["completion_tokens"] += task_token_usage["completion_tokens"]
+                total_coding_tokens["total_tokens"] += task_token_usage["total_tokens"]
 
                 code_text += task_code + "\n"
                 task_artifacts = parse_code_blocks(task_code)
@@ -1322,6 +1384,7 @@ PRIORITY: [high/medium/low for each]
                     "message": f"Task {task_num}/{len(checklist)} completed",
                     "task_result": {"task_num": task_num, "task": task_description, "artifacts": task_artifacts},
                     "checklist": checklist,
+                    "token_usage": task_token_usage,
                     "prompt_info": {
                         "system_prompt": coding_prompt,
                         "user_prompt": user_prompt,
@@ -1336,7 +1399,8 @@ PRIORITY: [high/medium/low for each]
                 "type": "completed",
                 "status": "completed",
                 "artifacts": all_artifacts,
-                "checklist": checklist
+                "checklist": checklist,
+                "token_usage": total_coding_tokens
             }
 
         # Step 3: Review Loop (if has_review_loop)
