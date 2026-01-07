@@ -363,32 +363,80 @@ def refiner_node(state: QualityGateState) -> Dict:
 
     # CRITICAL: Merge updated artifacts with existing artifacts (don't replace!)
     # Keep existing artifacts that weren't updated
+    # FIXED: Use normalized paths to prevent duplicate files
+    import os
+    from pathlib import Path
+
     existing_artifacts = state.get("coder_output", {}).get("artifacts", [])
+    workspace_root = state.get("workspace_root", "")
+
+    # Normalize all updated paths to absolute paths for accurate matching
+    normalized_updated_paths = set()
+    for updated_path in updated_filenames:
+        if os.path.isabs(updated_path):
+            normalized_updated_paths.add(os.path.normpath(updated_path))
+        else:
+            # Convert relative path to absolute
+            abs_path = os.path.normpath(os.path.join(workspace_root, updated_path))
+            normalized_updated_paths.add(abs_path)
+
+    logger.info(f"🔍 Normalized updated paths: {normalized_updated_paths}")
+
+    # Track unique files by normalized absolute path to prevent duplicates
+    seen_paths = set()
     merged_artifacts = []
 
     # Add existing artifacts that weren't modified
-    # Check both by full relative path and by just filename (for backwards compatibility)
     for artifact in existing_artifacts:
         artifact_filename = artifact.get("filename", "")
         artifact_file_path = artifact.get("file_path", "")
 
-        # Check if this artifact was updated by relative path or full path
-        is_updated = False
-        for updated_path in updated_filenames:
-            # Match by: full relative path, just filename, or file_path
-            if (artifact_filename == updated_path or
-                artifact_filename.split("/")[-1] == updated_path.split("/")[-1] or
-                artifact_file_path.endswith(updated_path)):
-                is_updated = True
-                break
+        # Normalize artifact path to absolute path
+        if artifact_file_path and os.path.isabs(artifact_file_path):
+            normalized_artifact_path = os.path.normpath(artifact_file_path)
+        elif artifact_filename:
+            # Use filename to build absolute path
+            normalized_artifact_path = os.path.normpath(os.path.join(workspace_root, artifact_filename))
+        else:
+            # Skip artifacts without proper path
+            logger.warning(f"⚠️  Skipping artifact without valid path: {artifact}")
+            continue
 
-        if not is_updated:
+        # Check if this artifact was updated
+        is_updated = normalized_artifact_path in normalized_updated_paths
+
+        if not is_updated and normalized_artifact_path not in seen_paths:
             merged_artifacts.append(artifact)
+            seen_paths.add(normalized_artifact_path)
+            logger.debug(f"  ✅ Kept existing: {artifact_filename}")
+        elif is_updated:
+            logger.debug(f"  🔄 Skipping (will be replaced): {artifact_filename}")
+        else:
+            logger.debug(f"  ⚠️  Skipping duplicate: {artifact_filename}")
 
-    # Add updated artifacts
-    merged_artifacts.extend(updated_artifacts)
+    # Add updated artifacts (ensure no duplicates here as well)
+    for artifact in updated_artifacts:
+        artifact_filename = artifact.get("filename", "")
+        artifact_file_path = artifact.get("file_path", "")
 
-    logger.info(f"📁 Artifacts: {len(existing_artifacts)} existing, {len(updated_artifacts)} updated, {len(merged_artifacts)} total")
+        # Normalize path
+        if artifact_file_path and os.path.isabs(artifact_file_path):
+            normalized_artifact_path = os.path.normpath(artifact_file_path)
+        elif artifact_filename:
+            normalized_artifact_path = os.path.normpath(os.path.join(workspace_root, artifact_filename))
+        else:
+            logger.warning(f"⚠️  Skipping updated artifact without valid path: {artifact}")
+            continue
+
+        # Add only if not already seen (prevent duplicates in updated_artifacts itself)
+        if normalized_artifact_path not in seen_paths:
+            merged_artifacts.append(artifact)
+            seen_paths.add(normalized_artifact_path)
+            logger.debug(f"  ✨ Added updated: {artifact_filename}")
+        else:
+            logger.warning(f"  ⚠️  Duplicate in updated artifacts: {artifact_filename}")
+
+    logger.info(f"📁 Artifacts: {len(existing_artifacts)} existing, {len(updated_artifacts)} updated, {len(merged_artifacts)} total (unique)")
 
     # Update coder_output with MERGED artifacts (not replaced)
     updated_coder_output = state.get("coder_output", {}).copy()

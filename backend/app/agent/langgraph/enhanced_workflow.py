@@ -897,26 +897,43 @@ class EnhancedWorkflow:
 
             # CRITICAL: Collect ALL artifacts from ALL sources and merge
             # Sources: 1) coder_output.artifacts, 2) state.artifacts, 3) state.final_artifacts (existing)
+            # FIXED: Use normalized paths to prevent duplicates
+            import os
             coder_output = state.get("coder_output", {})
             coder_artifacts = coder_output.get("artifacts", [])
             state_artifacts = state.get("artifacts", [])
             existing_final = state.get("final_artifacts", [])
+            workspace_root = state.get("workspace_root", "")
 
-            # Merge all artifacts by filename (later entries override earlier)
+            # Merge all artifacts by normalized absolute path (later entries override earlier)
             artifact_map = {}
-            for artifact in existing_final:
-                if artifact.get("filename"):
-                    artifact_map[artifact["filename"]] = artifact
-            for artifact in state_artifacts:
-                if artifact.get("filename"):
-                    artifact_map[artifact["filename"]] = artifact
-            for artifact in coder_artifacts:
-                if artifact.get("filename"):
-                    artifact_map[artifact["filename"]] = artifact
+
+            def add_to_map(artifacts, source_name):
+                """Add artifacts to map using normalized path as key"""
+                for artifact in artifacts:
+                    artifact_filename = artifact.get("filename", "")
+                    artifact_file_path = artifact.get("file_path", "")
+
+                    # Normalize path
+                    if artifact_file_path and os.path.isabs(artifact_file_path):
+                        normalized_path = os.path.normpath(artifact_file_path)
+                    elif artifact_filename:
+                        normalized_path = os.path.normpath(os.path.join(workspace_root, artifact_filename))
+                    else:
+                        logger.warning(f"⚠️  Skipping artifact without valid path from {source_name}")
+                        continue
+
+                    # Add/override in map (later sources override earlier)
+                    artifact_map[normalized_path] = artifact
+
+            # Add artifacts from all sources (order determines precedence)
+            add_to_map(existing_final, "existing_final")
+            add_to_map(state_artifacts, "state")
+            add_to_map(coder_artifacts, "coder")
 
             # Convert back to list
             artifacts_to_save = list(artifact_map.values())
-            logger.info(f"📁 Collected artifacts: {len(coder_artifacts)} from coder, {len(state_artifacts)} from state, {len(existing_final)} existing → {len(artifacts_to_save)} total")
+            logger.info(f"📁 Collected artifacts: {len(coder_artifacts)} from coder, {len(state_artifacts)} from state, {len(existing_final)} existing → {len(artifacts_to_save)} unique")
 
             # Set final_artifacts for persistence (accumulated, not overwritten)
             state["final_artifacts"] = artifacts_to_save

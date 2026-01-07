@@ -879,8 +879,37 @@ class DynamicWorkflow:
                 })
 
                 # Collect all artifacts
+                # FIXED: Remove duplicates by normalized path before setting final_artifacts
+                import os
                 coder_output = state.get("coder_output", {})
-                all_artifacts = coder_output.get("artifacts", [])
+                all_artifacts_raw = coder_output.get("artifacts", [])
+                workspace_root = state.get("workspace_root", "")
+
+                # Deduplicate artifacts by normalized absolute path
+                seen_paths = set()
+                all_artifacts = []
+                for artifact in all_artifacts_raw:
+                    artifact_filename = artifact.get("filename", "")
+                    artifact_file_path = artifact.get("file_path", "")
+
+                    # Normalize path
+                    if artifact_file_path and os.path.isabs(artifact_file_path):
+                        normalized_path = os.path.normpath(artifact_file_path)
+                    elif artifact_filename:
+                        normalized_path = os.path.normpath(os.path.join(workspace_root, artifact_filename))
+                    else:
+                        logger.warning(f"⚠️  Skipping artifact without valid path in final_artifacts")
+                        continue
+
+                    # Add only if not seen before
+                    if normalized_path not in seen_paths:
+                        all_artifacts.append(artifact)
+                        seen_paths.add(normalized_path)
+                    else:
+                        logger.warning(f"⚠️  Removed duplicate from final_artifacts: {artifact_filename}")
+
+                logger.info(f"📁 Final artifacts: {len(all_artifacts_raw)} raw → {len(all_artifacts)} unique")
+
                 state["final_artifacts"] = all_artifacts
                 state["workflow_status"] = "completed"
 

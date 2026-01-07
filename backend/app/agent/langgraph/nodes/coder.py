@@ -163,12 +163,27 @@ def coder_node(state: QualityGateState) -> Dict:
         )
 
         # Write files and create artifacts
+        # FIXED: Prevent duplicate artifacts by tracking unique normalized paths
         import os
+        from pathlib import Path
+
+        seen_paths = set()  # Track normalized absolute paths to prevent duplicates
+
         for file_info in generated_files:
             filename = file_info["filename"]
             content = file_info["content"]
             language = file_info.get("language", "python")
             description = file_info.get("description", "")
+
+            # Normalize path to prevent duplicates
+            normalized_path = os.path.normpath(os.path.join(workspace_root, filename))
+
+            # Skip if already processed (duplicate in generated_files)
+            if normalized_path in seen_paths:
+                logger.warning(f"⚠️  Skipping duplicate file in generated_files: {filename}")
+                continue
+
+            seen_paths.add(normalized_path)
 
             # Check if file already exists to determine action
             full_path = os.path.join(workspace_root, filename)
