@@ -110,11 +110,17 @@ const agentKoreanNames: Record<string, string> = {
   // Unified handlers
   'planninghandler': '계획 수립',
   'planning': '계획 수립',
+  'planningagent': '계획 수립',
   'codegenerationhandler': '코드 생성',
   'codegeneration': '코드 생성',
+  'codingagent': '코드 생성',
+  'reviewagent': '코드 검토',
+  'fixcodeagent': '코드 수정',
   'quickqahandler': '빠른 응답',
   'quickqa': '빠른 응답',
   'unifiedagentmanager': '통합 관리',
+  'orchestrator': '오케스트레이터',
+  'chatassistant': '채팅 어시스턴트',
 };
 
 // 한글 상태 메시지
@@ -143,18 +149,24 @@ const getAgentStatusMessage = (agentName: string, status: string): string => {
         return '개발 계획을 수립하고 있습니다...';
       case 'codegeneration':
       case 'codegenerationhandler':
+      case 'coding':
         return '코드를 생성하고 있습니다...';
       case 'architect':
         return '시스템 아키텍처를 설계하고 있습니다...';
       case 'coder':
         return '코드를 작성하고 있습니다...';
+      case 'review':
       case 'reviewer':
         return '코드를 검토하고 있습니다...';
+      case 'fixcode':
+        return '코드를 수정하고 있습니다...';
       case 'quickqa':
       case 'quickqahandler':
         return '질문에 답변을 생성하고 있습니다...';
       case 'refiner':
         return '코드를 개선하고 있습니다...';
+      case 'orchestrator':
+        return '워크플로우를 조율하고 있습니다...';
       default:
         return statusKoreanMessages[status] || '처리 중...';
     }
@@ -170,11 +182,15 @@ const getAgentStatusMessage = (agentName: string, status: string): string => {
         return '계획 수립 완료';
       case 'codegeneration':
       case 'codegenerationhandler':
+      case 'coding':
         return '코드 생성 완료';
       case 'coder':
         return '코드 작성 완료';
+      case 'review':
       case 'reviewer':
         return '코드 검토 완료';
+      case 'fixcode':
+        return '코드 수정 완료';
       default:
         return '완료';
     }

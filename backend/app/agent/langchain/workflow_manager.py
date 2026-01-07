@@ -1118,9 +1118,22 @@ PRIORITY: [high/medium/low for each]
 
         start_time = time.time()
         plan_text = ""
+        chunk_count = 0
         async for chunk in self.reasoning_llm.astream(messages):
             if chunk.content:
                 plan_text += chunk.content
+                chunk_count += 1
+                # 실시간 스트리밍: 20 청크마다 계획 진행 상황 전송
+                if chunk_count % 20 == 0:
+                    lines = plan_text.split('\n')
+                    preview = '\n'.join(lines[-6:] if len(lines) > 6 else lines)
+                    yield {
+                        "agent": planning_agent,
+                        "type": "streaming",
+                        "status": "running",
+                        "message": f"계획 수립 중... ({len(plan_text):,} 자)",
+                        "streaming_content": preview
+                    }
         latency_ms = int((time.time() - start_time) * 1000)
 
         checklist = parse_checklist(plan_text)
@@ -1229,9 +1242,23 @@ PRIORITY: [high/medium/low for each]
 
                 start_time = time.time()
                 task_code = ""
+                chunk_count = 0
                 async for chunk in self.coding_llm.astream(messages):
                     if chunk.content:
                         task_code += chunk.content
+                        chunk_count += 1
+                        # 실시간 스트리밍: 15 청크마다 프론트엔드에 업데이트 전송
+                        if chunk_count % 15 == 0:
+                            # 마지막 8줄 미리보기
+                            lines = task_code.split('\n')
+                            preview = '\n'.join(lines[-8:] if len(lines) > 8 else lines)
+                            yield {
+                                "agent": coding_agent,
+                                "type": "streaming",
+                                "status": "running",
+                                "message": f"코드 생성 중... ({len(task_code):,} 자)",
+                                "streaming_content": preview
+                            }
                 task_latency_ms = int((time.time() - start_time) * 1000)
 
                 code_text += task_code + "\n"
@@ -1375,9 +1402,22 @@ PRIORITY: [high/medium/low for each]
 
                     start_time = time.time()
                     review_text = ""
+                    chunk_count = 0
                     async for chunk in self.coding_llm.astream(messages):
                         if chunk.content:
                             review_text += chunk.content
+                            chunk_count += 1
+                            # 실시간 스트리밍: 15 청크마다 리뷰 진행 상황 전송
+                            if chunk_count % 15 == 0:
+                                lines = review_text.split('\n')
+                                preview = '\n'.join(lines[-6:] if len(lines) > 6 else lines)
+                                yield {
+                                    "agent": "ReviewAgent",
+                                    "type": "streaming",
+                                    "status": "running",
+                                    "message": f"코드 검토 중... ({len(review_text):,} 자)",
+                                    "streaming_content": preview
+                                }
                     review_latency_ms = int((time.time() - start_time) * 1000)
 
                     review_result = parse_review(review_text)
@@ -1486,9 +1526,22 @@ PRIORITY: [high/medium/low for each]
 
                     start_time = time.time()
                     fixed_code = ""
+                    chunk_count = 0
                     async for chunk in self.coding_llm.astream(messages):
                         if chunk.content:
                             fixed_code += chunk.content
+                            chunk_count += 1
+                            # 실시간 스트리밍: 15 청크마다 수정 진행 상황 전송
+                            if chunk_count % 15 == 0:
+                                lines = fixed_code.split('\n')
+                                preview = '\n'.join(lines[-8:] if len(lines) > 8 else lines)
+                                yield {
+                                    "agent": "FixCodeAgent",
+                                    "type": "streaming",
+                                    "status": "running",
+                                    "message": f"코드 수정 중... ({len(fixed_code):,} 자)",
+                                    "streaming_content": preview
+                                }
                     fix_latency_ms = int((time.time() - start_time) * 1000)
 
                     code_text = fixed_code

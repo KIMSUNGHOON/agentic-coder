@@ -590,3 +590,103 @@ return str(Path.home() / "workspace")
 |-----|------|---------|
 | 1 | `frontend/src/components/WorkflowInterface.tsx` | agentTitle → fallbackTitle 변수명 변경 |
 | 2 | `backend/app/core/config.py` | get_default_workspace() 하드코딩 제거, 환경변수 우선 |
+
+### 28. Conversations UI 실시간 스트리밍 개선 (2026-01-07)
+- **문제**: Coding, Review, FixCode Agent의 실시간 작업 내용이 UI에 표시되지 않음
+- **해결**:
+
+#### Backend 수정:
+1. **`backend/app/agent/langchain/workflow_manager.py`**
+   - Planning loop에 streaming_content 추가 (20 chunks마다 미리보기 yield)
+   - Code generation loop에 streaming_content 추가 (15 chunks마다)
+   - Review loop에 streaming_content 추가 (15 chunks마다)
+   - FixCode loop에 streaming_content 추가 (15 chunks마다)
+
+```python
+# 예시: Planning streaming
+chunk_count = 0
+async for chunk in self.reasoning_llm.astream(messages):
+    if chunk.content:
+        plan_text += chunk.content
+        chunk_count += 1
+        if chunk_count % 20 == 0:
+            lines = plan_text.split('\n')
+            preview = '\n'.join(lines[-6:] if len(lines) > 6 else lines)
+            yield {
+                "agent": planning_agent,
+                "type": "streaming",
+                "status": "running",
+                "message": f"계획 수립 중... ({len(plan_text):,} 자)",
+                "streaming_content": preview
+            }
+```
+
+#### Frontend 수정:
+1. **`frontend/src/components/TerminalOutput.tsx`**
+   - Agent 한글 이름 매핑 추가: reviewagent, fixcodeagent, codingagent, orchestrator
+   - 상태 메시지 개선
+
+### 29. 파일 목록 트리 구조 + 코드 뷰어 팝업 (2026-01-07)
+- **문제**: 생성된 파일이 단순 리스트로 표시되어 가독성이 낮음
+- **해결**:
+
+#### 새 컴포넌트:
+1. **`frontend/src/components/FileTreeViewer.tsx`** (NEW)
+   - TreeNode 인터페이스: name, path, type (file/folder), children, artifact
+   - `buildFileTree()`: 플랫 파일 리스트를 중첩 트리 구조로 변환
+   - `TreeNodeComponent`: 폴더 확장/축소, 파일 아이콘, 클릭 이벤트
+   - `CodeViewerModal`: 전체화면 코드 뷰어 팝업 (구문 강조, 복사 버튼)
+
+#### Frontend 수정:
+1. **`frontend/src/components/TerminalOutput.tsx`**
+   - FileTreeViewer 컴포넌트 통합
+   - `onDownloadZip`, `isDownloadingZip` props 추가
+
+### 30. Zip 파일 다운로드 기능 추가 (2026-01-07)
+- **문제**: 생성된 파일을 개별 다운로드만 가능
+- **해결**:
+
+#### Frontend 수정:
+1. **`frontend/src/api/client.ts`**
+   - `downloadWorkspaceZip(workspacePath)`: 워크스페이스 전체 zip 다운로드
+   - `downloadSessionWorkspaceZip(sessionId)`: 세션별 워크스페이스 zip 다운로드
+
+2. **`frontend/src/components/WorkflowInterface.tsx`**
+   - `isDownloadingZip` 상태 추가
+   - `handleDownloadZip()` 핸들러 추가
+   - TerminalOutput에 props 전달
+
+### 31. 버전 파일 생성 대신 기존 파일 수정 (2026-01-07)
+- **문제**: 코드 수정 시 `file_v1.py`, `file_v2.py` 등 버전 파일이 생성됨
+- **해결**: 기존 파일을 직접 수정하도록 변경
+
+#### Backend 수정:
+1. **`backend/app/agent/unified_agent_manager.py`**
+   - 버전닝 로직 제거
+   - 기존 파일과 내용이 다르면 직접 덮어쓰기 (action: "modified")
+
+2. **`backend/app/api/main_routes.py`**
+   - 동일한 버전닝 로직 제거
+   - 파일 수정 시 action: "modified" 반환
+
+```python
+# Before (버전닝)
+file_path = self._get_versioned_path(file_path)
+action = "created_new_version"
+
+# After (직접 수정)
+action = "modified"
+logger.info(f"Modifying existing file: {file_path}")
+```
+
+## 수정 파일 목록 (Issue 28-31)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `backend/app/agent/langchain/workflow_manager.py` | streaming_content 추가 (Planning, Code, Review, FixCode) |
+| 2 | `frontend/src/components/TerminalOutput.tsx` | Agent 한글 이름, FileTreeViewer 통합 |
+| 3 | `frontend/src/components/FileTreeViewer.tsx` | 새 컴포넌트 (트리 구조, 코드 뷰어 팝업) |
+| 4 | `frontend/src/api/client.ts` | downloadWorkspaceZip, downloadSessionWorkspaceZip 추가 |
+| 5 | `frontend/src/components/WorkflowInterface.tsx` | handleDownloadZip 핸들러 추가 |
+| 6 | `backend/app/agent/unified_agent_manager.py` | 버전닝 제거, 직접 수정 |
+| 7 | `backend/app/api/main_routes.py` | 버전닝 제거, 직접 수정 |
