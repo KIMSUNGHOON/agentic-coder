@@ -895,3 +895,356 @@ if (event.updates?.artifact) {
 | 순서 | 파일 | 변경 내용 |
 |-----|------|---------|
 | 1 | `frontend/src/components/WorkflowInterface.tsx` | artifact 이벤트 처리 추가, captureArtifacts 단수/복수 처리 |
+
+### 43. UI 간소화 및 버그 수정 (2026-01-07)
+- **문제**: Workflow 출력 UI가 너무 복잡하고, session-id 중복 버그, 실행 버튼 크기 문제
+- **해결**:
+
+#### 1. Workflow 출력 간소화
+- **파일**: `frontend/src/components/TerminalOutput.tsx` (Lines 521-544)
+- **변경사항**: 파일 전체 목록 대신 생성/수정/삭제 개수만 표시
+```tsx
+// Before: 각 파일을 개별 표시
+{update.artifacts.map(artifact => <div>{artifact.filename}</div>)}
+
+// After: 파일 개수 요약만 표시
+📝 {update.artifacts.length}개 파일 처리됨
+  (N개 생성) (N개 수정) (N개 삭제)
+```
+
+#### 2. Session ID 중복 버그 수정
+- **파일**: `frontend/src/components/WorkspaceProjectSelector.tsx` (Lines 162-168)
+- **문제**: "session-session-12345678" 형식으로 중복 표시
+- **원인**: App.tsx가 `session-${Date.now()}` 생성, WorkspaceProjectSelector가 또 "session-" 접두사 추가
+- **해결**: 기존 접두사 확인 후 추가
+```typescript
+const displaySessionId = sessionId
+  ? sessionId.startsWith('session-')
+    ? `session-${sessionId.slice(8, 16)}`  // 기존 접두사 건너뛰기
+    : sessionId.slice(0, 16)
+  : 'session';
+```
+
+#### 3. 실행 버튼 크기 개선
+- **파일**: `frontend/src/components/WorkflowInterface.tsx` (Lines 1974-1992)
+- **변경사항**: 버튼 패딩 및 아이콘 크기 증가
+```tsx
+// Before
+className="text-xs px-3 py-1.5"
+
+// After
+className="text-sm px-4 py-2.5"
+```
+
+## 수정 파일 목록 (Issue 43)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `frontend/src/components/TerminalOutput.tsx` | 파일 개수 요약 표시 |
+| 2 | `frontend/src/components/WorkspaceProjectSelector.tsx` | Session ID 중복 제거 |
+| 3 | `frontend/src/components/WorkflowInterface.tsx` | 버튼 크기 개선 |
+
+**Commit**: `6ab363b - ui: Simplify workflow output and fix UI issues`
+
+---
+
+### 44. 컨텍스트 개선 Phase 1 (2026-01-07)
+- **문제**: 동일 세션 내 이전 대화 내역에 대한 문맥 이해 부족
+- **원인**:
+  1. 극심한 컨텍스트 제한 (최근 6개 메시지, 메시지당 200자)
+  2. Supervisor만 컨텍스트 접근 (Coder, Reviewer, Refiner 등은 접근 불가)
+  3. 단순 텍스트 concatenation (구조화되지 않음)
+
+- **해결**: 3-Phase 개선 계획 수립 및 Phase 1 긴급 개선
+
+#### Phase 1 긴급 개선 (즉시 적용)
+
+##### 1. 컨텍스트 윈도우 확대
+- **파일**: `backend/app/agent/langgraph/dynamic_workflow.py` (Lines 542-553)
+```python
+# Before: 6개 메시지 (3번 대화), 200자
+recent_context = conversation_history[-6:]
+msg['content'][:200]
+
+# After: 20개 메시지 (10번 대화), 1000자
+recent_context = conversation_history[-20:]
+msg['content'][:1000]
+```
+- **효과**: 컨텍스트 용량 1,667% 증가 (6×200 = 1,200자 → 20×1,000 = 20,000자)
+
+##### 2. State에 전체 대화 히스토리 추가
+- **파일**: `backend/app/agent/langgraph/schemas/state.py`
+```python
+# Line 91: QualityGateState에 필드 추가
+conversation_history: List[Dict[str, str]]  # CONTEXT IMPROVEMENT
+
+# Lines 186-187, 211: create_initial_state 파라미터 및 초기화
+def create_initial_state(
+    ...
+    conversation_history: List[Dict[str, str]] = None
+) -> QualityGateState:
+    return QualityGateState(
+        ...
+        conversation_history=conversation_history if conversation_history is not None else []
+    )
+```
+
+- **파일**: `backend/app/agent/langgraph/dynamic_workflow.py` (Line 684)
+```python
+state = create_initial_state(
+    ...
+    conversation_history=conversation_history  # CONTEXT IMPROVEMENT
+)
+```
+- **효과**: Coder, Reviewer, Refiner 등 모든 에이전트가 대화 컨텍스트 접근 가능
+
+##### 3. GPT-OSS용 Harmony Format 적용
+- **참고**: https://github.com/openai/harmony
+- **파일**: `backend/core/supervisor.py` (Lines 224-265)
+```python
+def _format_context_harmony(self, context: Dict) -> str:
+    """Format context in Harmony-style structured format
+
+    OpenAI Harmony format emphasizes structured, hierarchical context presentation
+    for better LLM comprehension, especially for GPT-OSS models.
+    """
+    formatted_parts = []
+
+    # System Context
+    if context.get("system_prompt"):
+        formatted_parts.append(f"### System Context\n{context['system_prompt']}\n")
+
+    # Conversation History (EXPANDED from 6 to 20 messages)
+    if context.get("conversation_history"):
+        history = context["conversation_history"]
+        formatted_parts.append(f"### Conversation History ({len(history)} messages)\n")
+
+        for i, msg in enumerate(history, 1):
+            role = "USER" if msg.get("role") == "user" else "ASSISTANT"
+            content = msg.get("content", "")
+            if len(content) > 1000:
+                content = content[:1000] + "..."
+            formatted_parts.append(f"**[{i}] {role}**: {content}\n")
+
+    return "\n".join(formatted_parts)
+```
+
+- **파일**: `shared/prompts/gpt_oss.py` (Lines 52-60)
+```python
+GPT_OSS_SUPERVISOR_PROMPT = """Analyze the following user request...
+
+## USER REQUEST
+{user_request}
+
+## CONVERSATION CONTEXT
+{context}
+
+## ANALYSIS REQUIREMENTS:
+...
+"""
+```
+
+##### 4. 문서화
+- **새 문서**: `docs/CONTEXT_IMPROVEMENT_PLAN.md`
+- **내용**: 3-Phase 개선 계획 상세 문서
+  - Phase 1: 긴급 개선 (완료)
+  - Phase 2: 구조 개선 (예정)
+  - Phase 3: RAG 기반 고도화 (예정)
+
+## 예상 효과
+
+### Phase 1 적용 후
+- ✅ 컨텍스트 윈도우: 3번 대화 → 10번 대화 (333% 증가)
+- ✅ 정보 보존: 200자 → 1000자 (500% 증가)
+- ✅ 총 컨텍스트 용량: 1,200자 → 20,000자 (1,667% 증가)
+- ✅ 모든 에이전트가 컨텍스트 접근 가능
+- ✅ GPT-OSS 응답 품질 향상 (Harmony format)
+
+### Phase 2 예정 (구조 개선)
+- 컨텍스트 압축 시스템
+- 중요 정보 자동 추출 (파일명, 에러, 결정사항)
+- 에이전트별 컨텍스트 필터링
+
+### Phase 3 예정 (RAG 기반 고도화)
+- 벡터 DB 기반 의미적 컨텍스트 검색
+- 세션 메모리 시스템
+- 프로젝트 컨텍스트 자동 관리
+
+## 수정 파일 목록 (Issue 44)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `docs/CONTEXT_IMPROVEMENT_PLAN.md` | 3-Phase 개선 계획 문서 생성 |
+| 2 | `backend/app/agent/langgraph/dynamic_workflow.py` | 컨텍스트 윈도우 확대 (6→20, 200→1000) |
+| 3 | `backend/app/agent/langgraph/schemas/state.py` | conversation_history 필드 추가 |
+| 4 | `backend/core/supervisor.py` | Harmony format 구현 |
+| 5 | `shared/prompts/gpt_oss.py` | Harmony format 프롬프트 적용 |
+
+**Commit**: `f0e6354 - feat: Phase 1 Context Improvement - Expand context window and apply Harmony format`
+
+---
+
+### 45. 파일 삭제 기능 추가 (2026-01-07)
+- **문제**: Agent가 리팩토링/정리 중 불필요한 파일을 삭제할 수 없음
+- **요구사항**: Agent가 자율적으로 파일 삭제 가능해야 함
+
+#### 1. 타입 시스템 확장
+- **파일**: `frontend/src/types/api.ts` (Line 143)
+```typescript
+// Before
+action?: 'created' | 'modified';
+
+// After
+action?: 'created' | 'modified' | 'deleted';
+```
+
+- **파일**: `backend/app/agent/langgraph/schemas/state.py` (Line 54)
+```python
+class Artifact(TypedDict):
+    ...
+    action: Optional[str]  # 'created', 'modified', or 'deleted'
+```
+
+#### 2. 모델 프롬프트 업데이트
+- **파일**: `backend/app/agent/langgraph/nodes/coder.py`
+- **변경된 프롬프트**: Qwen, DeepSeek, Generic (Lines 49-66, 80-95, 110-127)
+```python
+"""
+IMPORTANT: If you need to delete any files (e.g., during refactoring or cleanup),
+include them in "deleted_files".
+
+Respond in JSON format:
+{
+    "files": [
+        {
+            "filename": "new_file.py",
+            "language": "python",
+            "content": "..."
+        }
+    ],
+    "deleted_files": ["old_file.py", "unused_module.py"]
+}
+"""
+```
+
+#### 3. 파일 삭제 로직 구현
+- **파일**: `backend/app/agent/langgraph/nodes/coder.py` (Lines 239-272)
+```python
+# Process deleted files (FILE DELETION FEATURE)
+if deleted_files:
+    logger.info(f"🗑️  Processing {len(deleted_files)} file(s) for deletion...")
+
+    for filename in deleted_files:
+        normalized_path = os.path.normpath(os.path.join(workspace_root, filename))
+        full_path = os.path.join(workspace_root, filename)
+
+        if os.path.exists(full_path):
+            try:
+                os.remove(full_path)
+                logger.info(f"🗑️  Deleted: {filename}")
+
+                # Create artifact for deleted file
+                artifacts.append({
+                    "filename": filename,
+                    "file_path": full_path,
+                    "relative_path": filename,
+                    "project_root": workspace_root,
+                    "language": "text",
+                    "content": "",
+                    "description": "File deleted",
+                    "size_bytes": 0,
+                    "checksum": "",
+                    "saved": True,
+                    "saved_path": full_path,
+                    "action": "deleted",
+                })
+            except Exception as e:
+                logger.error(f"❌ Failed to delete {filename}: {e}")
+        else:
+            logger.warning(f"⚠️  Cannot delete {filename}: File does not exist")
+```
+
+#### 4. JSON 응답 파싱 업데이트
+- **파일**: `backend/app/agent/langgraph/nodes/coder.py` (Lines 409-412)
+```python
+parsed = json.loads(json_str)
+files = parsed.get("files", [])
+deleted_files = parsed.get("deleted_files", [])  # FILE DELETION FEATURE
+logger.info(f"📝 Parsed {len(files)} files, {len(deleted_files)} files to delete")
+return files, deleted_files, token_usage
+```
+
+#### 5. UI 업데이트
+- **파일**: `frontend/src/components/TerminalOutput.tsx` (Line 528)
+```tsx
+{update.artifacts.some(a => a.action === 'deleted') && (
+  <span className="text-red-400 ml-1">
+    ({update.artifacts.filter(a => a.action === 'deleted').length}개 삭제)
+  </span>
+)}
+```
+
+- **파일**: `frontend/src/components/FileTreeViewer.tsx` (Lines 175-181)
+```tsx
+{node.artifact?.action && (
+  <span className={`text-[9px] px-1 rounded ${
+    node.artifact.action === 'created'
+      ? 'bg-green-500/20 text-green-400'
+      : node.artifact.action === 'modified'
+      ? 'bg-yellow-500/20 text-yellow-400'
+      : node.artifact.action === 'deleted'
+      ? 'bg-red-500/20 text-red-400'  // NEW: 삭제된 파일 빨간색 표시
+      : 'bg-gray-500/20 text-gray-400'
+  }`}>
+    {node.artifact.action === 'created' ? 'NEW' :
+     node.artifact.action === 'modified' ? 'MOD' :
+     node.artifact.action === 'deleted' ? 'DEL' : ''}  // NEW: DEL 배지
+  </span>
+)}
+```
+
+## 수정 파일 목록 (Issue 45)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `frontend/src/types/api.ts` | action 타입에 'deleted' 추가 |
+| 2 | `backend/app/agent/langgraph/schemas/state.py` | Artifact action 필드 추가 |
+| 3 | `backend/app/agent/langgraph/nodes/coder.py` | 프롬프트 업데이트, 삭제 로직, 파싱 로직 |
+| 4 | `frontend/src/components/TerminalOutput.tsx` | 삭제 개수 표시 (빨간색) |
+| 5 | `frontend/src/components/FileTreeViewer.tsx` | DEL 배지 표시 (빨간색) |
+
+**Commit**: `711e657 - feat: Add file deletion capability for Agent-driven file management`
+
+---
+
+### 46. 문서 업데이트 (2026-01-07)
+- **작업**: 진행 상황을 모든 문서에 반영
+- **업데이트된 문서**:
+  1. `debug/Requirement.md`: Issue 43-46 추가
+  2. `docs/CONTEXT_IMPROVEMENT_PLAN.md`: Phase 1 완료 상태로 업데이트 예정
+
+## 완료된 작업 요약 (Issue 43-46)
+
+### Issue 43: UI 간소화 및 버그 수정
+- ✅ Workflow 출력 간소화 (파일 개수만 표시)
+- ✅ Session ID 중복 버그 수정 (session-session- 제거)
+- ✅ 실행 버튼 크기 개선
+
+### Issue 44: 컨텍스트 개선 Phase 1
+- ✅ 컨텍스트 윈도우: 6→20 메시지, 200→1000자 (1,667% 증가)
+- ✅ 모든 에이전트가 conversation_history 접근 가능
+- ✅ GPT-OSS용 Harmony format 적용
+- ✅ 3-Phase 개선 계획 문서 작성
+
+### Issue 45: 파일 삭제 기능
+- ✅ 타입 시스템에 'deleted' 액션 추가
+- ✅ 모든 모델 프롬프트 업데이트 (Qwen, DeepSeek, Generic)
+- ✅ 파일 삭제 로직 구현 (os.remove with safety checks)
+- ✅ UI에 삭제 표시 (빨간색 DEL 배지)
+
+### Issue 46: 문서 업데이트
+- ✅ `debug/Requirement.md` 업데이트 (Issue 43-46)
+- 🔄 `docs/CONTEXT_IMPROVEMENT_PLAN.md` 업데이트 진행 중
+
+## 남은 작업
+- Phase 2 컨텍스트 개선 (문서 업데이트 후 진행)
