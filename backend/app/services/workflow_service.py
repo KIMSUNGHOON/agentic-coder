@@ -150,15 +150,16 @@ Examples:
             # Let LLM suggest a project name based on the user's request
             project_name = await self.suggest_project_name(user_message)
 
-            # Check if project already exists, add suffix if needed
+            # Check if project already exists - reuse instead of creating duplicate
             candidate_workspace = os.path.join(workspace_root, project_name)
-            counter = 1
-            while os.path.exists(candidate_workspace):
-                candidate_workspace = os.path.join(workspace_root, f"{project_name}_{counter}")
-                counter += 1
-
-            workspace = candidate_workspace
-            logger.info(f"Created new project workspace '{os.path.basename(workspace)}' in {workspace_root}")
+            if os.path.exists(candidate_workspace):
+                # 기존 프로젝트 재사용 (중복 생성 방지)
+                workspace = candidate_workspace
+                logger.info(f"Reusing existing project workspace '{os.path.basename(workspace)}' in {workspace_root}")
+            else:
+                # 새 프로젝트 생성
+                workspace = candidate_workspace
+                logger.info(f"Created new project workspace '{os.path.basename(workspace)}' in {workspace_root}")
 
         # Store workspace for this session
         await self.session_store.set_workspace(session_id, workspace)

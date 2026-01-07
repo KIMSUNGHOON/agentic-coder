@@ -1571,9 +1571,50 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                           {turn.content}
                         </ReactMarkdown>
                       </div>
+                      {/* 생성/수정된 파일 목록 표시 */}
                       {turn.artifacts && turn.artifacts.length > 0 && (
-                        <div className="mt-1 text-gray-600">
-                          파일: {turn.artifacts.map(a => a.filename).join(', ')}
+                        <div className="mt-2 p-2 bg-gray-800/50 rounded border border-gray-700/50">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-green-400">📁</span>
+                            <span className="text-[10px] text-gray-400 font-medium">
+                              {turn.artifacts.filter(a => a.action === 'created').length > 0 &&
+                                `${turn.artifacts.filter(a => a.action === 'created').length}개 파일 생성`}
+                              {turn.artifacts.filter(a => a.action === 'created').length > 0 &&
+                               turn.artifacts.filter(a => a.action === 'modified').length > 0 && ' / '}
+                              {turn.artifacts.filter(a => a.action === 'modified').length > 0 &&
+                                `${turn.artifacts.filter(a => a.action === 'modified').length}개 파일 수정`}
+                              {!turn.artifacts.some(a => a.action === 'created' || a.action === 'modified') &&
+                                `${turn.artifacts.length}개 파일`}
+                            </span>
+                          </div>
+                          <div className="space-y-0.5">
+                            {turn.artifacts.slice(0, 5).map((artifact, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-[10px]">
+                                <span className={
+                                  artifact.action === 'created' ? 'text-green-400' :
+                                  artifact.action === 'modified' ? 'text-yellow-400' : 'text-gray-500'
+                                }>
+                                  {artifact.action === 'created' ? '✓' : artifact.action === 'modified' ? '↺' : '○'}
+                                </span>
+                                <span className="text-gray-400 font-mono truncate">{artifact.filename}</span>
+                                <span className="text-gray-600">[{artifact.language}]</span>
+                                {artifact.action && (
+                                  <span className={`px-1 rounded text-[9px] ${
+                                    artifact.action === 'created' ? 'bg-green-500/20 text-green-400' :
+                                    artifact.action === 'modified' ? 'bg-yellow-500/20 text-yellow-400' :
+                                    'bg-gray-500/20 text-gray-400'
+                                  }`}>
+                                    {artifact.action === 'created' ? 'NEW' : artifact.action === 'modified' ? 'MOD' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                            {turn.artifacts.length > 5 && (
+                              <div className="text-[9px] text-gray-500 mt-1">
+                                ... 그 외 {turn.artifacts.length - 5}개 파일
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>

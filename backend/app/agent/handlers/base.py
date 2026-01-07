@@ -53,9 +53,10 @@ class StreamUpdate:
     streaming_content: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """딕셔너리로 변환"""
+        """딕셔너리로 변환 - 프론트엔드 호환성을 위한 구조"""
         result = {
             "agent": self.agent,
+            "node": self.agent,  # 프론트엔드 호환성
             "type": self.update_type,
             "status": self.status,
             "message": self.message
@@ -66,6 +67,19 @@ class StreamUpdate:
             result["timestamp"] = self.timestamp
         if self.streaming_content:
             result["streaming_content"] = self.streaming_content
+
+        # 프론트엔드 호환성을 위한 updates 객체 생성
+        # 프론트엔드는 event.updates?.artifacts, event.updates?.streaming_content 등을 체크함
+        updates = {
+            "message": self.message,
+        }
+        if self.streaming_content:
+            updates["streaming_content"] = self.streaming_content
+        if self.data:
+            # data 내용을 updates에도 복사 (artifacts 등)
+            updates.update(self.data)
+        result["updates"] = updates
+
         return result
 
 

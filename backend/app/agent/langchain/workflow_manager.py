@@ -1086,56 +1086,92 @@ PRIORITY: [high/medium/low for each]
                 "dynamically_created": True
             }
 
-        # Step 1: Planning
+        # Step 1: Planning (이전 계획이 있으면 스킵)
         planning_agent = template["nodes"][0]  # Usually PlanningAgent or AnalysisAgent
-        yield {
-            "agent": planning_agent,
-            "type": "agent_spawn",
-            "status": "running",
-            "message": f"Spawning {planning_agent}",
-            "workflow_info": build_workflow_info(planning_agent),
-            "agent_spawn": {
-                "agent_id": f"{planning_agent.lower()}-{uuid.uuid4().hex[:6]}",
-                "agent_type": planning_agent,
-                "parent_agent": "Orchestrator",
-                "spawn_reason": "Create implementation plan",
-                "timestamp": datetime.now().isoformat()
+
+        # 이전 계획이 포함되어 있는지 확인
+        previous_plan_marker = "## Previous Implementation Plan"
+        has_previous_plan = previous_plan_marker in user_request
+
+        if has_previous_plan:
+            # 이전 계획 추출
+            try:
+                plan_start = user_request.find(previous_plan_marker)
+                plan_end = user_request.find("## Current User Request", plan_start)
+                if plan_end == -1:
+                    plan_end = user_request.find("## Instructions", plan_start)
+                if plan_end == -1:
+                    plan_end = len(user_request)
+
+                previous_plan = user_request[plan_start + len(previous_plan_marker):plan_end].strip()
+
+                yield {
+                    "agent": planning_agent,
+                    "type": "analysis",
+                    "status": "completed",
+                    "message": "이전 대화에서 계획을 발견했습니다. 새로운 계획을 생성하지 않고 기존 계획을 사용합니다.",
+                    "workflow_info": build_workflow_info(planning_agent),
+                    "streaming_content": f"## 기존 계획 재사용\n{previous_plan[:500]}..."
+                }
+
+                plan_text = previous_plan
+                latency_ms = 0
+                logger.info(f"Skipping Planning Agent - using previous plan ({len(plan_text)} chars)")
+
+            except Exception as e:
+                logger.warning(f"Failed to extract previous plan: {e}, falling back to new planning")
+                has_previous_plan = False
+
+        if not has_previous_plan:
+            # 새로운 계획 수립
+            yield {
+                "agent": planning_agent,
+                "type": "agent_spawn",
+                "status": "running",
+                "message": f"Spawning {planning_agent}",
+                "workflow_info": build_workflow_info(planning_agent),
+                "agent_spawn": {
+                    "agent_id": f"{planning_agent.lower()}-{uuid.uuid4().hex[:6]}",
+                    "agent_type": planning_agent,
+                    "parent_agent": "Orchestrator",
+                    "spawn_reason": "Create implementation plan",
+                    "timestamp": datetime.now().isoformat()
+                }
             }
-        }
 
-        yield {
-            "agent": planning_agent,
-            "type": "thinking",
-            "status": "running",
-            "message": "Creating implementation plan..."
-        }
+            yield {
+                "agent": planning_agent,
+                "type": "thinking",
+                "status": "running",
+                "message": "Creating implementation plan..."
+            }
 
-        planning_prompt = self.prompts.get(planning_agent, self.prompts["PlanningAgent"])
-        messages = [
-            SystemMessage(content=planning_prompt),
-            HumanMessage(content=user_request)
-        ]
+            planning_prompt = self.prompts.get(planning_agent, self.prompts["PlanningAgent"])
+            messages = [
+                SystemMessage(content=planning_prompt),
+                HumanMessage(content=user_request)
+            ]
 
-        start_time = time.time()
-        plan_text = ""
-        chunk_count = 0
-        async for chunk in self.reasoning_llm.astream(messages):
-            if chunk.content:
-                plan_text += chunk.content
-                chunk_count += 1
-                # 실시간 스트리밍: 5 청크마다 계획 진행 상황 전송 (더 자주 업데이트)
-                if chunk_count % 5 == 0:
-                    lines = plan_text.split('\n')
-                    # 마지막 10줄 미리보기 (더 많은 컨텍스트)
-                    preview = '\n'.join(lines[-10:] if len(lines) > 10 else lines)
-                    yield {
-                        "agent": planning_agent,
-                        "type": "streaming",
-                        "status": "running",
-                        "message": f"계획 수립 중... ({len(plan_text):,} 자)",
-                        "streaming_content": preview
-                    }
-        latency_ms = int((time.time() - start_time) * 1000)
+            start_time = time.time()
+            plan_text = ""
+            chunk_count = 0
+            async for chunk in self.reasoning_llm.astream(messages):
+                if chunk.content:
+                    plan_text += chunk.content
+                    chunk_count += 1
+                    # 실시간 스트리밍: 5 청크마다 계획 진행 상황 전송 (더 자주 업데이트)
+                    if chunk_count % 5 == 0:
+                        lines = plan_text.split('\n')
+                        # 마지막 10줄 미리보기 (더 많은 컨텍스트)
+                        preview = '\n'.join(lines[-10:] if len(lines) > 10 else lines)
+                        yield {
+                            "agent": planning_agent,
+                            "type": "streaming",
+                            "status": "running",
+                            "message": f"계획 수립 중... ({len(plan_text):,} 자)",
+                            "streaming_content": preview
+                        }
+            latency_ms = int((time.time() - start_time) * 1000)
 
         checklist = parse_checklist(plan_text)
 
