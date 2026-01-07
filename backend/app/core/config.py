@@ -13,17 +13,22 @@ ENV_FILE = PROJECT_ROOT / ".env"
 def get_default_workspace() -> str:
     """Get default workspace path based on OS.
 
+    Priority:
+    1. Environment variable DEFAULT_WORKSPACE (if set)
+    2. User's home directory + workspace
+
     Returns:
         str: Default workspace path
         - Windows: C:\\Users\\<username>\\workspace
-        - Linux/Mac: /home/user/workspace (or ~/workspace)
+        - Linux/Mac: /home/<username>/workspace
     """
-    if platform.system() == "Windows":
-        # Windows: use user's home directory
-        return str(Path.home() / "workspace")
-    else:
-        # Linux/Mac
-        return "/home/user/workspace"
+    # Priority 1: Check environment variable
+    env_workspace = os.environ.get("DEFAULT_WORKSPACE")
+    if env_workspace:
+        return env_workspace
+
+    # Priority 2: Use user's home directory (cross-platform)
+    return str(Path.home() / "workspace")
 
 
 DEFAULT_WORKSPACE = get_default_workspace()

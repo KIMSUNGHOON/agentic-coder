@@ -550,3 +550,43 @@ setLiveOutputs(...);  // 조건 없이 항상 실행
 | 1 | `backend/app/agent/unified_agent_manager.py` | 버전닝 로직, _get_versioned_path() 추가 |
 | 2 | `backend/app/api/main_routes.py` | 버전닝 로직, get_versioned_path() 추가 |
 | 3 | `frontend/src/components/WorkflowInterface.tsx` | streaming_content 전달, liveOutputs 업데이트 개선 |
+
+### 26. TypeScript agentTitle 중복 선언 에러 수정 (2026-01-07)
+- **문제**: `Identifier 'agentTitle' has already been declared. (538:19)`
+- **원인**: Line 330에서 `const agentTitle = event.agent_title;` 선언 후, Line 538에서 다시 `const { title: agentTitle }` 선언
+- **해결**: Line 538의 변수명을 `fallbackTitle`로 변경
+
+```typescript
+// Before (에러)
+const { title: agentTitle } = getAgentInfo(nodeName);
+
+// After (수정)
+const fallbackTitle = getAgentInfo(nodeName).title;
+```
+
+### 27. config.py 하드코딩 경로 제거 (2026-01-07)
+- **문제**: `get_default_workspace()` 함수에서 Linux/Mac 경로가 `/home/user/workspace`로 하드코딩됨
+- **해결**: 환경 변수 우선 참조 + `Path.home()` 사용으로 크로스 플랫폼 호환
+
+```python
+# Before (하드코딩)
+else:
+    return "/home/user/workspace"
+
+# After (크로스 플랫폼)
+env_workspace = os.environ.get("DEFAULT_WORKSPACE")
+if env_workspace:
+    return env_workspace
+return str(Path.home() / "workspace")
+```
+
+**우선순위**:
+1. 환경 변수 `DEFAULT_WORKSPACE` (설정된 경우)
+2. 사용자 홈 디렉토리 + `/workspace`
+
+## 수정 파일 목록 (Issue 26 & 27)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `frontend/src/components/WorkflowInterface.tsx` | agentTitle → fallbackTitle 변수명 변경 |
+| 2 | `backend/app/core/config.py` | get_default_workspace() 하드코딩 제거, 환경변수 우선 |

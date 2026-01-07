@@ -535,7 +535,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     // This ensures running indicators update correctly when agents complete
     // Note: Don't require agentInfo to exist - it may not be added yet due to React state timing
     const agentInfo = agentProgress.find(a => a.name === nodeName);
-    const { title: agentTitle } = getAgentInfo(nodeName);  // Fallback to generated title
+    const fallbackTitle = getAgentInfo(nodeName).title;  // Fallback to generated title
 
     // Always update liveOutputs for any agent (including Unified API handlers)
     setLiveOutputs(prev => {
@@ -552,7 +552,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
       if (shouldUpdate) {
         newMap.set(nodeName, {
           agentName: nodeName,
-          agentTitle: event.agent_title || agentInfo?.title || agentTitle,
+          agentTitle: agentTitle || agentInfo?.title || fallbackTitle,
           content: newContent,
           status: status,
           timestamp: Date.now(),
