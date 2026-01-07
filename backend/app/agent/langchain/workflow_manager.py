@@ -1362,6 +1362,10 @@ PRIORITY: [high/medium/low for each]
 
                 code_text += task_code + "\n"
                 task_artifacts = parse_code_blocks(task_code)
+
+                # Mark artifacts as "created" (initial generation)
+                for artifact in task_artifacts:
+                    artifact["action"] = "created"
                 all_artifacts.extend(task_artifacts)
 
                 for artifact in task_artifacts:
@@ -1647,7 +1651,14 @@ PRIORITY: [high/medium/low for each]
 
                     code_text = fixed_code
                     fixed_artifacts = parse_code_blocks(fixed_code)
-                    all_artifacts = fixed_artifacts
+
+                    # Merge fixed artifacts with existing artifacts (update by filename)
+                    # Instead of replacing all artifacts, merge: keep unchanged files, update modified ones
+                    artifact_map = {a["filename"]: a for a in all_artifacts}
+                    for fixed_artifact in fixed_artifacts:
+                        fixed_artifact["action"] = "modified"  # Mark as modified by FixCode
+                        artifact_map[fixed_artifact["filename"]] = fixed_artifact
+                    all_artifacts = list(artifact_map.values())
 
                     for artifact in fixed_artifacts:
                         yield {

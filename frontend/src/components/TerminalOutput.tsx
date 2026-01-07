@@ -282,9 +282,10 @@ const TerminalOutput = ({ updates, isRunning, liveOutputs, savedFiles = [], onDo
         </div>
       )}
 
-      {/* 파일 트리 뷰어 - 워크플로우 실행 중/완료 후 표시 */}
-      {savedFiles.length > 0 && (
+      {/* 파일 트리 뷰어 - 워크플로우 완료 후에만 표시 (최종 결과) */}
+      {!isRunning && savedFiles.length > 0 && (
         <div className="mb-3">
+          <div className="text-[10px] text-gray-500 mb-1">📁 생성된 파일 ({savedFiles.length}개)</div>
           <FileTreeViewer
             files={savedFiles}
             onDownloadZip={onDownloadZip}

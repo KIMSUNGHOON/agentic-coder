@@ -277,6 +277,7 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
   const [showStatusPanel, setShowStatusPanel] = useState(true);
   const [currentProjectName, setCurrentProjectName] = useState<string | undefined>();
   const [currentProjectDir, setCurrentProjectDir] = useState<string | undefined>();
+  const [isConversationCollapsed, setIsConversationCollapsed] = useState(false);
 
   const scrollToBottom = useCallback(() => {
     // Use setTimeout to ensure DOM is updated before scrolling
@@ -749,24 +750,26 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
     }
   }, [selectedPrompt, onPromptUsed]);
 
-  // Extract artifacts from updates
+  // Extract final artifacts from updates (keep last version of each file)
   const extractArtifacts = useCallback((workflowUpdates: WorkflowUpdate[]): Artifact[] => {
-    const artifacts: Artifact[] = [];
+    // Use a map to keep only the latest version of each file
+    const artifactMap = new Map<string, Artifact>();
+
     for (const update of workflowUpdates) {
+      // Collect from array of artifacts
       if (update.artifacts) {
-        artifacts.push(...update.artifacts);
+        for (const artifact of update.artifacts) {
+          artifactMap.set(artifact.filename, artifact);  // Later versions overwrite earlier
+        }
       }
+      // Collect from single artifact
       if (update.artifact) {
-        artifacts.push(update.artifact);
+        artifactMap.set(update.artifact.filename, update.artifact);
       }
     }
-    // Deduplicate by filename
-    const seen = new Set<string>();
-    return artifacts.filter(a => {
-      if (seen.has(a.filename)) return false;
-      seen.add(a.filename);
-      return true;
-    });
+
+    // Return final artifacts (last version of each file)
+    return Array.from(artifactMap.values());
   }, []);
 
   // Execute workflow using the new Unified API (Claude Code style)
@@ -1589,10 +1592,26 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
             </div>
           )}
 
-          {/* 대화 히스토리 - 터미널 스타일 */}
+          {/* 대화 히스토리 - 터미널 스타일 (토글 가능) */}
           {conversationHistory.length > 0 && (
-            <div className="space-y-1.5 sm:space-y-2 mb-2 sm:mb-3">
-              {conversationHistory.map((turn, turnIndex) => (
+            <div className="mb-2 sm:mb-3 border border-gray-800 rounded-lg overflow-hidden">
+              {/* 대화 기록 헤더 + 토글 버튼 */}
+              <button
+                onClick={() => setIsConversationCollapsed(!isConversationCollapsed)}
+                className="w-full flex items-center justify-between px-2 sm:px-3 py-1.5 bg-gray-800/50 hover:bg-gray-800 transition-colors"
+              >
+                <span className="text-[10px] sm:text-xs text-gray-400 font-mono">
+                  💬 대화 기록 ({conversationHistory.length}개)
+                </span>
+                <span className="text-gray-500 text-xs">
+                  {isConversationCollapsed ? '▶ 펼치기' : '▼ 접기'}
+                </span>
+              </button>
+
+              {/* 대화 내용 (접히지 않은 경우에만 표시) */}
+              {!isConversationCollapsed && (
+                <div className="space-y-1.5 sm:space-y-2 p-2 sm:p-3">
+                  {conversationHistory.map((turn, turnIndex) => (
                 <div key={`turn-${turnIndex}-${turn.timestamp}`} className="font-mono text-[10px] sm:text-xs">
                   {turn.role === 'user' ? (
                     <div className="text-blue-400">
@@ -1710,6 +1729,8 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                   )}
                 </div>
               ))}
+                </div>
+              )}
             </div>
           )}
 
