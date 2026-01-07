@@ -84,7 +84,13 @@ User Prompt
 ```bash
 # 1. 환경 설정
 cp .env.example .env
-# .env 파일에서 LLM 엔드포인트 설정
+# .env 파일에서 설정:
+#   - LLM 엔드포인트 (VLLM_REASONING_ENDPOINT, VLLM_CODING_ENDPOINT)
+#   - Workspace 디렉토리 (DEFAULT_WORKSPACE)
+#
+# 예시:
+# DEFAULT_WORKSPACE=/home/username/Workspaces/TestCode
+# → 프로젝트는 /home/username/Workspaces/TestCode/{session_id}/{project_name}에 저장됩니다
 
 # 2. Backend
 cd backend
