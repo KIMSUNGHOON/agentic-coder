@@ -170,16 +170,22 @@ class CodeGenerationHandler(BaseHandler):
                     ""
                 )
 
-                # 아티팩트 수집
+                # 아티팩트 수집 - 복수형 artifacts 배열
                 if update.get("artifacts"):
                     artifacts.extend(update["artifacts"])
+                # 단수형 artifact 객체 (workflow_manager에서 개별 파일 생성 시)
                 elif update_type == "artifact":
-                    artifacts.append({
-                        "filename": update.get("filename", "code.py"),
-                        "language": update.get("language", "python"),
-                        "content": update.get("content"),
-                        "saved_path": update.get("saved_path")
-                    })
+                    artifact_data = update.get("artifact", {})
+                    if artifact_data and artifact_data.get("filename"):
+                        artifact_obj = {
+                            "filename": artifact_data.get("filename", "code.py"),
+                            "language": artifact_data.get("language", "python"),
+                            "content": artifact_data.get("content", ""),
+                            "saved_path": artifact_data.get("saved_path"),
+                            "action": "created"
+                        }
+                        artifacts.append(artifact_obj)
+                        self.logger.info(f"Captured artifact: {artifact_obj['filename']}")
 
                 yield StreamUpdate(
                     agent=agent,
