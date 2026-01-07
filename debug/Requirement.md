@@ -749,3 +749,71 @@ if previous_plan:
 | 1 | `backend/core/context_store.py` | artifact.content None 처리 |
 | 2 | `backend/app/agent/langchain/workflow_manager.py` | streaming 빈도 5/3 청크로 증가 |
 | 3 | `backend/app/agent/handlers/code_generation.py` | 이전 plan 재사용 로직 추가 |
+
+### 36. planning_prompt UnboundLocalError 수정 (2026-01-07)
+- **문제**: `cannot access local variable 'planning_prompt' where it is not associated with a value`
+- **원인**: 이전 계획 재사용 분기에서 `planning_prompt` 변수가 정의되지 않음
+- **해결**: `planning_prompt` 정의를 조건문 전으로 이동
+
+```python
+# Before (버그)
+if has_previous_plan:
+    # planning_prompt 정의 없음
+    ...
+if not has_previous_plan:
+    planning_prompt = self.prompts.get(...)  # 여기서만 정의
+
+# After (수정)
+planning_prompt = self.prompts.get(...)  # 조건문 전에 정의
+if has_previous_plan:
+    ...
+if not has_previous_plan:
+    # planning_prompt 이미 정의됨
+```
+
+### 37. SSE 데이터 구조 동기화 (2026-01-07)
+- **문제**: 프론트엔드가 `event.updates.artifacts`를 찾지만 백엔드는 `event.data.artifacts`로 전송
+- **해결**: `StreamUpdate.to_dict()`에 `updates` 및 `node` 필드 추가
+
+```python
+# StreamUpdate.to_dict() 수정
+result["node"] = self.agent  # 프론트엔드 호환성
+updates = {"message": self.message}
+if self.streaming_content:
+    updates["streaming_content"] = self.streaming_content
+if self.data:
+    updates.update(self.data)  # artifacts 등 복사
+result["updates"] = updates
+```
+
+### 38. 세션 디렉토리 중복 방지 개선 (2026-01-07)
+- **문제**: 동일 이름 프로젝트에 `_1`, `_2` 접미사 추가하여 새 디렉토리 생성
+- **해결**: 기존 프로젝트가 있으면 재사용
+
+```python
+# Before
+while os.path.exists(candidate_workspace):
+    candidate_workspace = f"{project_name}_{counter}"
+    counter += 1
+
+# After
+if os.path.exists(candidate_workspace):
+    workspace = candidate_workspace  # 기존 프로젝트 재사용
+    logger.info(f"Reusing existing project workspace")
+```
+
+### 39. 대화 히스토리 파일 표시 UI 개선 (2026-01-07)
+- **문제**: 생성된 파일이 "파일: a.py, b.py" 형식으로만 표시됨
+- **해결**: 시각적 카드 형태로 개선
+  - NEW/MOD 배지 표시
+  - 파일별 액션 아이콘 (✓ 생성, ↺ 수정)
+  - 파일 개수 요약 표시
+
+## 수정 파일 목록 (Issue 36-39)
+
+| 순서 | 파일 | 변경 내용 |
+|-----|------|---------|
+| 1 | `backend/app/agent/langchain/workflow_manager.py` | planning_prompt 정의 위치 수정 |
+| 2 | `backend/app/agent/handlers/base.py` | StreamUpdate.to_dict() updates/node 추가 |
+| 3 | `backend/app/services/workflow_service.py` | 디렉토리 중복 방지 로직 수정 |
+| 4 | `frontend/src/components/WorkflowInterface.tsx` | 대화 히스토리 파일 표시 UI 개선 |

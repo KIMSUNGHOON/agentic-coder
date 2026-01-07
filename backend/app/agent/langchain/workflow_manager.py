@@ -1088,6 +1088,7 @@ PRIORITY: [high/medium/low for each]
 
         # Step 1: Planning (이전 계획이 있으면 스킵)
         planning_agent = template["nodes"][0]  # Usually PlanningAgent or AnalysisAgent
+        planning_prompt = self.prompts.get(planning_agent, self.prompts["PlanningAgent"])
 
         # 이전 계획이 포함되어 있는지 확인
         previous_plan_marker = "## Previous Implementation Plan"
@@ -1146,7 +1147,6 @@ PRIORITY: [high/medium/low for each]
                 "message": "Creating implementation plan..."
             }
 
-            planning_prompt = self.prompts.get(planning_agent, self.prompts["PlanningAgent"])
             messages = [
                 SystemMessage(content=planning_prompt),
                 HumanMessage(content=user_request)
