@@ -43,7 +43,7 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
               : 'bg-white text-[#1A1A1A] border border-[#E5E5E5]'
           }`}
         >
-          <div className={`prose max-w-none ${isUser ? 'prose-invert' : ''}`}>
+          <div className={`prose prose-lg max-w-none ${isUser ? 'prose-invert' : ''}`}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -68,7 +68,7 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
                           borderRadius: '12px',
                           padding: '16px',
                           margin: '8px 0',
-                          fontSize: '14px',
+                          fontSize: '16px',
                         }}
                       >
                         {String(children).replace(/\n$/, '')}
@@ -76,7 +76,7 @@ const ChatMessage = ({ message }: ChatMessageProps) => {
                     </div>
                   ) : (
                     <code
-                      className={`${className} bg-[#F5F4F2] px-1.5 py-0.5 rounded text-[#DA7756] text-sm`}
+                      className={`${className} bg-[#F5F4F2] px-1.5 py-0.5 rounded text-[#DA7756] text-base`}
                       {...rest}
                     >
                       {children}
