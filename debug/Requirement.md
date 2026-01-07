@@ -1,99 +1,6 @@
 # Todos
-~~* 현재 프로젝트가 Environment에도 호환이 잘 되도록 코드를 수정하고, Frontend UI/UX에도 잘 반영 될 수 있도록 해라.~~
-~~* Frontend 경로 호환성 개선~~
-~~* 메모리/리소스 최적화~~
-~~* UI/UX 개선 적용~~
 
 # Issues
-1. 또 model type이 바뀌면 다시 문제가 생기는건 아니죠?
-2. Workflow 내에 agent 들이 현재 무슨 일을 하고 있는지 conversations에는 전혀 알 수가 없네요. 단순히 "실행 중..." 이라는 정보만
-  사용자에게 보여주네요. 이런 conversations ui는 사용자에게 지루함을 느끼게 하거나, 진행 상황을 알 수가 없습니다. Conversations UI/UX를
-  개선 할 필요가 있습니다. 당신이 생각했을때 개발자에게 도움이 되는 내용들을 streaming으로 UI에 rendering하는 방법 등 좋은 방법으로 개선
-  해주기를 바랍니다.
-3. 아래 Conversations 내용을 살펴보십시오. 
-   - 코드를 생성했으나, workspace디렉토리에는 아무런 파일이 저장이 되지 않았음.
-   - Conversations UI에서는 심지어 artifact 조차 markdown의 code block을 보여주지도 않음. 
-   - 각 agent들의 결과에 대해서도 언급이 없음. 정보가 너무 없음.
-
-"
-$
-I want to create a calculator in Python. Could you help me with the plan?
-
-✓ 완료
-복사
-모든 처리가 완료되었습니다.
-
-✓ 완료
-복사
-Workflow completed
-
-$
-Now, please implement the code.
-
-✓ 완료
-복사
-모든 처리가 완료되었습니다.
-
-$ workflow execute --stream
-✓
-[감독자]
-분석 완료: code_generation
-
-✓
-[감독자]
-Task identified as: code_generation
-
-✓
-[planning]
-PlanningAgent
-
-✓
-[coding]
-Successfully created 23 files using parallel execution (up to 23 concurrent)
-
-✓
-[orchestrator]
-Parallel execution completed with 23 concurrent agents. Generated 23 files.
-
-✓
-[review]
-Review completed: 23 files reviewed in parallel, 41 total issues found
-
-✓
-[orchestrator]
-Parallel review completed with 4 concurrent agents. Reviewed 23 files, found 41 issues.
-
-✓
-[fixcode]
-FixCodeAgent
-
-✓
-[review]
-ReviewAgent
-
-✓
-[fixcode]
-FixCodeAgent
-
-✓
-[review]
-ReviewAgent
-
-✓
-[orchestrator]
-Code review passed. Generated 1 file(s).
-
-✓
-[codegenerationhandler]
-코드 생성이 완료되었습니다.
-
-✓
-[unifiedagentmanager]
-모든 처리가 완료되었습니다.
-
-✓ 워크플로우 완료
-"
-4. 1,2 번이 모두 수행되면 모든 문서에 update하고, git commit & push 하십시오.
 
 # Reference
 * backend log는 (@debug\\*.log) 를 뒤질 것
@@ -111,6 +18,7 @@ Code review passed. Generated 1 file(s).
 * 항상 기능 추가 및 수정에는 반드시 최종 로직 테스트 코드로 확인이 되어야합니다. (예: API 변경 또는 구현시에 동작 테스트 필수)
 * DeepSeek-R1, Qwen3, gpt-oss 이 세가지 모델을 서버 관리자가 사용할텐데, 항상 모델 설정에 따른 프롬프트 엔지니어링 전략, 시스템 프롬프트는 각 모델의 Guide를 참고 하도록 하시오.
 * 기능을 추가하거나, 수정한다음에 반드시 git commit을 하고 push를 하십시오. 
+* git commit msg는 영어로 작성하십시오.
 
 # Environment
 * Nvidia RTX 3090 24GB Single Card
@@ -1610,3 +1518,125 @@ except Exception as e:
 | 모델별 프롬프트 | ✅ 변경 없음 |
 | 기존 기능 | ✅ 동작 확인 |
 | 테스트 | ✅ 통과 |
+
+---
+
+# 작업 내역 (2026-01-08) - Phase 3 RAG 시스템 완성
+
+## Issue 48: Phase 3 RAG 시스템 구현 완료
+
+### 개요
+TestCodeAgent에 완전한 RAG (Retrieval-Augmented Generation) 시스템을 구현했습니다.
+벡터 검색, 대화 컨텍스트, Knowledge Graph를 결합한 Hybrid RAG 아키텍처가 완성되었습니다.
+
+### 완료된 Phase
+
+| Phase | 설명 | 상태 | Commit |
+|-------|------|------|--------|
+| Phase 3-A | ChromaDB 기본 활성화 | ✅ 완료 | c379c5b |
+| Phase 3-B | 자동 코드 인덱싱 | ✅ 완료 | e416536 |
+| Phase 3-C | RAG 검색 통합 | ✅ 완료 | 4c0d555 |
+| Phase 3-D | 대화 컨텍스트 RAG | ✅ 완료 | 1eb1dc6 |
+| Phase 3-E | Knowledge Graph 통합 | ✅ 완료 | 1144bd3 |
+
+### 구현된 컴포넌트
+
+#### 1. CodeIndexer (`backend/app/services/code_indexer.py`)
+- 프로젝트 코드 자동 벡터 인덱싱
+- AST 기반 코드 청킹 (함수/클래스 단위)
+- Python/JavaScript/TypeScript 지원
+- 워크스페이스 로드 시 백그라운드 인덱싱
+
+#### 2. RAGContextBuilder (`backend/app/services/rag_context.py`)
+- 쿼리 기반 시맨틱 코드 검색
+- 관련성 필터링 (min_relevance)
+- 코드 컨텍스트 자동 포맷팅
+- UnifiedAgentManager와 통합
+
+#### 3. ConversationIndexer (`backend/app/services/conversation_indexer.py`)
+- 대화 메시지 자동 인덱싱
+- 이전 대화 시맨틱 검색
+- 턴 번호/역할 메타데이터 관리
+- 세션별 격리된 검색
+
+#### 4. HybridRAGBuilder (`backend/app/services/hybrid_rag.py`)
+- 벡터 검색 + 그래프 탐색 결합
+- CodeGraphBuilder: 코드베이스에서 Knowledge Graph 자동 구축
+  - Python/JavaScript import 추출
+  - 클래스/함수 정의 추출
+  - 파일-의존성-정의 관계 그래프
+- 시맨틱 + 구조적 컨텍스트 통합
+
+### API 엔드포인트
+
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/workspace/set` | POST | 워크스페이스 설정 + 자동 인덱싱 시작 |
+| `/workspace/index` | POST | 수동 인덱싱 트리거 |
+| `/workspace/index/stats` | GET | 인덱싱 통계 조회 |
+
+### 테스트 커버리지
+
+| 테스트 파일 | 테스트 수 | 상태 |
+|------------|----------|------|
+| `test_code_indexer.py` | 21 | ✅ 통과 |
+| `test_rag_context.py` | 15 | ✅ 통과 |
+| `test_conversation_indexer.py` | 17 | ✅ 통과 |
+| `test_hybrid_rag.py` | 21 | ✅ 통과 |
+| **총계** | **74** | **✅ 전체 통과** |
+
+### 수정된 파일 목록
+
+| 파일 | 변경 내용 |
+|------|---------|
+| `backend/app/services/code_indexer.py` | CodeIndexer 클래스 생성, KG 통합 |
+| `backend/app/services/rag_context.py` | RAGContextBuilder 생성, 대화 검색 통합 |
+| `backend/app/services/conversation_indexer.py` | ConversationIndexer 생성 (NEW) |
+| `backend/app/services/hybrid_rag.py` | HybridRAG 시스템 (NEW) |
+| `backend/app/agent/unified_agent_manager.py` | RAG enrichment 통합 |
+| `backend/app/api/main_routes.py` | 인덱싱 API 엔드포인트 추가 |
+| `backend/core/context_store.py` | 대화 자동 인덱싱 통합 |
+| `RAG_IMPLEMENTATION_PLAN.md` | 구현 계획 및 진행 상황 문서 |
+
+### 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Hybrid RAG Architecture                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  사용자 질문: "UserService의 get_user를 수정하려면?"             │
+│                     │                                            │
+│          ┌─────────┴─────────┐                                  │
+│          ↓                   ↓                                   │
+│   [Vector Search]      [Graph Traversal]                        │
+│   "UserService" 검색   UserService 노드에서                      │
+│          │             연결된 노드 탐색                          │
+│          ↓                   ↓                                   │
+│   user_service.py      - UserModel (uses)                       │
+│   (0.95 relevance)     - DatabaseService (calls)                │
+│          │                   │                                   │
+│          └─────────┬─────────┘                                  │
+│                    ↓                                             │
+│           [Combined Context]                                     │
+│           + 이전 대화 검색                                       │
+│                    ↓                                             │
+│              [LLM Response]                                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 성공 지표 달성
+
+| 지표 | 목표 | 달성 |
+|------|------|------|
+| 코드 인덱싱 | 자동 인덱싱 | ✅ 워크스페이스 로드 시 자동 |
+| 검색 통합 | Supervisor 통합 | ✅ UnifiedAgentManager 통합 |
+| 대화 컨텍스트 | 이전 대화 검색 | ✅ 시맨틱 검색 가능 |
+| Knowledge Graph | 코드 관계 그래프 | ✅ 자동 구축 |
+| 테스트 | 기능별 테스트 | ✅ 74개 테스트 통과 |
+
+### 참고 문서
+
+- `RAG_IMPLEMENTATION_PLAN.md`: 전체 RAG 구현 계획 및 진행 상황
+- `docs/day-07-phase2-context-improvement.md`: Phase 2 Context 개선 문서
