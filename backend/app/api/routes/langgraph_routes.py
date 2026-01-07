@@ -228,13 +228,24 @@ async def execute_workflow(request: WorkflowRequest):
                     event_data = json.dumps(enriched_update, default=str)
                     yield f"data: {event_data}\n\n"
             else:
-                # Full pipeline mode - ALWAYS use dynamic workflow
-                # FIXED: All modes now use dynamic workflow (unified/enhanced are deprecated)
-                # Dynamic workflow analyzes request with Supervisor and spawns only needed agents
-                workflow = dynamic_workflow
-                workflow_type = "dynamic"
-                logger.info("🔀 Using DYNAMIC workflow (Supervisor-led agent spawning)")
-                logger.info(f"   (use_dynamic={request.use_dynamic}, use_enhanced={request.use_enhanced} - legacy flags, ignored)")
+                # Full pipeline mode - select workflow based on configuration
+                # Priority: dynamic > enhanced > unified
+                if request.use_dynamic:
+                    # Dynamic workflow with Supervisor-led agent spawning
+                    # This workflow only spawns agents that are needed based on Supervisor analysis
+                    workflow = dynamic_workflow
+                    workflow_type = "dynamic"
+                    logger.info("🔀 Using DYNAMIC workflow (Supervisor-led agent spawning)")
+                elif request.use_enhanced:
+                    # Enhanced workflow with all agents (static pipeline)
+                    workflow = enhanced_workflow
+                    workflow_type = "enhanced"
+                    logger.info("📊 Using ENHANCED workflow (static full pipeline)")
+                else:
+                    # Unified workflow (legacy)
+                    workflow = unified_workflow
+                    workflow_type = "unified"
+                    logger.info("📏 Using UNIFIED workflow (legacy)")
 
                 # Convert conversation history to simple dicts for workflow
                 conversation_context = [
