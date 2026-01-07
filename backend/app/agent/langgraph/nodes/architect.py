@@ -23,6 +23,7 @@ from datetime import datetime
 
 from app.agent.langgraph.schemas.state import QualityGateState, DebugLog
 from app.core.config import settings
+from app.services.http_client import LLMHttpClient
 
 # Import LLM provider for model-agnostic calls
 try:
@@ -397,33 +398,38 @@ def _generate_architecture_with_llm(
         except Exception as e:
             logger.warning(f"LLM provider failed: {e}, trying direct call")
 
-    # Fallback to direct HTTP call
+    # Fallback to direct HTTP call with retry logic
     try:
-        import httpx
+        http_client = LLMHttpClient(
+            timeout=120,
+            max_retries=3,
+            base_delay=2
+        )
 
-        with httpx.Client(timeout=120) as client:
-            response = client.post(
-                f"{endpoint}/chat/completions",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": ARCHITECT_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
-                    "temperature": 0.3,
-                    "max_tokens": 4096
-                }
-            )
+        result, error = http_client.post(
+            url=f"{endpoint}/chat/completions",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": ARCHITECT_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 4096
+            }
+        )
 
-            if response.status_code == 200:
-                result = response.json()
-                content = result["choices"][0].get("message", {}).get("content", "")
+        if error:
+            logger.warning(f"Direct HTTP call failed after retries: {error}")
+            return None
 
-                if content:
-                    parsed = _extract_json_from_response(content)
-                    if parsed:
-                        logger.info("✅ LLM architecture via direct HTTP")
-                        return _validate_architecture(parsed)
+        content = result["choices"][0].get("message", {}).get("content", "")
+
+        if content:
+            parsed = _extract_json_from_response(content)
+            if parsed:
+                logger.info("✅ LLM architecture via direct HTTP")
+                return _validate_architecture(parsed)
 
     except Exception as e:
         logger.warning(f"Direct HTTP call failed: {e}")

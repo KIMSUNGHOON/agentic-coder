@@ -12,6 +12,7 @@ from datetime import datetime
 from app.core.config import settings
 from app.agent.langgraph.schemas.state import QualityGateState, DebugLog
 from app.agent.langgraph.tools.filesystem_tools import write_file_tool
+from app.services.http_client import LLMHttpClient
 
 # Import prompts for different model types
 try:
@@ -288,9 +289,6 @@ def _generate_code_with_vllm(
         return _fallback_code_generator(user_request, task_type), token_usage
 
     try:
-        # Real vLLM implementation
-        import httpx
-
         # Get model-appropriate prompt and config
         prompt, model_config = _get_code_generation_prompt(user_request, task_type)
 
@@ -298,83 +296,62 @@ def _generate_code_with_vllm(
         logger.info(f"🤖 Using model: {coding_model} (type: {settings.get_coding_model_type})")
         logger.info(f"📡 Endpoint: {coding_endpoint}")
 
-        # Call LLM endpoint with longer timeout and retry logic
-        max_retries = 3
-        timeout_seconds = 120  # 2 minutes for code generation
+        # Use HTTP client with built-in retry logic for ConnectError and TimeoutException
+        http_client = LLMHttpClient(
+            timeout=120,  # 2 minutes for code generation
+            max_retries=3,
+            base_delay=2
+        )
 
-        for attempt in range(max_retries):
-            try:
-                with httpx.Client(timeout=timeout_seconds) as client:
-                    # Use /chat/completions API for better token usage tracking
-                    # vLLM /completions API may not return usage info by default
-                    response = client.post(
-                        f"{coding_endpoint}/chat/completions",
-                        json={
-                            "model": coding_model,
-                            "messages": [
-                                {"role": "system", "content": "You are an expert software engineer. Generate production-ready code."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            "max_tokens": model_config.get("max_tokens", 4096),
-                            "temperature": model_config.get("temperature", 0.2),
-                            "stop": model_config.get("stop", ["</s>", "Human:", "User:"])
-                        }
-                    )
+        # Make request with automatic retry on connection/timeout errors
+        result, error = http_client.post(
+            url=f"{coding_endpoint}/chat/completions",
+            json={
+                "model": coding_model,
+                "messages": [
+                    {"role": "system", "content": "You are an expert software engineer. Generate production-ready code."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": model_config.get("max_tokens", 4096),
+                "temperature": model_config.get("temperature", 0.2),
+                "stop": model_config.get("stop", ["</s>", "Human:", "User:"])
+            }
+        )
 
-                    if response.status_code == 200:
-                        result = response.json()
-                        # Chat completions returns content in message
-                        generated_text = result["choices"][0]["message"]["content"]
+        if error:
+            logger.error(f"vLLM request failed after retries: {error}")
+            return _fallback_code_generator(user_request, task_type), token_usage
 
-                        # Extract token usage from vLLM response
-                        # /chat/completions API includes usage by default
-                        usage = result.get("usage", {})
-                        token_usage = {
-                            "prompt_tokens": usage.get("prompt_tokens", 0),
-                            "completion_tokens": usage.get("completion_tokens", 0),
-                            "total_tokens": usage.get("total_tokens", 0)
-                        }
-                        logger.info(f"📊 Token usage: {token_usage}")
+        # Chat completions returns content in message
+        generated_text = result["choices"][0]["message"]["content"]
 
-                        # Parse JSON response
-                        try:
-                            # Extract JSON from response
-                            json_start = generated_text.find("{")
-                            json_end = generated_text.rfind("}") + 1
-                            if json_start != -1 and json_end > json_start:
-                                json_str = generated_text[json_start:json_end]
-                                parsed = json.loads(json_str)
-                                return parsed.get("files", []), token_usage
-                        except json.JSONDecodeError:
-                            logger.warning("Failed to parse vLLM JSON response, using fallback")
-                            return _fallback_code_generator(user_request, task_type), token_usage
-                    else:
-                        logger.error(f"vLLM request failed: {response.status_code}")
-                        if attempt < max_retries - 1:
-                            import time
-                            wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                            logger.info(f"Retrying in {wait_time}s... (attempt {attempt + 2}/{max_retries})")
-                            time.sleep(wait_time)
-                            continue
-                        return _fallback_code_generator(user_request, task_type), token_usage
-                    break  # Success, exit retry loop
+        # Extract token usage from vLLM response
+        usage = result.get("usage", {})
+        token_usage = {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0)
+        }
+        logger.info(f"📊 Token usage: {token_usage}")
 
-            except httpx.TimeoutException as e:
-                logger.warning(f"vLLM timeout (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    import time
-                    wait_time = 2 ** attempt  # Exponential backoff
-                    logger.info(f"Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error("vLLM timeout after all retries, using fallback")
-                    return _fallback_code_generator(user_request, task_type), token_usage
+        # Parse JSON response
+        try:
+            # Extract JSON from response
+            json_start = generated_text.find("{")
+            json_end = generated_text.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                json_str = generated_text[json_start:json_end]
+                parsed = json.loads(json_str)
+                return parsed.get("files", []), token_usage
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse vLLM JSON response, using fallback")
+            return _fallback_code_generator(user_request, task_type), token_usage
 
     except Exception as e:
         logger.error(f"vLLM call failed: {e}", exc_info=True)
         return _fallback_code_generator(user_request, task_type), token_usage
 
-    # Fallback if we exit the loop without returning (should not happen)
+    # Fallback if we exit without returning (should not happen)
     return _fallback_code_generator(user_request, task_type), token_usage
 
 

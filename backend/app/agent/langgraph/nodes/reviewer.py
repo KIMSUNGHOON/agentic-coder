@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.agent.langgraph.schemas.state import QualityGateState, DebugLog
+from app.services.http_client import LLMHttpClient
 
 # Import LLM provider for model-agnostic calls
 try:
@@ -189,10 +190,8 @@ Review this code for:
         except Exception as e:
             logger.warning(f"LLM provider failed: {e}, falling back to direct call")
 
-    # Fallback to direct HTTP call
+    # Fallback to direct HTTP call with retry logic
     try:
-        import httpx
-
         # Get model-specific prompt
         model_type = settings.get_reasoning_model_type
         prompt = _get_review_prompt(model_type, review_prompt)
@@ -200,52 +199,42 @@ Review this code for:
         # Log model info (model type auto-detected from model name)
         logger.info(f"🤖 Reviewing with model: {review_model} (type: {model_type})")
 
-        # Retry logic with exponential backoff
-        max_retries = 3
-        timeout_seconds = 90
+        # Use HTTP client with built-in retry logic
+        http_client = LLMHttpClient(
+            timeout=90,
+            max_retries=3,
+            base_delay=2
+        )
 
-        for attempt in range(max_retries):
-            try:
-                with httpx.Client(timeout=timeout_seconds) as client:
-                    response = client.post(
-                        f"{review_endpoint}/completions",
-                        json={
-                            "model": review_model,
-                            "prompt": prompt,
-                            "max_tokens": 1024,
-                            "temperature": 0.1,
-                            "stop": ["</s>", "Human:", "User:"]
-                        }
-                    )
+        result, error = http_client.post(
+            url=f"{review_endpoint}/completions",
+            json={
+                "model": review_model,
+                "prompt": prompt,
+                "max_tokens": 1024,
+                "temperature": 0.1,
+                "stop": ["</s>", "Human:", "User:"]
+            }
+        )
 
-                    if response.status_code == 200:
-                        result = response.json()
-                        generated_text = result["choices"][0]["text"]
+        if error:
+            logger.warning(f"LLM review failed after retries: {error}, using fallback")
+            return _fallback_code_reviewer(artifacts, user_request)
 
-                        # Parse JSON
-                        import json
-                        try:
-                            json_start = generated_text.find("{")
-                            json_end = generated_text.rfind("}") + 1
-                            if json_start != -1 and json_end > json_start:
-                                json_str = generated_text[json_start:json_end]
-                                return json.loads(json_str)
-                        except json.JSONDecodeError:
-                            pass
-                    break  # Exit retry loop on non-timeout response
+        generated_text = result["choices"][0]["text"]
 
-            except httpx.TimeoutException as e:
-                logger.warning(f"LLM review timeout (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    import time
-                    wait_time = 2 ** attempt
-                    logger.info(f"Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error("LLM review timeout after all retries, using fallback")
-                    return _fallback_code_reviewer(artifacts, user_request)
+        # Parse JSON
+        import json
+        try:
+            json_start = generated_text.find("{")
+            json_end = generated_text.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                json_str = generated_text[json_start:json_end]
+                return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
 
-        logger.warning("Failed to get LLM review, using fallback")
+        logger.warning("Failed to parse LLM review JSON, using fallback")
         return _fallback_code_reviewer(artifacts, user_request)
 
     except Exception as e:
