@@ -26,8 +26,10 @@ export default defineConfig({
         '**/__pycache__/**',
         '**/*.pyc'
       ],
-      // Use polling as fallback (less resource intensive)
-      usePolling: false,
+      // FIXED: Use polling to avoid ENOSPC errors (slower but more reliable)
+      // Set to true if you encounter "System limit for number of file watchers reached"
+      usePolling: true,
+      interval: 1000,  // Poll every 1 second (balance between responsiveness and CPU usage)
     }
   }
 })
