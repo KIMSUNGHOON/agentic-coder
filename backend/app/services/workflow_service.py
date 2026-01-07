@@ -116,7 +116,16 @@ Examples:
         base_workspace: Optional[str] = None
     ) -> str:
         """
-        Get existing workspace or create a new one for the session.
+        Get existing workspace or create a new session-specific one.
+
+        Each session gets its own unique workspace directory under the base workspace,
+        organized by date for easy management.
+
+        Directory structure:
+        base_workspace/
+        └── YYYY-MM-DD/
+            └── session_id_short/
+                └── project_name/
 
         Args:
             session_id: Session identifier
@@ -128,7 +137,7 @@ Examples:
         """
         # Check if workspace already exists for this session
         existing_workspace = await self.session_store.get_workspace(session_id, default=None)
-        if existing_workspace:
+        if existing_workspace and os.path.exists(existing_workspace):
             logger.info(f"Reusing existing workspace for session {session_id}: {existing_workspace}")
             return existing_workspace
 
@@ -140,26 +149,24 @@ Examples:
             workspace = base_workspace
             logger.info(f"Using existing project directory: {workspace}")
         else:
-            # Need to create a new project directory
-            # Cross-platform check: use os.path.basename instead of string matching
-            if os.path.basename(base_workspace) == "workspace":
-                workspace_root = base_workspace
-            else:
-                workspace_root = base_workspace
+            # Create session-specific workspace under base workspace
+            # Structure: base_workspace/YYYY-MM-DD/session_short/project_name
+
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            # Extract short session ID (last 8 chars or use timestamp part)
+            session_short = session_id[-12:] if len(session_id) > 12 else session_id
+            session_short = re.sub(r'[^a-zA-Z0-9_-]', '_', session_short)
 
             # Let LLM suggest a project name based on the user's request
             project_name = await self.suggest_project_name(user_message)
 
-            # Check if project already exists - reuse instead of creating duplicate
-            candidate_workspace = os.path.join(workspace_root, project_name)
-            if os.path.exists(candidate_workspace):
-                # 기존 프로젝트 재사용 (중복 생성 방지)
-                workspace = candidate_workspace
-                logger.info(f"Reusing existing project workspace '{os.path.basename(workspace)}' in {workspace_root}")
-            else:
-                # 새 프로젝트 생성
-                workspace = candidate_workspace
-                logger.info(f"Created new project workspace '{os.path.basename(workspace)}' in {workspace_root}")
+            # Build session-specific workspace path
+            # base_workspace/date/session/project
+            session_dir = os.path.join(base_workspace, today, session_short)
+            workspace = os.path.join(session_dir, project_name)
+
+            logger.info(f"Creating session workspace: {workspace}")
 
         # Store workspace for this session
         await self.session_store.set_workspace(session_id, workspace)

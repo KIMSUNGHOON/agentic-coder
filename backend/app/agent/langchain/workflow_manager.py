@@ -1683,13 +1683,41 @@ PRIORITY: [high/medium/low for each]
                         }
                     }
 
-            # Final result summary
+            # Final result summary with detailed file list
             final_status = "approved" if approved else "max_iterations_reached"
-            final_message = (
-                f"Code review passed. Generated {len(all_artifacts)} file(s)."
-                if approved else
-                f"Review loop ended after {review_iteration} iterations. Generated {len(all_artifacts)} file(s)."
-            )
+
+            # Count created vs modified files
+            created_files = [a for a in all_artifacts if a.get("action") == "created"]
+            modified_files = [a for a in all_artifacts if a.get("action") == "modified"]
+
+            # Build detailed summary
+            file_summary_lines = []
+            for artifact in all_artifacts:
+                action_icon = "📝" if artifact.get("action") == "modified" else "✅"
+                file_summary_lines.append(f"  {action_icon} {artifact['filename']} ({artifact['language']})")
+
+            file_summary = "\n".join(file_summary_lines)
+
+            if approved:
+                final_message = f"""## 🎉 코드 생성 완료
+
+**작업 결과:**
+- 생성된 파일: {len(created_files)}개
+- 수정된 파일: {len(modified_files)}개
+- 코드 리뷰: 통과 ({review_iteration}회 검토)
+
+**파일 목록:**
+{file_summary}"""
+            else:
+                final_message = f"""## ⚠️ 코드 생성 완료 (리뷰 제한 도달)
+
+**작업 결과:**
+- 생성된 파일: {len(created_files)}개
+- 수정된 파일: {len(modified_files)}개
+- 코드 리뷰: {review_iteration}회 반복 후 종료
+
+**파일 목록:**
+{file_summary}"""
 
             # Orchestrator completion
             yield {
@@ -1718,8 +1746,20 @@ PRIORITY: [high/medium/low for each]
                 }
             }
         else:
-            # No review loop - just finish
-            final_message = f"Completed. Generated {len(all_artifacts)} file(s)."
+            # No review loop - just finish with detailed summary
+            file_summary_lines = []
+            for artifact in all_artifacts:
+                file_summary_lines.append(f"  ✅ {artifact['filename']} ({artifact['language']})")
+            file_summary = "\n".join(file_summary_lines)
+
+            final_message = f"""## 🎉 코드 생성 완료
+
+**작업 결과:**
+- 생성된 파일: {len(all_artifacts)}개
+- 완료된 작업: {len(checklist)}개
+
+**파일 목록:**
+{file_summary}"""
 
             yield {
                 "agent": "Orchestrator",
