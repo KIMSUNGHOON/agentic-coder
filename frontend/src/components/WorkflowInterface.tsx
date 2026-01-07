@@ -1974,16 +1974,16 @@ const WorkflowInterface = ({ sessionId, initialUpdates, workspace: workspaceProp
                 <button
                   type="submit"
                   disabled={isRunning || !input.trim()}
-                  className="absolute right-2 bottom-2 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-xs font-medium transition-colors flex items-center gap-1.5"
+                  className="absolute right-2 bottom-2 px-4 py-2.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
                 >
                   {isRunning ? (
                     <>
-                      <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       <span>실행 중</span>
                     </>
                   ) : (
                     <>
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
                       </svg>
                       <span>실행</span>

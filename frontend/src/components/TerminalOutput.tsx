@@ -518,22 +518,28 @@ const TerminalOutput = ({ updates, isRunning, liveOutputs, savedFiles = [], onDo
                 </div>
               )}
 
-              {/* Artifacts */}
+              {/* Artifacts - Simplified: only show count, not full list */}
               {update.artifacts && update.artifacts.length > 0 && (
                 <div className="ml-2 sm:ml-4 mt-1">
-                  <div className="text-gray-600 mb-1 text-[10px] sm:text-xs">파일 ({update.artifacts.length}):</div>
-                  <div className="space-y-1">
-                    {update.artifacts.map((artifact, i) => (
-                      <ArtifactViewer key={i} artifact={artifact} />
-                    ))}
+                  <div className="text-gray-500 text-[10px] sm:text-xs">
+                    📝 {update.artifacts.length}개 파일 처리됨
+                    {update.artifacts.some(a => a.action === 'created') && <span className="text-green-400 ml-1">({update.artifacts.filter(a => a.action === 'created').length}개 생성)</span>}
+                    {update.artifacts.some(a => a.action === 'modified') && <span className="text-yellow-400 ml-1">({update.artifacts.filter(a => a.action === 'modified').length}개 수정)</span>}
                   </div>
                 </div>
               )}
 
-              {/* 단일 artifact */}
+              {/* 단일 artifact - Simplified */}
               {update.artifact && (
                 <div className="ml-2 sm:ml-4 mt-1">
-                  <ArtifactViewer artifact={update.artifact} />
+                  <div className="text-gray-500 text-[10px] sm:text-xs">
+                    📝 파일 처리됨: <span className="text-gray-300 font-mono">{update.artifact.filename}</span>
+                    {update.artifact.action && (
+                      <span className={update.artifact.action === 'created' ? 'text-green-400 ml-1' : 'text-yellow-400 ml-1'}>
+                        ({update.artifact.action === 'created' ? '생성' : '수정'})
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 

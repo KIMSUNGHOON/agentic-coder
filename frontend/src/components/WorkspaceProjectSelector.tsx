@@ -160,7 +160,12 @@ const WorkspaceProjectSelector = ({
   };
 
   // Simply display session ID, no dropdown
-  const displaySessionId = sessionId ? `session-${sessionId.slice(0, 8)}` : 'session';
+  // sessionId is already in format "session-123456789", so we truncate the timestamp
+  const displaySessionId = sessionId
+    ? sessionId.startsWith('session-')
+      ? `session-${sessionId.slice(8, 16)}` // Take first 8 digits of timestamp
+      : sessionId.slice(0, 16) // Fallback
+    : 'session';
 
   return (
     <div className="relative">
