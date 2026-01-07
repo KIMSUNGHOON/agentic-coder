@@ -445,11 +445,28 @@ def refiner_node(state: QualityGateState) -> Dict:
         updated_coder_output["status"] = "refined"
 
     # Determine if fixes are sufficient
-    is_fixed = len(code_diffs) > 0 and len(code_diffs) == len(issues)
+    # FIXED: Relaxed condition to prevent infinite loop
+    # Old: required ALL issues to be fixed (too strict → infinite loop)
+    # New: accept if ANY fixes were applied OR max iterations reached
+    max_iterations = state.get("max_iterations", 5)
 
-    logger.info(f"🔧 Refinement complete: {len(code_diffs)} diffs generated and applied")
+    if refinement_iteration >= max_iterations:
+        # Force accept after max iterations to prevent infinite loop
+        is_fixed = True
+        logger.warning(f"⚠️ Max iterations ({max_iterations}) reached - forcing acceptance")
+    elif len(code_diffs) > 0:
+        # Accept if any fixes were made (don't require perfection)
+        is_fixed = True
+        logger.info(f"✅ Refinement complete: {len(code_diffs)}/{len(issues)} issues addressed")
+    else:
+        # No diffs generated - try again if under max iterations
+        is_fixed = False
+        logger.warning(f"⚠️ No diffs generated - refinement incomplete")
+
+    logger.info(f"🔧 Refinement summary:")
+    logger.info(f"   Diffs applied: {len(code_diffs)}/{len(issues)} issues")
     logger.info(f"   Fixed: {is_fixed}")
-    logger.info(f"   Iteration: {refinement_iteration}")
+    logger.info(f"   Iteration: {refinement_iteration}/{max_iterations}")
 
     # Log debug info with model-aware reasoning (after all processing)
     debug_logs: List[DebugLog] = []

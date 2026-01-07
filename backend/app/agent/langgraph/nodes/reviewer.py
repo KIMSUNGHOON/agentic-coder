@@ -75,10 +75,23 @@ def reviewer_node(state: QualityGateState) -> Dict:
         review_result = _review_code_with_vllm(artifacts, state.get("user_request", ""))
 
         approved = review_result["approved"]
+
+        # FIXED: Force approval after max refinement iterations to prevent infinite loop
+        refinement_iteration = state.get("refinement_iteration", 0)
+        max_iterations = state.get("max_iterations", 5)
+
+        if refinement_iteration >= max_iterations - 1 and not approved:
+            # Force approve on last iteration (max_iterations - 1)
+            logger.warning(f"⚠️ Refinement iteration {refinement_iteration}/{max_iterations} - forcing approval to prevent loop")
+            approved = True
+            review_result["approved"] = True
+            review_result["critique"] += f" [Auto-approved after {max_iterations} iterations]"
+
         logger.info(f"📋 Review {'✅ APPROVED' if approved else '❌ REJECTED'}")
         logger.info(f"   Quality Score: {review_result['quality_score']:.2f}")
         logger.info(f"   Issues: {len(review_result['issues'])}")
         logger.info(f"   Suggestions: {len(review_result['suggestions'])}")
+        logger.info(f"   Refinement Iteration: {refinement_iteration}/{max_iterations}")
 
         # Add result debug log
         if state.get("enable_debug"):
