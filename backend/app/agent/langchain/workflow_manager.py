@@ -883,6 +883,90 @@ Use appropriate subdirectories (e.g., src/, lib/, tests/) based on the project t
 
 """
 
+    def _extract_project_name(self, user_request: str, task_analysis: str = "") -> Optional[str]:
+        """Extract project name from user request or task analysis.
+
+        Strategies:
+        1. Parse common patterns: "Create a {name} project/app"
+        2. Extract from task descriptions: "calculator", "blog API", etc.
+        3. Look for quoted or specific names
+        4. Return None if uncertain (will use session_id as fallback)
+
+        Args:
+            user_request: Original user request
+            task_analysis: Optional task analysis from Supervisor
+
+        Returns:
+            Project name (lowercase, hyphenated) or None
+        """
+        import re
+
+        # Combine request and analysis for searching
+        search_text = f"{user_request} {task_analysis}".lower()
+
+        # Strategy 1: Look for explicit patterns (English and Korean)
+        patterns = [
+            # English patterns
+            r'create\s+(?:a\s+)?(?:new\s+)?([a-z0-9\-_]+)\s+(?:project|application|app|system|service)',
+            r'build\s+(?:a\s+)?(?:new\s+)?([a-z0-9\-_]+)\s+(?:project|application|app|system|service)',
+            r'(?:project|app|application|system|service)\s+(?:named|called)\s+["\']?([a-z0-9\-_]+)["\']?',
+            r'for\s+(?:a\s+)?([a-z0-9\-_]+)\s+(?:project|application|app|system)',
+            # Korean patterns
+            r'([가-힣a-z0-9\-_]+)\s+(?:프로젝트|애플리케이션|앱|시스템|서비스)(?:를|을)?\s+(?:만들|생성|개발)',
+            r'(?:프로젝트|애플리케이션|앱|시스템|서비스)\s+(?:이름은|명은)?\s+["\']?([가-힣a-z0-9\-_]+)["\']?',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, search_text)
+            if match:
+                name = match.group(1).strip()
+                # Sanitize: lowercase, replace spaces/underscores with hyphens
+                name = name.lower().replace(' ', '-').replace('_', '-')
+                # Remove special chars except hyphens
+                name = re.sub(r'[^a-z0-9\-가-힣]', '', name)
+                if name and len(name) > 1:
+                    logger.info(f"Extracted project name from pattern: {name}")
+                    return name
+
+        # Strategy 2: Look for common project types
+        project_types = {
+            'calculator': 'calculator',
+            'calc': 'calculator',
+            'rest api': 'rest-api',
+            'api': 'api',
+            'blog': 'blog',
+            'todo': 'todo-app',
+            'chat': 'chat-app',
+            'web app': 'web-app',
+            'website': 'website',
+            'dashboard': 'dashboard',
+            'admin': 'admin-panel',
+            'ecommerce': 'ecommerce',
+            'shop': 'shop',
+            '계산기': 'calculator',
+            '블로그': 'blog',
+            '채팅': 'chat-app',
+            '웹사이트': 'website',
+        }
+
+        for keyword, project_name in project_types.items():
+            if keyword in search_text:
+                logger.info(f"Extracted project name from keyword '{keyword}': {project_name}")
+                return project_name
+
+        # Strategy 3: Look for quoted strings (might be project name)
+        quoted = re.findall(r'["\']([a-z0-9\-_\s가-힣]+)["\']', search_text)
+        if quoted:
+            name = quoted[0].strip().lower().replace(' ', '-').replace('_', '-')
+            name = re.sub(r'[^a-z0-9\-가-힣]', '', name)
+            if len(name) > 2 and len(name) < 30:  # Reasonable length
+                logger.info(f"Extracted project name from quotes: {name}")
+                return name
+
+        # Unable to determine - return None
+        logger.info("Could not extract project name from request")
+        return None
+
     async def execute_stream(
         self,
         user_request: str,
@@ -893,13 +977,58 @@ Use appropriate subdirectories (e.g., src/, lib/, tests/) based on the project t
         workflow_id = str(uuid.uuid4())[:8]
         max_iterations = settings.max_review_iterations
 
-        # Extract workspace and project_name from context
-        workspace = None
-        project_name = ""
-        if context and isinstance(context, dict):
-            workspace = context.get("workspace")
-            if workspace:
-                project_name = os.path.basename(workspace)
+        # ========================================
+        # NEW: Automatic Workspace Path Generation
+        # PATH: $DEFAULT_WORKSPACE/{session_id}/{project_name}
+        # ========================================
+
+        # Initialize context if needed
+        if context is None:
+            context = {}
+
+        # Extract session_id from context or use workflow_id
+        session_id = context.get("session_id", workflow_id)
+
+        # Get default workspace from environment
+        default_workspace = os.getenv("DEFAULT_WORKSPACE", "/workspace")
+
+        # Try to extract project name from user request
+        project_name = self._extract_project_name(user_request)
+
+        # Build workspace path: {default}/{session_id}/{project_name or default}
+        if project_name:
+            workspace = os.path.join(default_workspace, session_id, project_name)
+            logger.info(f"Workspace path (with project name): {workspace}")
+        else:
+            # No project name detected - use session_id only
+            workspace = os.path.join(default_workspace, session_id)
+            project_name = f"project-{session_id[:8]}"
+            logger.info(f"Workspace path (default): {workspace}")
+
+        # Create workspace directory
+        try:
+            os.makedirs(workspace, exist_ok=True)
+            logger.info(f"Workspace directory created: {workspace}")
+        except Exception as e:
+            logger.error(f"Failed to create workspace directory: {e}")
+            # Continue with execution - persistence will handle errors
+
+        # Update context with workspace info
+        context["workspace"] = workspace
+        context["session_id"] = session_id
+        context["project_name"] = project_name
+
+        # Notify user of workspace path
+        yield {
+            "agent": "WorkspaceManager",
+            "type": "workspace_info",
+            "status": "info",
+            "message": f"📁 Workspace: {workspace}",
+            "workspace": workspace,
+            "session_id": session_id,
+            "project_name": project_name,
+            "timestamp": datetime.now().isoformat()
+        }
 
         # Generate project context for prompts
         project_context = self._get_project_context_prompt(project_name)
