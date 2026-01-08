@@ -8,7 +8,9 @@ import logging
 from .base import BaseTool, ToolCategory
 from .file_tools import ReadFileTool, WriteFileTool, SearchFilesTool, ListDirectoryTool
 from .code_tools import ExecutePythonTool, RunTestsTool, LintCodeTool
-from .git_tools import GitStatusTool, GitDiffTool, GitLogTool, GitBranchTool
+from .git_tools import GitStatusTool, GitDiffTool, GitLogTool, GitBranchTool, GitCommitTool
+from .web_tools import WebSearchTool
+from .search_tools import CodeSearchTool
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,13 @@ class ToolRegistry:
             GitDiffTool(),
             GitLogTool(),
             GitBranchTool(),
+            GitCommitTool(),  # Phase 1: NEW
+
+            # Web tools (Phase 1: NEW)
+            WebSearchTool(),
+
+            # Search tools (Phase 1: NEW)
+            CodeSearchTool(),
         ]
 
         for tool in default_tools:
