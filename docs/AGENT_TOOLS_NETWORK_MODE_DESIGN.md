@@ -24,19 +24,23 @@
 
 각 도구는 네트워크 요구사항을 명시적으로 선언:
 
-| Tool | Network Required | Offline Usable | Reason |
-|------|------------------|----------------|--------|
-| WebSearchTool | ✅ Yes | ❌ No | Tavily API (external) |
-| HttpRequestTool (Phase 2) | ✅ Yes | ❌ No | REST API calls |
-| CodeSearchTool | ❌ No | ✅ Yes | Local ChromaDB |
-| GitCommitTool | ❌ No | ✅ Yes | Local git commands |
-| FileTools (4) | ❌ No | ✅ Yes | Local file system |
-| CodeTools (3) | ❌ No | ✅ Yes | Local execution |
-| GitTools (4) | ❌ No | ✅ Yes | Local git |
+| Tool | Network Type | Offline Usable | Reason |
+|------|--------------|----------------|--------|
+| WebSearchTool | EXTERNAL_API | ❌ No | Tavily API (interactive) |
+| HttpRequestTool (Phase 2) | EXTERNAL_API | ❌ No | REST API calls (interactive) |
+| DownloadFileTool (Phase 2) | EXTERNAL_DOWNLOAD | ✅ Yes | wget/curl (one-way) |
+| CodeSearchTool | LOCAL | ✅ Yes | Local ChromaDB |
+| GitCommitTool | LOCAL | ✅ Yes | Local git commands |
+| FileTools (4) | LOCAL | ✅ Yes | Local file system |
+| CodeTools (3) | LOCAL | ✅ Yes | Local execution |
+| GitTools (4) | LOCAL | ✅ Yes | Local git |
 
 **Summary**:
-- **Online-only tools**: 2 (WebSearchTool, HttpRequestTool)
+- **Online-only tools**: 2 (WebSearchTool, HttpRequestTool) - blocked in offline mode
+- **Download tools**: 1 (DownloadFileTool) - allowed in offline mode (wget/curl)
 - **Offline-capable tools**: 12 (모든 로컬 도구)
+
+**Note**: 보안망에서 wget/curl 같은 파일 다운로드는 허용되지만, 양방향 API 통신(Tavily, REST APIs)은 차단됨
 
 ### 1.2 Network Mode Configuration
 
@@ -82,8 +86,13 @@ class BaseTool(ABC):
         Returns:
             True if tool can be used in this mode
         """
-        if network_mode == "offline" and self.requires_network:
-            return False
+        if network_mode == "offline":
+            # Block interactive external APIs in offline mode
+            if self.network_type == NetworkType.EXTERNAL_API:
+                return False
+            # Allow downloads (wget/curl) even in offline mode
+            if self.network_type == NetworkType.EXTERNAL_DOWNLOAD:
+                return True
         return True
 
     # NEW: Graceful degradation message
@@ -101,24 +110,44 @@ class BaseTool(ABC):
 ```python
 class NetworkType(Enum):
     """Network requirement types"""
-    LOCAL = "local"           # No network needed (local file system, git, etc.)
-    INTERNAL = "internal"     # Internal network only (company intranet)
-    EXTERNAL = "external"     # External internet required (Tavily, HTTP requests)
+    LOCAL = "local"              # No network needed (local file system, git, etc.)
+    INTERNAL = "internal"        # Internal network only (company intranet)
+    EXTERNAL_API = "external_api"    # External API calls (Tavily, REST APIs) - BLOCKED in offline
+    EXTERNAL_DOWNLOAD = "external_download"  # File downloads (wget, curl) - ALLOWED in offline
 ```
+
+**Important Note**:
+- `EXTERNAL_API`: Interactive API calls (Tavily search, REST APIs) - **blocked in offline mode**
+- `EXTERNAL_DOWNLOAD`: One-way file downloads (wget, curl) - **allowed in offline mode**
+- This distinction allows secure networks to download packages/files while blocking interactive external APIs
 
 ### 2.2 Tool Implementation Pattern
 
-**Online-only Tool Example** (WebSearchTool):
+**Online-only Tool Example** (WebSearchTool - Interactive API):
 ```python
 class WebSearchTool(BaseTool):
     def __init__(self, api_key: Optional[str] = None):
         super().__init__("web_search", ToolCategory.WEB)
 
-        # NEW: Declare network requirement
+        # NEW: Declare network requirement (interactive API - blocked in offline)
         self.requires_network = True
-        self.network_type = NetworkType.EXTERNAL
+        self.network_type = NetworkType.EXTERNAL_API
 
-        self.description = "Search the web (requires online mode)"
+        self.description = "Search the web (requires online mode - interactive API)"
+        # ... rest of implementation
+```
+
+**Download Tool Example** (DownloadFileTool - One-way download):
+```python
+class DownloadFileTool(BaseTool):
+    def __init__(self):
+        super().__init__("download_file", ToolCategory.FILE)
+
+        # NEW: Declare as download (allowed in offline mode)
+        self.requires_network = True  # Still needs network
+        self.network_type = NetworkType.EXTERNAL_DOWNLOAD  # But allowed in offline
+
+        self.description = "Download files using wget/curl (works in offline mode)"
         # ... rest of implementation
 ```
 
@@ -274,21 +303,24 @@ TAVILY_API_KEY=your_key
 ```
 
 **Behavior**:
-- ✅ All 14 tools available
+- ✅ All 15 tools available (when Phase 2 complete)
 - ✅ WebSearchTool works (external API)
+- ✅ HttpRequestTool works (REST APIs)
+- ✅ DownloadFileTool works (wget/curl)
 - ✅ CodeSearchTool works (local)
 - ✅ GitCommitTool works (local)
 
 **Registry Stats**:
 ```json
 {
-  "total_tools": 14,
+  "total_tools": 15,
   "network_mode": "online",
-  "available_tools": 14,
+  "available_tools": 15,
   "disabled_tools": 0,
   "by_network": {
     "local": 12,
-    "external": 2
+    "external_api": 2,
+    "external_download": 1
   }
 }
 ```
@@ -302,29 +334,33 @@ NETWORK_MODE=offline
 ```
 
 **Behavior**:
-- ✅ 12 local tools available
-- ❌ WebSearchTool disabled
-- ❌ HttpRequestTool disabled (Phase 2)
+- ✅ 13 tools available (12 local + 1 download)
+- ❌ WebSearchTool disabled (interactive API)
+- ❌ HttpRequestTool disabled (interactive API)
+- ✅ DownloadFileTool works (wget/curl allowed in offline mode)
 - ✅ CodeSearchTool works (local ChromaDB)
 - ✅ GitCommitTool works (local git)
 
 **Registry Stats**:
 ```json
 {
-  "total_tools": 14,
+  "total_tools": 15,
   "network_mode": "offline",
-  "available_tools": 12,
+  "available_tools": 13,
   "disabled_tools": 2,
   "by_network": {
     "local": 12,
-    "external": 2
+    "external_api": 0,
+    "external_download": 1
   }
 }
 ```
 
 **User Feedback**:
 ```
-[WARNING] Offline mode: 2 tools disabled: ['web_search', 'http_request']
+[INFO] Offline mode: 13/15 tools available
+[WARNING] 2 tools disabled (interactive APIs): ['web_search', 'http_request']
+[INFO] Download tool available: wget/curl allowed in offline mode
 ```
 
 ### 3.3 Tool Request in Wrong Mode
@@ -355,19 +391,23 @@ tool = registry.get_tool("web_search")
 # backend/app/tools/base.py
 - Add requires_network attribute
 - Add network_type attribute
-- Add is_available_in_mode() method
-- Add NetworkType enum
+- Add is_available_in_mode() method (with download support)
+- Add NetworkType enum (LOCAL, INTERNAL, EXTERNAL_API, EXTERNAL_DOWNLOAD)
 ```
 
 **Step 2: Update Existing Tools (2h)**
 ```python
 # Phase 1 tools
-WebSearchTool:       requires_network = True,  network_type = EXTERNAL
+WebSearchTool:       requires_network = True,  network_type = EXTERNAL_API
 CodeSearchTool:      requires_network = False, network_type = LOCAL
 GitCommitTool:       requires_network = False, network_type = LOCAL
 
 # Original tools (11)
 All file/code/git:   requires_network = False, network_type = LOCAL
+
+# Phase 2 new tools
+HttpRequestTool:     requires_network = True,  network_type = EXTERNAL_API
+DownloadFileTool:    requires_network = True,  network_type = EXTERNAL_DOWNLOAD
 ```
 
 **Step 3: ToolRegistry Enhancement (3h)**
@@ -603,6 +643,7 @@ NETWORK_MODE=internal  # Allow intranet, block internet
 
 **Tool Behavior**:
 - ✅ Allow internal HTTP requests (company APIs)
+- ✅ Allow downloads (wget/curl)
 - ❌ Block external internet (Tavily)
 - ✅ All local tools
 
@@ -613,6 +654,29 @@ NETWORK_MODE=internal  # Allow intranet, block internet
 NETWORK_MODE=offline
 ALLOW_TOOLS=code_search,git_commit  # Whitelist specific tools
 BLOCK_TOOLS=execute_python         # Blacklist specific tools
+```
+
+### Secure Network Download Policy
+
+**Important Clarification**:
+- **wget/curl downloads**: ✅ Allowed in offline mode (one-way, file download only)
+- **Interactive APIs**: ❌ Blocked in offline mode (Tavily, REST APIs with responses)
+- **Rationale**: Downloads don't send sensitive data out; APIs may leak information
+
+**Example Use Cases in Offline Mode**:
+```python
+# ✅ ALLOWED: Download public packages
+download_tool = registry.get_tool("download_file")
+result = await download_tool.execute(
+    url="https://pypi.org/packages/...",
+    destination="/tmp/package.tar.gz"
+)
+
+# ❌ BLOCKED: Search external API
+web_search = registry.get_tool("web_search")  # Returns None in offline mode
+
+# ❌ BLOCKED: Call external REST API
+http_tool = registry.get_tool("http_request")  # Returns None in offline mode
 ```
 
 ---
