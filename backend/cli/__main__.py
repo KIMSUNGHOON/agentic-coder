@@ -108,8 +108,8 @@ Slash Commands (in interactive mode):
 
     parser.add_argument(
         "-w", "--workspace",
-        default=".",
-        help="Workspace directory (default: current directory)"
+        default=os.getenv("DEFAULT_WORKSPACE", "."),
+        help="Workspace directory (default: from .env DEFAULT_WORKSPACE or current directory)"
     )
 
     parser.add_argument(
@@ -119,8 +119,8 @@ Slash Commands (in interactive mode):
 
     parser.add_argument(
         "-m", "--model",
-        default="deepseek-r1:14b",
-        help="LLM model to use (default: deepseek-r1:14b)"
+        default=os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-R1"),
+        help="LLM model to use (default: from .env LLM_MODEL or deepseek-ai/DeepSeek-R1)"
     )
 
     parser.add_argument(

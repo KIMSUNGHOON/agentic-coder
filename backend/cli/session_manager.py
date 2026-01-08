@@ -20,19 +20,29 @@ class SessionManager:
 
     def __init__(
         self,
-        workspace: str = ".",
+        workspace: str = None,
         session_id: Optional[str] = None,
-        model: str = "deepseek-r1:14b",
+        model: str = None,
         auto_save: bool = True
     ):
         """Initialize session manager
 
         Args:
-            workspace: Working directory for code generation
+            workspace: Working directory for code generation (default: from .env DEFAULT_WORKSPACE or ".")
             session_id: Optional session ID to resume
-            model: LLM model to use
+            model: LLM model to use (default: from .env LLM_MODEL or deepseek-ai/DeepSeek-R1)
             auto_save: Whether to auto-save after each interaction
         """
+        import os
+
+        # Get workspace from .env if not provided
+        if workspace is None:
+            workspace = os.getenv("DEFAULT_WORKSPACE", ".")
+
+        # Get model from .env if not provided
+        if model is None:
+            model = os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-R1")
+
         self.workspace = Path(workspace).resolve()
         self.model = model
         self.auto_save = auto_save
