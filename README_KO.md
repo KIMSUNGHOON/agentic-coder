@@ -346,8 +346,9 @@ pytest app/tools/tests/ -v
 |:-----|:-----|
 | [에이전트 도구 가이드](docs/AGENT_TOOLS_PHASE2_README.md) | 20개 도구 전체 문서 |
 | [아키텍처](docs/ARCHITECTURE.md) | 시스템 설계 |
-| [CLI 가이드](docs/CLI_PHASE3_USER_GUIDE.md) | 명령줄 인터페이스 |
+| [CLI 가이드](docs/CLI_README.md) | 명령줄 인터페이스 |
 | [Mock 모드](docs/MOCK_MODE.md) | GPU 없이 테스트 |
+| [로드맵](docs/ROADMAP.md) | 개발 로드맵 및 미래 계획 |
 
 ---
 
@@ -356,11 +357,14 @@ pytest app/tools/tests/ -v
 - [x] **Phase 1** - 핵심 도구 (14개)
 - [x] **Phase 2** - 네트워크 모드 + 웹 도구
 - [x] **Phase 2.5** - 코드 포맷팅 도구
-- [x] **Phase 3** - 성능 최적화
+- [x] **Phase 3** - CLI 및 성능 최적화
 - [x] **Phase 4** - 샌드박스 실행
 - [ ] **Phase 5** - 승인 워크플로우가 포함된 계획 모드
-- [ ] **Phase 6** - MCP (Model Context Protocol) 통합
-- [ ] **Phase 7** - 멀티 에이전트 협업
+- [ ] **Phase 6** - 컨텍스트 윈도우 최적화
+- [ ] **Phase 7** - MCP (Model Context Protocol) 통합
+- [ ] **Phase 8** - 멀티 에이전트 협업
+
+자세한 내용은 [ROADMAP.md](docs/ROADMAP.md)를 참조하세요.
 
 ---
 

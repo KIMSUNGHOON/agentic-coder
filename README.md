@@ -346,8 +346,9 @@ pytest app/tools/tests/ -v
 |:---------|:------------|
 | [Agent Tools Guide](docs/AGENT_TOOLS_PHASE2_README.md) | All 20 tools documentation |
 | [Architecture](docs/ARCHITECTURE.md) | System design |
-| [CLI Guide](docs/CLI_PHASE3_USER_GUIDE.md) | Command-line interface |
+| [CLI Guide](docs/CLI_README.md) | Command-line interface |
 | [Mock Mode](docs/MOCK_MODE.md) | Testing without GPU |
+| [Roadmap](docs/ROADMAP.md) | Development roadmap & future plans |
 
 ---
 
@@ -356,11 +357,14 @@ pytest app/tools/tests/ -v
 - [x] **Phase 1** - Core tools (14 tools)
 - [x] **Phase 2** - Network mode + Web tools
 - [x] **Phase 2.5** - Code formatting tools
-- [x] **Phase 3** - Performance optimization
+- [x] **Phase 3** - CLI & Performance optimization
 - [x] **Phase 4** - Sandbox execution
 - [ ] **Phase 5** - Plan mode with approval workflow
-- [ ] **Phase 6** - MCP (Model Context Protocol) integration
-- [ ] **Phase 7** - Multi-agent collaboration
+- [ ] **Phase 6** - Context window optimization
+- [ ] **Phase 7** - MCP (Model Context Protocol) integration
+- [ ] **Phase 8** - Multi-agent collaboration
+
+See [ROADMAP.md](docs/ROADMAP.md) for detailed plans and feature backlog.
 
 ---
 
