@@ -1021,3 +1021,37 @@ class DynamicWorkflow:
 
 # Global dynamic workflow instance
 dynamic_workflow = DynamicWorkflow()
+
+
+class DynamicWorkflowManager:
+    """Alias class for CLI compatibility
+
+    Wraps DynamicWorkflow to provide the interface expected by session_manager.py
+    """
+
+    def __init__(self):
+        self._workflow = DynamicWorkflow()
+        logger.info("✅ DynamicWorkflowManager initialized (wrapper for DynamicWorkflow)")
+
+    async def execute_streaming_workflow(
+        self,
+        user_request: str,
+        workspace_dir: str,
+        conversation_history: List[Dict[str, str]] = None
+    ) -> AsyncGenerator[Dict, None]:
+        """Execute workflow with streaming - CLI compatible interface
+
+        Args:
+            user_request: User's request
+            workspace_dir: Workspace directory (maps to workspace_root)
+            conversation_history: Previous conversation for context
+
+        Yields:
+            Stream updates from workflow execution
+        """
+        async for update in self._workflow.execute(
+            user_request=user_request,
+            workspace_root=workspace_dir,
+            conversation_history=conversation_history or []
+        ):
+            yield update
