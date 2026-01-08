@@ -3349,3 +3349,267 @@ response = agent.run("Commit all changes with message 'Update code'")
 **Ready for Production** ✅
 
 ---
+
+## Network Mode Design for Phase 2
+
+**Date**: 2026-01-08
+**Purpose**: 보안망 지원을 위한 Online/Offline Mode 인터페이스 설계
+**Status**: ✅ Design Complete - Phase 2부터 구현 예정
+
+### 보안 요구사항
+
+**문제**: 외부 네트워크 요청이 제한된 보안망 환경에서 도구 사용 불가
+**해결**: Online/Offline mode 구분으로 네트워크 모드 명시적 관리
+
+### 핵심 설계
+
+#### 1. Network Mode 설정
+
+**환경 변수**:
+```bash
+# .env
+NETWORK_MODE=online   # or 'offline'
+```
+
+**지원 모드**:
+- `online` (기본값) - 모든 도구 사용 가능 (외부 네트워크 허용)
+- `offline` - 로컬 도구만 사용 (외부 네트워크 차단)
+
+#### 2. 도구별 네트워크 요구사항
+
+| Tool | Network Required | Offline Usable |
+|------|------------------|----------------|
+| WebSearchTool | ✅ Yes (Tavily API) | ❌ No |
+| HttpRequestTool (Phase 2) | ✅ Yes (REST API) | ❌ No |
+| CodeSearchTool | ❌ No (Local ChromaDB) | ✅ Yes |
+| GitCommitTool | ❌ No (Local git) | ✅ Yes |
+| File/Code/Git Tools (11) | ❌ No (Local) | ✅ Yes |
+
+**Summary**:
+- **Online-only**: 2개 (WebSearchTool, HttpRequestTool)
+- **Offline-capable**: 12개 (모든 로컬 도구)
+
+#### 3. BaseTool 인터페이스 확장 (Phase 2)
+
+```python
+class BaseTool(ABC):
+    def __init__(self, name: str, category: ToolCategory):
+        self.name = name
+        self.category = category
+
+        # NEW: Network requirement declaration
+        self.requires_network = False  # Default: offline-capable
+        self.network_type = NetworkType.LOCAL  # LOCAL, INTERNAL, EXTERNAL
+
+    def is_available_in_mode(self, network_mode: str) -> bool:
+        """Check if tool is available in current network mode"""
+        if network_mode == "offline" and self.requires_network:
+            return False
+        return True
+```
+
+**NetworkType Enum**:
+```python
+class NetworkType(Enum):
+    LOCAL = "local"        # No network (file system, git)
+    INTERNAL = "internal"  # Internal network only
+    EXTERNAL = "external"  # External internet required
+```
+
+#### 4. ToolRegistry 필터링 (Phase 2)
+
+```python
+class ToolRegistry:
+    def __init__(self):
+        self._network_mode = os.getenv("NETWORK_MODE", "online")
+        self._register_default_tools()
+
+        # Log disabled tools in offline mode
+        if self._network_mode == "offline":
+            disabled = [t.name for t in self._tools.values() if t.requires_network]
+            logger.warning(f"Offline mode: {len(disabled)} tools disabled: {disabled}")
+
+    def get_tool(self, name: str) -> Optional[BaseTool]:
+        """Get tool by name, checking network availability"""
+        tool = self._tools.get(name)
+        if tool and not tool.is_available_in_mode(self._network_mode):
+            logger.warning(f"Tool '{name}' unavailable in {self._network_mode} mode")
+            return None
+        return tool
+
+    def list_tools(self, category: Optional[ToolCategory] = None) -> List[BaseTool]:
+        """List tools, filtered by network mode"""
+        tools = list(self._tools.values())
+        if category:
+            tools = [t for t in tools if t.category == category]
+
+        # Filter by network mode
+        tools = [t for t in tools if t.is_available_in_mode(self._network_mode)]
+        return tools
+```
+
+### 사용 시나리오
+
+#### Scenario 1: Online Mode (개발 환경)
+
+**설정**:
+```bash
+NETWORK_MODE=online
+TAVILY_API_KEY=dev_key
+```
+
+**동작**:
+- ✅ 14개 도구 모두 사용 가능
+- ✅ WebSearchTool 작동 (외부 API)
+- ✅ CodeSearchTool 작동 (로컬)
+
+**Registry Stats**:
+```json
+{
+  "network_mode": "online",
+  "total_tools": 14,
+  "available_tools": 14,
+  "disabled_tools": 0
+}
+```
+
+#### Scenario 2: Offline Mode (보안망)
+
+**설정**:
+```bash
+NETWORK_MODE=offline
+# TAVILY_API_KEY 무시됨
+```
+
+**동작**:
+- ✅ 12개 로컬 도구 사용 가능
+- ❌ WebSearchTool 비활성화
+- ❌ HttpRequestTool 비활성화 (Phase 2)
+- ✅ CodeSearchTool 작동 (로컬 ChromaDB)
+- ✅ GitCommitTool 작동 (로컬 git)
+
+**Registry Stats**:
+```json
+{
+  "network_mode": "offline",
+  "total_tools": 14,
+  "available_tools": 12,
+  "disabled_tools": 2
+}
+```
+
+**로그 출력**:
+```
+[WARNING] Offline mode: 2 tools disabled: ['web_search', 'http_request']
+```
+
+### Phase 2 구현 계획 (12시간)
+
+**작업 목록**:
+
+1. **BaseTool 확장** (2h)
+   - `requires_network` 속성 추가
+   - `network_type` 속성 추가
+   - `NetworkType` enum 정의
+   - `is_available_in_mode()` 메서드 추가
+
+2. **기존 도구 업데이트** (2h)
+   - WebSearchTool: `requires_network=True, network_type=EXTERNAL`
+   - CodeSearchTool: `requires_network=False, network_type=LOCAL`
+   - GitCommitTool: `requires_network=False, network_type=LOCAL`
+   - 기존 11개 도구: 모두 `requires_network=False, network_type=LOCAL`
+
+3. **ToolRegistry 강화** (3h)
+   - `_get_network_mode()` 메서드
+   - `list_tools()` 필터링
+   - `get_tool()` 가용성 확인
+   - 통계 정보에 네트워크 모드 추가
+
+4. **설정 파일** (1h)
+   - `.env.example`에 `NETWORK_MODE` 추가
+   - 문서화 주석 추가
+
+5. **테스트** (3h)
+   - `test_network_mode.py` 생성
+   - Online mode 테스트
+   - Offline mode 테스트
+   - 도구 필터링 테스트
+   - Agent graceful degradation 테스트
+
+6. **문서화** (1h)
+   - `AGENT_TOOLS_PHASE1_README.md` 업데이트
+   - 네트워크 모드 섹션 추가
+   - 보안 고려사항 추가
+   - 사용 예시 추가
+
+### 보안 이점
+
+**Offline Mode 장점**:
+- ✅ 외부 API 호출 없음 (외부 공격 표면 제로)
+- ✅ API 키 불필요
+- ✅ Air-gapped 네트워크에 적합
+- ✅ 엄격한 보안 정책 준수
+- ✅ 데이터가 로컬 네트워크를 벗어나지 않음
+
+**권장 사항**:
+- 프로덕션 보안 환경: **offline mode** 사용
+- 개발/테스트 환경: **online mode** 사용
+- API 키는 절대 버전 관리에 포함하지 않기
+- API 키 정기적 교체
+
+### 테스트 전략
+
+**Unit Tests** (Phase 2):
+```python
+def test_online_mode_all_tools_available():
+    with patch.dict(os.environ, {"NETWORK_MODE": "online"}):
+        registry = ToolRegistry()
+        assert len(registry.list_tools()) == 14
+
+def test_offline_mode_filters_network_tools():
+    with patch.dict(os.environ, {"NETWORK_MODE": "offline"}):
+        registry = ToolRegistry()
+        assert len(registry.list_tools()) == 12
+        assert registry.get_tool("web_search") is None
+        assert registry.get_tool("code_search") is not None
+```
+
+### 향후 확장
+
+**Phase 3: Internal Network Mode**:
+```bash
+NETWORK_MODE=internal  # 내부망 허용, 인터넷 차단
+```
+
+**사용 사례**: 내부 API는 있지만 인터넷이 없는 기업 네트워크
+
+### 설계 문서
+
+**파일**: `docs/AGENT_TOOLS_NETWORK_MODE_DESIGN.md`
+
+**내용**:
+- 상세 아키텍처 설계
+- 인터페이스 명세
+- 구현 예제 코드
+- 테스트 전략
+- 마이그레이션 체크리스트
+- 사용 시나리오 및 예시
+
+### 결론
+
+**설계 완료**: ✅ Phase 2 구현 준비 완료
+
+**주요 특징**:
+1. ✅ **보안**: Air-gapped 네트워크 지원
+2. ✅ **유연성**: 환경 변수로 간편한 모드 전환
+3. ✅ **우아함**: 자동 도구 필터링
+4. ✅ **명시성**: 도구별 네트워크 요구사항 선언
+5. ✅ **테스트**: 포괄적 테스트 전략
+
+**Phase 2 적용 계획**:
+- 12시간 추가 작업
+- 모든 도구에 네트워크 선언 추가
+- 완전한 테스트 커버리지
+- 문서화 완료
+
+---
