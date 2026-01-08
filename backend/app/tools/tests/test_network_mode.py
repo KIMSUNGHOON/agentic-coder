@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
 
 from app.tools.base import BaseTool, ToolCategory, ToolResult, NetworkType
-from app.tools.web_tools import WebSearchTool
+from app.tools.web_tools import WebSearchTool, HttpRequestTool, DownloadFileTool
 from app.tools.search_tools import CodeSearchTool
 from app.tools.git_tools import GitCommitTool, GitStatusTool
 from app.tools.file_tools import ReadFileTool
@@ -325,6 +325,135 @@ class TestToolNetworkTypeDeclarations:
         tool = CodeSearchTool()
         assert tool.network_type == NetworkType.LOCAL
         assert tool.requires_network is False
+
+
+class TestPhase2NewTools:
+    """Test Phase 2 new tools: HttpRequestTool and DownloadFileTool"""
+
+    def test_http_request_tool_is_external_api(self):
+        """Test HttpRequestTool is EXTERNAL_API (blocked in offline mode)"""
+        tool = HttpRequestTool()
+        assert tool.network_type == NetworkType.EXTERNAL_API
+        assert tool.requires_network is True
+        assert tool.name == "http_request"
+        assert tool.is_available_in_mode("online") is True
+        assert tool.is_available_in_mode("offline") is False
+
+    def test_download_file_tool_is_external_download(self):
+        """Test DownloadFileTool is EXTERNAL_DOWNLOAD (allowed in offline mode)"""
+        tool = DownloadFileTool()
+        assert tool.network_type == NetworkType.EXTERNAL_DOWNLOAD
+        assert tool.requires_network is True
+        assert tool.name == "download_file"
+        assert tool.is_available_in_mode("online") is True
+        assert tool.is_available_in_mode("offline") is True
+
+    def test_http_request_unavailable_message(self):
+        """Test HttpRequestTool has proper unavailable message"""
+        tool = HttpRequestTool()
+        message = tool.get_unavailable_message()
+        assert "http_request" in message
+        assert "offline mode" in message or "external API" in message.lower()
+
+    def test_download_file_no_unavailable_message(self):
+        """Test DownloadFileTool is available so no unavailable message needed"""
+        tool = DownloadFileTool()
+        # Since EXTERNAL_DOWNLOAD is allowed in offline, check is_available_in_mode
+        assert tool.is_available_in_mode("offline") is True
+
+    def test_http_request_validates_url(self):
+        """Test HttpRequestTool validates URL parameter"""
+        tool = HttpRequestTool()
+        assert tool.validate_params(url="https://example.com") is True
+        assert tool.validate_params(url="http://localhost:8000") is True
+        assert tool.validate_params(url="") is False
+        assert tool.validate_params() is False
+
+    def test_download_file_validates_params(self):
+        """Test DownloadFileTool validates parameters"""
+        tool = DownloadFileTool()
+        assert tool.validate_params(url="https://example.com/file.txt", output_path="/tmp/file.txt") is True
+        assert tool.validate_params(url="ftp://example.com/file.txt", output_path="/tmp/file.txt") is True
+        assert tool.validate_params(url="", output_path="/tmp/file.txt") is False
+        assert tool.validate_params(url="https://example.com/file.txt", output_path="") is False
+
+
+class TestPhase2ToolRegistration:
+    """Test that Phase 2 tools are properly registered"""
+
+    def test_http_request_registered_online(self):
+        """Test HttpRequestTool is registered and available in online mode"""
+        with patch.dict(os.environ, {"NETWORK_MODE": "online"}):
+            from app.tools.registry import ToolRegistry
+            ToolRegistry._instance = None
+
+            registry = ToolRegistry()
+            tool = registry.get_tool("http_request")
+
+            assert tool is not None
+            assert tool.name == "http_request"
+            assert tool.network_type == NetworkType.EXTERNAL_API
+
+    def test_http_request_blocked_offline(self):
+        """Test HttpRequestTool is blocked in offline mode"""
+        with patch.dict(os.environ, {"NETWORK_MODE": "offline"}):
+            from app.tools.registry import ToolRegistry
+            ToolRegistry._instance = None
+
+            registry = ToolRegistry()
+            tool = registry.get_tool("http_request")
+
+            assert tool is None
+
+    def test_download_file_available_online(self):
+        """Test DownloadFileTool is available in online mode"""
+        with patch.dict(os.environ, {"NETWORK_MODE": "online"}):
+            from app.tools.registry import ToolRegistry
+            ToolRegistry._instance = None
+
+            registry = ToolRegistry()
+            tool = registry.get_tool("download_file")
+
+            assert tool is not None
+            assert tool.name == "download_file"
+            assert tool.network_type == NetworkType.EXTERNAL_DOWNLOAD
+
+    def test_download_file_available_offline(self):
+        """Test DownloadFileTool is available in offline mode (one-way download)"""
+        with patch.dict(os.environ, {"NETWORK_MODE": "offline"}):
+            from app.tools.registry import ToolRegistry
+            ToolRegistry._instance = None
+
+            registry = ToolRegistry()
+            tool = registry.get_tool("download_file")
+
+            assert tool is not None
+            assert tool.name == "download_file"
+
+    def test_registry_has_16_tools(self):
+        """Test registry now has 16 tools (14 + 2 new)"""
+        with patch.dict(os.environ, {"NETWORK_MODE": "online"}):
+            from app.tools.registry import ToolRegistry
+            ToolRegistry._instance = None
+
+            registry = ToolRegistry()
+            stats = registry.get_statistics()
+
+            # 14 original + 2 new = 16 tools
+            assert stats["total_tools"] == 16
+
+    def test_offline_mode_has_2_disabled_tools(self):
+        """Test offline mode has exactly 2 disabled tools (web_search and http_request)"""
+        with patch.dict(os.environ, {"NETWORK_MODE": "offline"}):
+            from app.tools.registry import ToolRegistry
+            ToolRegistry._instance = None
+
+            registry = ToolRegistry()
+            stats = registry.get_statistics()
+
+            # WebSearchTool and HttpRequestTool should be disabled
+            assert stats["disabled_tools"] == 2
+            assert stats["available_tools"] == 14  # 16 - 2 = 14
 
 
 class TestNetworkModeSecurityPolicy:
