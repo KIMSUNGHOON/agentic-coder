@@ -5,6 +5,11 @@ Phase 2 Tools:
 - WebSearchTool: Search the web using Tavily API (EXTERNAL_API)
 - HttpRequestTool: Make HTTP requests to REST APIs (EXTERNAL_API)
 - DownloadFileTool: Download files from URLs (EXTERNAL_DOWNLOAD)
+
+Phase 3 Performance:
+- Connection pooling for HTTP requests
+- Download progress tracking
+- Result caching
 """
 
 import logging
@@ -12,9 +17,10 @@ import os
 import asyncio
 import subprocess
 import pathlib
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 
 from .base import BaseTool, ToolCategory, ToolResult, NetworkType
+from .performance import ConnectionPool, ProgressTracker, DownloadProgress, get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +213,13 @@ class HttpRequestTool(BaseTool):
 
     Phase 2: EXTERNAL_API - blocked in offline mode
     This tool sends data to external APIs and may leak local information.
+
+    Phase 3 Performance:
+    - Uses shared connection pool for TCP reuse
+    - Optional result caching for GET requests
     """
 
-    def __init__(self):
+    def __init__(self, use_cache: bool = True):
         super().__init__("http_request", ToolCategory.WEB)
 
         # Phase 2: Network requirement - EXTERNAL_API (blocked in offline mode)
@@ -246,10 +256,17 @@ class HttpRequestTool(BaseTool):
                 "description": "Request timeout in seconds",
                 "default": 30,
                 "required": False
+            },
+            "use_cache": {
+                "type": "boolean",
+                "description": "Use cached result if available (GET only)",
+                "default": True,
+                "required": False
             }
         }
 
-        self._session = None
+        # Phase 3: Performance settings
+        self._use_cache = use_cache
 
     def validate_params(self, **kwargs) -> bool:
         """Validate HTTP request parameters"""
@@ -283,9 +300,10 @@ class HttpRequestTool(BaseTool):
         headers: Optional[Dict[str, str]] = None,
         body: Optional[str] = None,
         timeout: int = 30,
+        use_cache: bool = True,
         **kwargs
     ) -> ToolResult:
-        """Execute HTTP request
+        """Execute HTTP request with connection pooling and caching
 
         Args:
             url: Target URL
@@ -293,6 +311,7 @@ class HttpRequestTool(BaseTool):
             headers: Request headers
             body: Request body
             timeout: Request timeout
+            use_cache: Use cached result if available (GET only)
 
         Returns:
             ToolResult with response data
@@ -309,12 +328,23 @@ class HttpRequestTool(BaseTool):
         method = method.upper()
         headers = headers or {}
 
+        # Phase 3: Check cache for GET requests
+        cache_params = {"url": url, "method": method, "headers": headers}
+        if method == "GET" and use_cache and self._use_cache:
+            cache = get_cache()
+            cached_result = cache.get(self.name, cache_params)
+            if cached_result:
+                logger.info(f"📦 Cache hit for {method} {url}")
+                cached_result.metadata["cached"] = True
+                return cached_result
+
         logger.info(f"🌐 HTTP {method} request to: {url}")
 
         try:
-            timeout_obj = aiohttp.ClientTimeout(total=timeout)
+            # Phase 3: Use connection pool instead of creating new session
+            pool = await ConnectionPool.get_instance()
 
-            async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+            async with pool.get_session(timeout=timeout) as session:
                 # Prepare request kwargs
                 request_kwargs = {
                     "headers": headers
@@ -357,16 +387,24 @@ class HttpRequestTool(BaseTool):
 
                     logger.info(f"{'✅' if success else '⚠️'} {result_output['message']}")
 
-                    return ToolResult(
+                    result = ToolResult(
                         success=success,
                         output=result_output,
                         metadata={
                             "tool": self.name,
                             "method": method,
                             "url": url,
-                            "status_code": response.status
+                            "status_code": response.status,
+                            "cached": False
                         }
                     )
+
+                    # Phase 3: Cache successful GET responses
+                    if method == "GET" and success and use_cache and self._use_cache:
+                        cache = get_cache()
+                        cache.set(self.name, cache_params, result)
+
+                    return result
 
         except asyncio.TimeoutError:
             error_msg = f"Request timeout after {timeout} seconds"
@@ -398,14 +436,22 @@ class HttpRequestTool(BaseTool):
 
 class DownloadFileTool(BaseTool):
     """
-    Download files from URLs using wget or curl.
+    Download files from URLs using wget, curl, or aiohttp.
 
     Phase 2: EXTERNAL_DOWNLOAD - allowed in offline mode
     This tool only downloads data (data IN), it does not send local data externally.
     Safe for use in secure/air-gapped networks.
+
+    Phase 3 Performance:
+    - Uses aiohttp with progress tracking when available
+    - Falls back to wget/curl for compatibility
+    - Real-time progress callbacks
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        progress_callback: Optional[Callable[[DownloadProgress], None]] = None
+    ):
         super().__init__("download_file", ToolCategory.WEB)
 
         # Phase 2: Network requirement - EXTERNAL_DOWNLOAD (allowed in offline mode)
@@ -413,7 +459,7 @@ class DownloadFileTool(BaseTool):
         self.requires_network = True
         self.network_type = NetworkType.EXTERNAL_DOWNLOAD
 
-        self.description = "Download files from URLs using wget/curl (allowed in offline mode - one-way download)"
+        self.description = "Download files from URLs with progress tracking (allowed in offline mode)"
         self.parameters = {
             "url": {
                 "type": "string",
@@ -436,8 +482,17 @@ class DownloadFileTool(BaseTool):
                 "description": "Overwrite existing file if it exists",
                 "default": False,
                 "required": False
+            },
+            "show_progress": {
+                "type": "boolean",
+                "description": "Track download progress (requires aiohttp)",
+                "default": True,
+                "required": False
             }
         }
+
+        # Phase 3: Progress callback
+        self._progress_callback = progress_callback
 
     def validate_params(self, **kwargs) -> bool:
         """Validate download parameters"""
@@ -477,21 +532,105 @@ class DownloadFileTool(BaseTool):
                 continue
         return None
 
+    async def _download_with_progress(
+        self,
+        url: str,
+        output_file: pathlib.Path,
+        timeout: int
+    ) -> ToolResult:
+        """Download file using aiohttp with progress tracking"""
+        try:
+            import aiohttp
+        except ImportError:
+            return None  # Fall back to wget/curl
+
+        try:
+            pool = await ConnectionPool.get_instance()
+
+            async with pool.get_session(timeout=timeout) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return ToolResult(
+                            success=False,
+                            output=None,
+                            error=f"HTTP {response.status}: {response.reason}"
+                        )
+
+                    # Get total size if available
+                    total_size = int(response.headers.get('content-length', 0))
+
+                    # Create progress tracker
+                    tracker = ProgressTracker(
+                        url=url,
+                        output_path=str(output_file),
+                        total_bytes=total_size,
+                        callback=self._progress_callback
+                    )
+
+                    # Download with progress
+                    downloaded = 0
+                    with open(output_file, 'wb') as f:
+                        async for chunk in response.content.iter_chunked(8192):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            await tracker.update(len(chunk))
+
+                    tracker.complete(success=True)
+
+                    file_size = output_file.stat().st_size
+                    file_size_mb = file_size / (1024 * 1024)
+                    elapsed = tracker.progress.elapsed_seconds
+
+                    message = f"Downloaded {file_size_mb:.2f} MB in {elapsed:.1f}s"
+                    logger.info(f"✅ {message}")
+
+                    return ToolResult(
+                        success=True,
+                        output={
+                            "url": url,
+                            "output_path": str(output_file),
+                            "file_size_bytes": file_size,
+                            "file_size_mb": round(file_size_mb, 2),
+                            "downloader": "aiohttp",
+                            "elapsed_seconds": round(elapsed, 1),
+                            "speed_mbps": round(tracker.progress.speed_mbps, 2),
+                            "message": message
+                        },
+                        metadata={
+                            "tool": self.name,
+                            "url": url,
+                            "output_path": str(output_file),
+                            "progress_tracked": True
+                        }
+                    )
+
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"Download timeout after {timeout} seconds"
+            )
+        except Exception as e:
+            logger.warning(f"aiohttp download failed, falling back: {e}")
+            return None  # Fall back to wget/curl
+
     async def execute(
         self,
         url: str,
         output_path: str,
         timeout: int = 60,
         overwrite: bool = False,
+        show_progress: bool = True,
         **kwargs
     ) -> ToolResult:
-        """Execute file download
+        """Execute file download with optional progress tracking
 
         Args:
             url: URL to download from
             output_path: Local path to save file
             timeout: Download timeout
             overwrite: Whether to overwrite existing file
+            show_progress: Use aiohttp with progress tracking
 
         Returns:
             ToolResult with download status
@@ -510,13 +649,19 @@ class DownloadFileTool(BaseTool):
             # Create parent directory if needed
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Find available downloader
+            # Phase 3: Try aiohttp download with progress tracking first
+            if show_progress:
+                result = await self._download_with_progress(url, output_file, timeout)
+                if result is not None:
+                    return result
+
+            # Fall back to wget/curl
             downloader = self._find_downloader()
             if not downloader:
                 return ToolResult(
                     success=False,
                     output=None,
-                    error="Neither wget nor curl found. Please install one of them."
+                    error="Neither wget, curl, nor aiohttp available. Please install one of them."
                 )
 
             logger.info(f"📥 Downloading: {url} -> {output_path} (using {downloader})")
@@ -603,7 +748,8 @@ class DownloadFileTool(BaseTool):
                 metadata={
                     "tool": self.name,
                     "url": url,
-                    "output_path": str(output_file)
+                    "output_path": str(output_file),
+                    "progress_tracked": False
                 }
             )
 
