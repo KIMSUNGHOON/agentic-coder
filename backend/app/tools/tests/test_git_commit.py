@@ -93,8 +93,11 @@ class TestGitCommitTool:
             elif 'commit' in args:
                 return mock_commit_process
 
+        async def mock_wait_for(coro, timeout):
+            return await coro
+
         with patch('asyncio.create_subprocess_exec', side_effect=mock_exec):
-            with patch('asyncio.wait_for', side_effect=lambda coro, timeout: coro):
+            with patch('asyncio.wait_for', side_effect=mock_wait_for):
                 result = await tool.execute(
                     message="Test commit",
                     add_all=True
@@ -134,8 +137,11 @@ class TestGitCommitTool:
             elif 'commit' in args:
                 return mock_commit_process
 
+        async def mock_wait_for(coro, timeout):
+            return await coro
+
         with patch('asyncio.create_subprocess_exec', side_effect=mock_exec):
-            with patch('asyncio.wait_for', side_effect=lambda coro, timeout: coro):
+            with patch('asyncio.wait_for', side_effect=mock_wait_for):
                 result = await tool.execute(
                     message="Update files",
                     files=["file1.py", "file2.py"]

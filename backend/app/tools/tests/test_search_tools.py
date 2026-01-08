@@ -82,7 +82,7 @@ class TestCodeSearchTool:
             assert result.output["result_count"] == 2
             assert len(result.output["results"]) == 2
             assert result.output["results"][0]["file_path"] == "backend/app/auth.py"
-            assert "authentication" in result.message.lower()
+            assert "authentication" in result.output["message"].lower()
 
     @pytest.mark.asyncio
     async def test_execute_no_results(self):

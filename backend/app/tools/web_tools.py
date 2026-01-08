@@ -166,9 +166,9 @@ class WebSearchTool(BaseTool):
                     "query": query,
                     "result_count": result_count,
                     "results": results,
-                    "search_depth": search_depth
+                    "search_depth": search_depth,
+                    "message": message
                 },
-                message=message,
                 metadata={
                     "tool": self.name,
                     "max_results": max_results,

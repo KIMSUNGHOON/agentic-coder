@@ -1,6 +1,6 @@
-# Agent Tools Phase 2 - Network Mode & New Tools
+# Agent Tools Phase 2/2.5/3 - Complete Documentation
 
-**Version**: 2.0.0
+**Version**: 3.0.0
 **Date**: 2026-01-08
 **Status**: Production Ready
 
@@ -8,15 +8,25 @@
 
 ## Overview
 
-Agent Tools Phase 2 introduces **Network Mode** for secure network environments and adds **2 new web tools**. This enables controlled tool access in air-gapped or security-restricted networks.
+This document covers all features introduced in Agent Tools Phases 2, 2.5, and 3:
+
+- **Phase 2**: Network Mode System + Web Tools (HttpRequestTool, DownloadFileTool)
+- **Phase 2.5**: Code Tools (FormatCodeTool, ShellCommandTool, DocstringGeneratorTool)
+- **Phase 3**: Performance Optimization (Connection Pooling, Caching, Progress Tracking)
 
 ### Key Features
 
 1. **Network Mode System** - Online/Offline mode control
-2. **HttpRequestTool** - REST API calls (EXTERNAL_API)
-3. **DownloadFileTool** - File downloads via wget/curl (EXTERNAL_DOWNLOAD)
+2. **HttpRequestTool** - REST API calls with caching (EXTERNAL_API)
+3. **DownloadFileTool** - File downloads with progress tracking (EXTERNAL_DOWNLOAD)
+4. **FormatCodeTool** - Code formatting with Black/autopep8/yapf (LOCAL)
+5. **ShellCommandTool** - Safe shell command execution (LOCAL)
+6. **DocstringGeneratorTool** - Auto-generate docstrings (LOCAL)
+7. **Connection Pooling** - Shared HTTP connections for efficiency
+8. **Result Caching** - LRU cache with TTL for GET requests
+9. **Progress Tracking** - Real-time download progress with callbacks
 
-**Total Tools**: 16 (14 Phase 1 + 2 new)
+**Total Tools**: 19 (14 Phase 1 + 2 Phase 2 + 3 Phase 2.5)
 
 ---
 
@@ -56,24 +66,27 @@ NETWORK_MODE=offline  # Block EXTERNAL_API tools only
 
 ### Tool Availability by Mode
 
-| Tool | Network Type | Online | Offline |
-|------|--------------|--------|---------|
-| read_file | LOCAL | Yes | Yes |
-| write_file | LOCAL | Yes | Yes |
-| search_files | LOCAL | Yes | Yes |
-| list_directory | LOCAL | Yes | Yes |
-| execute_python | LOCAL | Yes | Yes |
-| run_tests | LOCAL | Yes | Yes |
-| lint_code | LOCAL | Yes | Yes |
-| git_status | LOCAL | Yes | Yes |
-| git_diff | LOCAL | Yes | Yes |
-| git_log | LOCAL | Yes | Yes |
-| git_branch | LOCAL | Yes | Yes |
-| git_commit | LOCAL | Yes | Yes |
-| code_search | LOCAL | Yes | Yes |
-| web_search | EXTERNAL_API | Yes | **No** |
-| http_request | EXTERNAL_API | Yes | **No** |
-| download_file | EXTERNAL_DOWNLOAD | Yes | Yes |
+| Tool | Network Type | Online | Offline | Phase |
+|------|--------------|--------|---------|-------|
+| read_file | LOCAL | Yes | Yes | 1 |
+| write_file | LOCAL | Yes | Yes | 1 |
+| search_files | LOCAL | Yes | Yes | 1 |
+| list_directory | LOCAL | Yes | Yes | 1 |
+| execute_python | LOCAL | Yes | Yes | 1 |
+| run_tests | LOCAL | Yes | Yes | 1 |
+| lint_code | LOCAL | Yes | Yes | 1 |
+| git_status | LOCAL | Yes | Yes | 1 |
+| git_diff | LOCAL | Yes | Yes | 1 |
+| git_log | LOCAL | Yes | Yes | 1 |
+| git_branch | LOCAL | Yes | Yes | 1 |
+| git_commit | LOCAL | Yes | Yes | 1 |
+| code_search | LOCAL | Yes | Yes | 1 |
+| web_search | EXTERNAL_API | Yes | **No** | 1 |
+| http_request | EXTERNAL_API | Yes | **No** | 2 |
+| download_file | EXTERNAL_DOWNLOAD | Yes | Yes | 2 |
+| format_code | LOCAL | Yes | Yes | 2.5 |
+| shell_command | LOCAL | Yes | Yes | 2.5 |
+| generate_docstring | LOCAL | Yes | Yes | 2.5 |
 
 ---
 
@@ -199,6 +212,316 @@ result = await download_tool.execute(
 
 ---
 
+## Phase 2.5: Code Tools
+
+Three new code-focused tools for enhanced development workflow.
+
+### 3. FormatCodeTool
+
+Format Python code using Black, autopep8, or yapf.
+
+**Network Type**: `LOCAL`
+
+**Capabilities**:
+- Multiple formatter support (black, autopep8, yapf)
+- Check-only mode (no modifications)
+- Line length configuration
+- Custom formatter options
+
+**Example Usage**:
+```python
+from app.tools.registry import ToolRegistry
+
+registry = ToolRegistry()
+format_tool = registry.get_tool("format_code")
+
+# Format a file with Black (default)
+result = await format_tool.execute(
+    file_path="/path/to/code.py",
+    formatter="black",
+    line_length=88
+)
+
+# Check-only mode (don't modify)
+result = await format_tool.execute(
+    file_path="/path/to/code.py",
+    check_only=True
+)
+
+# Result structure
+# result.output = {
+#     "file_path": "/path/to/code.py",
+#     "formatter": "black",
+#     "modified": True,
+#     "message": "Code formatted successfully"
+# }
+```
+
+**Parameters**:
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| file_path | string | Yes | - | Path to Python file |
+| formatter | string | No | black | Formatter (black/autopep8/yapf) |
+| check_only | boolean | No | false | Only check, don't modify |
+| line_length | integer | No | 88 | Max line length |
+
+---
+
+### 4. ShellCommandTool
+
+Execute shell commands with security restrictions.
+
+**Network Type**: `LOCAL`
+
+**Security Features**:
+- Blocked dangerous commands (rm -rf, sudo, etc.)
+- Configurable timeout
+- Working directory support
+- Command allowlist/blocklist
+
+**Example Usage**:
+```python
+registry = ToolRegistry()
+shell_tool = registry.get_tool("shell_command")
+
+# Safe command
+result = await shell_tool.execute(
+    command="ls -la",
+    working_dir="/path/to/project"
+)
+
+# Result structure
+# result.output = {
+#     "stdout": "...",
+#     "stderr": "",
+#     "return_code": 0,
+#     "command": "ls -la"
+# }
+
+# Dangerous command (blocked)
+result = await shell_tool.execute(command="rm -rf /")
+# result.success = False
+# result.error = "Security check failed: Command blocked for safety"
+```
+
+**Parameters**:
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| command | string | Yes | - | Shell command to execute |
+| working_dir | string | No | . | Working directory |
+| timeout | integer | No | 30 | Timeout in seconds (max 300) |
+
+**Blocked Commands**:
+- `rm -rf /`, `rm -rf ~`, `rm -rf *`
+- `sudo`, `su`
+- `:(){:|:&};:`  (fork bomb)
+- `mkfs`, `dd if=`
+- `chmod 777`, `chmod -R 777`
+
+---
+
+### 5. DocstringGeneratorTool
+
+Analyze Python files and generate docstring templates.
+
+**Network Type**: `LOCAL`
+
+**Capabilities**:
+- Detect functions without docstrings
+- Support Google/NumPy/Sphinx styles
+- Generate parameter/return type hints
+- Count and list undocumented functions
+
+**Example Usage**:
+```python
+registry = ToolRegistry()
+docstring_tool = registry.get_tool("generate_docstring")
+
+result = await docstring_tool.execute(
+    file_path="/path/to/code.py",
+    style="google"
+)
+
+# Result structure
+# result.output = {
+#     "file_path": "/path/to/code.py",
+#     "functions": [
+#         {
+#             "name": "my_function",
+#             "lineno": 10,
+#             "has_docstring": False,
+#             "suggested_docstring": "..."
+#         }
+#     ],
+#     "count": 3,
+#     "style": "google"
+# }
+```
+
+**Parameters**:
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| file_path | string | Yes | - | Path to Python file |
+| style | string | No | google | Docstring style (google/numpy/sphinx) |
+
+---
+
+## Phase 3: Performance Optimization
+
+Performance features for efficient HTTP operations and result caching.
+
+### Connection Pooling
+
+Shared HTTP connection pool for reduced latency and resource usage.
+
+**Features**:
+- Reuse TCP connections across requests
+- DNS caching (300s TTL)
+- Keep-alive connections (30s)
+- Configurable connection limits
+
+**Usage**:
+```python
+from app.tools.performance import ConnectionPool
+
+# Get singleton instance
+pool = await ConnectionPool.get_instance()
+
+# Use shared session
+async with pool.get_session() as session:
+    async with session.get(url) as response:
+        data = await response.json()
+
+# Custom timeout
+async with pool.get_session(timeout=120) as session:
+    ...
+
+# Get statistics
+stats = pool.get_stats()
+# {
+#     "request_count": 150,
+#     "max_connections": 100,
+#     "max_per_host": 10,
+#     "active_connections": 5,
+#     "uptime_seconds": 3600
+# }
+```
+
+**Configuration**:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| max_connections | 100 | Total connection limit |
+| max_connections_per_host | 10 | Per-host limit |
+| keepalive_timeout | 30 | Keep-alive seconds |
+| dns_cache_ttl | 300 | DNS cache seconds |
+
+---
+
+### Result Caching
+
+LRU cache for tool execution results with TTL support.
+
+**Features**:
+- Automatic GET request caching
+- LRU eviction when full
+- TTL-based expiration
+- Cache statistics
+
+**Usage**:
+```python
+from app.tools.performance import get_cache, reset_cache
+
+cache = get_cache()
+
+# Manual cache operations
+cache.set("tool_name", {"param": "value"}, result)
+cached = cache.get("tool_name", {"param": "value"})
+
+# Invalidate specific entry
+cache.invalidate("tool_name", {"param": "value"})
+
+# Clear all
+cache.clear()
+
+# Statistics
+stats = cache.get_stats()
+# {
+#     "enabled": True,
+#     "size": 45,
+#     "max_size": 100,
+#     "ttl_seconds": 300,
+#     "hits": 120,
+#     "misses": 30,
+#     "hit_rate_percent": 80.0
+# }
+```
+
+**HttpRequestTool with Caching**:
+```python
+http_tool = HttpRequestTool(use_cache=True)
+
+# First request - hits network
+result1 = await http_tool.execute(url="https://api.example.com/data")
+
+# Second request - returns cached result
+result2 = await http_tool.execute(url="https://api.example.com/data")
+
+# Bypass cache
+result3 = await http_tool.execute(
+    url="https://api.example.com/data",
+    use_cache=False
+)
+```
+
+---
+
+### Progress Tracking
+
+Real-time download progress with callbacks.
+
+**Features**:
+- Bytes downloaded / total
+- Speed calculation (Mbps)
+- ETA estimation
+- Status updates
+
+**Usage**:
+```python
+from app.tools.performance import ProgressTracker, DownloadProgress
+
+def on_progress(progress: DownloadProgress):
+    print(f"{progress.percent:.1f}% - {progress.speed_mbps:.2f} Mbps")
+
+tracker = ProgressTracker(
+    url="https://example.com/file.zip",
+    output_path="/tmp/file.zip",
+    total_bytes=1000000,
+    callback=on_progress,
+    update_interval=0.5  # seconds
+)
+
+# Update during download
+async for chunk in response.content.iter_chunked(8192):
+    await tracker.update(len(chunk))
+
+tracker.complete(success=True)
+```
+
+**DownloadProgress Properties**:
+| Property | Type | Description |
+|----------|------|-------------|
+| url | string | Download URL |
+| output_path | string | Local file path |
+| total_bytes | int | Total file size |
+| downloaded_bytes | int | Downloaded so far |
+| percent | float | Progress percentage |
+| speed_bps | float | Speed in bytes/sec |
+| speed_mbps | float | Speed in Mbps |
+| eta_seconds | float | Estimated time remaining |
+| status | string | starting/downloading/completed/failed |
+
+---
+
 ## API Reference
 
 ### Check Tool Availability
@@ -226,9 +549,9 @@ registry = ToolRegistry()
 stats = registry.get_statistics()
 
 # stats = {
-#     "total_tools": 16,
-#     "available_tools": 14,  # in offline mode
-#     "disabled_tools": 2,
+#     "total_tools": 19,
+#     "available_tools": 17,  # in offline mode
+#     "disabled_tools": 2,    # http_request, web_search blocked
 #     "network_mode": "offline",
 #     "categories": {...}
 # }
@@ -251,8 +574,11 @@ all_tools = registry.list_tools(include_unavailable=True)
 ### Dependencies
 
 ```bash
-# Required for HttpRequestTool
+# Required for HttpRequestTool and Connection Pooling
 pip install aiohttp
+
+# Required for FormatCodeTool (optional formatters)
+pip install black autopep8 yapf
 
 # Required for DownloadFileTool (system packages)
 # Ubuntu/Debian:
@@ -277,18 +603,31 @@ cp .env.example .env
 
 ## Testing
 
-### Run Phase 2 Tests
+### Run Tests
 
 ```bash
+# All Agent Tools tests (200+ tests)
+pytest backend/app/tools/tests/ -v
+
+# Individual test modules:
+
 # Network mode tests (44 tests)
 pytest backend/app/tools/tests/test_network_mode.py -v
 
 # Web tools tests (41 tests)
 pytest backend/app/tools/tests/test_web_tools_phase2.py -v
 
-# All tests (85 tests)
-pytest backend/app/tools/tests/test_network_mode.py \
-       backend/app/tools/tests/test_web_tools_phase2.py -v
+# Code tools Phase 2.5 tests (53 tests)
+pytest backend/app/tools/tests/test_code_tools_phase25.py -v
+
+# Performance module tests (24 tests)
+pytest backend/app/tools/tests/test_performance.py -v
+
+# E2E integration tests (21 tests)
+pytest backend/app/tools/tests/test_e2e.py -v
+
+# Integration tests (17 tests)
+pytest backend/app/tools/tests/test_integration.py -v
 ```
 
 ### Manual Testing
@@ -374,11 +713,11 @@ chmod 755 /path/to/directory
 
 ## Migration Guide
 
-### From Phase 1 to Phase 2
+### From Phase 1 to Phase 2/3
 
 1. **No breaking changes** - All Phase 1 tools work unchanged
 2. **Environment variable** - Add `NETWORK_MODE=online` to .env
-3. **New dependencies** - Install `aiohttp` for HttpRequestTool
+3. **New dependencies** - Install `aiohttp`, `black` for new features
 
 ### Updating Code
 
@@ -387,7 +726,7 @@ chmod 755 /path/to/directory
 registry = ToolRegistry()
 tool = registry.get_tool("web_search")
 
-# After (Phase 2) - Same API, now with network mode checking
+# After (Phase 2+) - Same API, now with network mode checking
 registry = ToolRegistry()
 tool = registry.get_tool("web_search")  # Returns None in offline mode
 
@@ -397,6 +736,24 @@ if tool:
     result = await tool.execute(query="...")
 else:
     print("Tool unavailable in current network mode")
+```
+
+### Using Performance Features
+
+```python
+# HttpRequestTool now uses connection pooling automatically
+http_tool = registry.get_tool("http_request")
+
+# Enable/disable caching
+result = await http_tool.execute(url="...", use_cache=True)
+
+# DownloadFileTool now supports progress callbacks
+download_tool = registry.get_tool("download_file")
+result = await download_tool.execute(
+    url="...",
+    output_path="...",
+    progress_callback=my_callback  # Optional
+)
 ```
 
 ---
@@ -432,6 +789,26 @@ if not result.success:
     # Handle error appropriately
 ```
 
+### 4. Leverage Caching (Phase 3)
+
+```python
+# Cache GET requests for repeated API calls
+cache = get_cache()
+stats = cache.get_stats()
+logger.info(f"Cache hit rate: {stats['hit_rate_percent']}%")
+
+# Invalidate cache when data changes
+cache.invalidate("http_request", {"url": "..."})
+```
+
+### 5. Monitor Connection Pool (Phase 3)
+
+```python
+pool = await ConnectionPool.get_instance()
+stats = pool.get_stats()
+logger.info(f"Active connections: {stats.get('active_connections', 0)}")
+```
+
 ---
 
 ## Related Documentation
@@ -439,8 +816,9 @@ if not result.success:
 - [Phase 1 README](./AGENT_TOOLS_PHASE1_README.md) - Original tools documentation
 - [Network Mode Design](./AGENT_TOOLS_NETWORK_MODE_DESIGN.md) - Architecture details
 - [Session Handover](./SESSION_HANDOVER_AGENT_TOOLS_PHASE2.md) - Implementation summary
+- [CLI User Guide](./CLI_PHASE3_USER_GUIDE.md) - CLI interface documentation
 
 ---
 
-**Author**: Claude (Agent Tools Phase 2)
+**Author**: Claude (Agent Tools Phase 2/2.5/3)
 **Last Updated**: 2026-01-08

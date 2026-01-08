@@ -170,9 +170,9 @@ class CodeSearchTool(BaseTool):
                 output={
                     "query": query,
                     "result_count": result_count,
-                    "results": results
+                    "results": results,
+                    "message": message
                 },
-                message=message,
                 metadata={
                     "tool": self.name,
                     "n_results": n_results,

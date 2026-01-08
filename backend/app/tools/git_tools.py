@@ -470,9 +470,9 @@ class GitCommitTool(BaseTool):
                     "commit_hash": commit_hash,
                     "message": message,
                     "staged_files": staged_files if staged_files else None,
-                    "raw_output": commit_output
+                    "raw_output": commit_output,
+                    "summary": f"Commit created: {message}"
                 },
-                message=f"Commit created: {message}",
                 metadata={
                     "tool": self.name,
                     "commit_hash": commit_hash,

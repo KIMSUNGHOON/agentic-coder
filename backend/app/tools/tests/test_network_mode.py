@@ -439,8 +439,8 @@ class TestPhase2ToolRegistration:
             registry = ToolRegistry()
             stats = registry.get_statistics()
 
-            # 14 original + 2 new = 16 tools
-            assert stats["total_tools"] == 16
+            # 14 Phase 1 + 2 Phase 2 + 3 Phase 2.5 = 19 tools
+            assert stats["total_tools"] == 19
 
     def test_offline_mode_has_2_disabled_tools(self):
         """Test offline mode has exactly 2 disabled tools (web_search and http_request)"""
@@ -453,7 +453,7 @@ class TestPhase2ToolRegistration:
 
             # WebSearchTool and HttpRequestTool should be disabled
             assert stats["disabled_tools"] == 2
-            assert stats["available_tools"] == 14  # 16 - 2 = 14
+            assert stats["available_tools"] == 17  # 19 - 2 = 17
 
 
 class TestNetworkModeSecurityPolicy:

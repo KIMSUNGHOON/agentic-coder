@@ -81,19 +81,18 @@ class TestWebSearchTool:
             ]
         }
 
-        # Mock TavilyClient
-        with patch('app.tools.web_tools.TavilyClient') as MockClient:
-            mock_client = Mock()
-            mock_client.search.return_value = mock_results
-            MockClient.return_value = mock_client
+        # Mock the _get_client method directly
+        mock_client = Mock()
+        mock_client.search.return_value = mock_results
 
+        with patch.object(tool, '_get_client', return_value=mock_client):
             result = await tool.execute(query="test query", max_results=2)
 
             assert result.success is True
             assert result.output["result_count"] == 2
             assert len(result.output["results"]) == 2
             assert result.output["results"][0]["title"] == "Test Result 1"
-            assert "test query" in result.message.lower()
+            assert "test query" in result.output["message"].lower()
 
     @pytest.mark.asyncio
     @pytest.mark.skipif(
