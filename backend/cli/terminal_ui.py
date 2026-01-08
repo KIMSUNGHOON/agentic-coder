@@ -1,11 +1,18 @@
 """Terminal UI for TestCodeAgent CLI
 
 Rich-based terminal interface providing:
-- Interactive REPL mode
+- Interactive REPL mode with command history and auto-completion
 - Streaming progress indicators
 - Markdown rendering for AI responses
 - Syntax highlighting for code
 - Slash command handling
+- Configuration management
+
+Phase 3 Enhancements:
+- prompt_toolkit integration for enhanced input
+- Command history persistence
+- Auto-completion for commands and file paths
+- Configuration file support
 """
 
 import asyncio
@@ -23,29 +30,57 @@ from rich.live import Live
 from rich.text import Text
 
 from cli.session_manager import SessionManager
+from cli.config import ConfigManager, CLIConfig
+from cli.interactive import get_interactive_session, InteractiveSession, SLASH_COMMANDS
 
 
 class TerminalUI:
     """Rich-based terminal user interface"""
 
-    def __init__(self, session_mgr: SessionManager):
+    def __init__(self, session_mgr: SessionManager, config: Optional[CLIConfig] = None):
         """Initialize terminal UI
 
         Args:
             session_mgr: SessionManager instance
+            config: Optional CLI configuration
         """
         self.session_mgr = session_mgr
         self.console = Console()
 
+        # Load configuration
+        self.config_mgr = ConfigManager(workspace=str(session_mgr.workspace))
+        self.config = config or self.config_mgr.get_config()
+
+        # Initialize interactive session with history and completion
+        self.interactive = get_interactive_session(
+            workspace=session_mgr.workspace,
+            history_file=self.config_mgr.get_history_path(),
+            enable_history=self.config.save_history,
+            enable_completion=True
+        )
+
     def start_interactive(self):
-        """Start interactive REPL mode"""
+        """Start interactive REPL mode with enhanced input"""
         self._show_welcome()
+
+        # Show enhanced mode status
+        if self.interactive.is_enhanced:
+            self.console.print(
+                "[dim]Enhanced mode: Command history and auto-completion enabled "
+                "(Tab to complete, Up/Down for history)[/dim]\n"
+            )
 
         while True:
             try:
-                # Get user input
-                user_input = Prompt.ask("\n[bold cyan]You[/bold cyan]")
+                # Get user input using enhanced interactive session
+                user_input = self.interactive.prompt("You")
 
+                # Handle None (Ctrl+D)
+                if user_input is None:
+                    self._handle_exit()
+                    break
+
+                # Handle empty input
                 if not user_input.strip():
                     continue
 
@@ -317,6 +352,12 @@ class TerminalUI:
             raise EOFError()
         elif cmd_name == "sessions":
             self._cmd_sessions()
+        elif cmd_name == "config":
+            self._cmd_config(cmd_args)
+        elif cmd_name == "model":
+            self._cmd_model(cmd_args)
+        elif cmd_name == "workspace":
+            self._cmd_workspace(cmd_args)
         else:
             self.console.print(f"[red]Unknown command: {cmd_name}[/red]")
             self.console.print("Type [cyan]/help[/cyan] for available commands")
@@ -335,21 +376,32 @@ class TerminalUI:
 ## Workspace
 - `/files` - Show generated/modified files
 - `/preview <file>` - Preview file with syntax highlighting
+- `/workspace [path]` - Show or change workspace
 - `/clear` - Clear terminal screen
+
+## Configuration
+- `/config` - Show current configuration
+- `/config init` - Create default config file
+- `/config set <key> <value>` - Update configuration
+- `/model [name]` - Show or change current model
 
 ## Utility
 - `/help` - Show this help message
 - `/exit` or `/quit` - Exit CLI (also Ctrl+D)
 
 ## Tips
-- Press Ctrl+C to cancel current input
-- Press Ctrl+D to exit
-- Use arrow keys to navigate command history
+- Press **Tab** for auto-completion
+- Press **Up/Down** to navigate command history
+- Press **Ctrl+R** to search command history
+- Press **Ctrl+C** to cancel current input
+- Press **Ctrl+D** to exit
 
 ## Examples
 ```bash
 /preview calculator.py
 /preview src/utils.ts
+/config set llm.model qwen2.5-coder:32b
+/model deepseek-r1:14b
 ```
         """
         self.console.print(Markdown(help_text))
@@ -598,3 +650,211 @@ Press [cyan]Ctrl+D[/cyan] to exit
             border_style="cyan",
             padding=(1, 2)
         ))
+
+    def _cmd_config(self, args: list):
+        """Handle config command
+
+        Args:
+            args: Command arguments
+        """
+        if not args:
+            # Show current config
+            self._show_config()
+            return
+
+        subcommand = args[0].lower()
+
+        if subcommand == "init":
+            # Create default config
+            location = args[1] if len(args) > 1 else "user"
+            config_path = self.config_mgr.create_default_config(location)
+            self.console.print(f"[green]✓[/green] Created config file: {config_path}")
+
+        elif subcommand == "set":
+            # Set config value
+            if len(args) < 3:
+                self.console.print("[yellow]Usage: /config set <key> <value>[/yellow]")
+                self.console.print("Example: /config set llm.model qwen2.5-coder:32b")
+                return
+
+            key = args[1]
+            value = " ".join(args[2:])
+            self._set_config_value(key, value)
+
+        elif subcommand == "show":
+            self._show_config()
+
+        elif subcommand == "path":
+            # Show config file paths
+            self.console.print("\n[bold cyan]Configuration File Paths:[/bold cyan]")
+            self.console.print(f"  User config: {self.config_mgr.USER_CONFIG_FILE}")
+            project_config = self.session_mgr.workspace / self.config_mgr.PROJECT_CONFIG_FILE
+            self.console.print(f"  Project config: {project_config}")
+
+        else:
+            self.console.print(f"[red]Unknown config subcommand: {subcommand}[/red]")
+            self.console.print("Available: show, init, set, path")
+
+    def _show_config(self):
+        """Display current configuration"""
+        config = self.config
+
+        table = Table(show_header=True, header_style="bold cyan", title="Current Configuration")
+        table.add_column("Category", style="dim")
+        table.add_column("Setting")
+        table.add_column("Value")
+
+        # LLM settings
+        table.add_row("LLM", "model", config.model)
+        table.add_row("LLM", "api_endpoint", config.api_endpoint)
+        table.add_row("LLM", "temperature", str(config.temperature))
+
+        # UI settings
+        table.add_row("UI", "theme", config.theme)
+        table.add_row("UI", "show_line_numbers", str(config.show_line_numbers))
+
+        # History settings
+        table.add_row("History", "file", config.history_file)
+        table.add_row("History", "save_history", str(config.save_history))
+
+        # Network settings
+        table.add_row("Network", "mode", config.network_mode)
+        table.add_row("Network", "timeout", str(config.timeout))
+
+        # Debug settings
+        table.add_row("Debug", "enabled", str(config.debug))
+
+        self.console.print(table)
+
+    def _set_config_value(self, key: str, value: str):
+        """Set a configuration value
+
+        Args:
+            key: Config key (e.g., 'llm.model')
+            value: Value to set
+        """
+        config = self.config
+
+        # Parse key path
+        parts = key.split('.')
+
+        try:
+            if parts[0] == "llm":
+                if parts[1] == "model":
+                    config.model = value
+                elif parts[1] == "api_endpoint":
+                    config.api_endpoint = value
+                elif parts[1] == "temperature":
+                    config.temperature = float(value)
+                else:
+                    raise KeyError(f"Unknown LLM setting: {parts[1]}")
+
+            elif parts[0] == "ui":
+                if parts[1] == "theme":
+                    config.theme = value
+                elif parts[1] == "syntax_theme":
+                    config.syntax_theme = value
+                else:
+                    raise KeyError(f"Unknown UI setting: {parts[1]}")
+
+            elif parts[0] == "network":
+                if parts[1] == "mode":
+                    if value not in ["online", "offline"]:
+                        raise ValueError("Network mode must be 'online' or 'offline'")
+                    config.network_mode = value
+                elif parts[1] == "timeout":
+                    config.timeout = int(value)
+                else:
+                    raise KeyError(f"Unknown network setting: {parts[1]}")
+
+            elif parts[0] == "history":
+                if parts[1] == "save":
+                    config.save_history = value.lower() in ("true", "1", "yes")
+                else:
+                    raise KeyError(f"Unknown history setting: {parts[1]}")
+
+            elif parts[0] == "debug":
+                if parts[1] == "enabled":
+                    config.debug = value.lower() in ("true", "1", "yes")
+                else:
+                    raise KeyError(f"Unknown debug setting: {parts[1]}")
+
+            else:
+                # Try direct attribute
+                if hasattr(config, key):
+                    setattr(config, key, value)
+                else:
+                    raise KeyError(f"Unknown config key: {key}")
+
+            # Save to user config
+            self.config_mgr.save_user_config(config)
+            self.console.print(f"[green]✓[/green] Set {key} = {value}")
+
+        except (KeyError, ValueError) as e:
+            self.console.print(f"[red]Error:[/red] {e}")
+
+    def _cmd_model(self, args: list):
+        """Handle model command
+
+        Args:
+            args: Command arguments
+        """
+        if not args:
+            # Show current model
+            self.console.print(f"\n[bold cyan]Current Model:[/bold cyan] {self.session_mgr.model}")
+            self.console.print("\n[dim]To change: /model <model-name>[/dim]")
+            self.console.print("[dim]Examples: deepseek-r1:14b, qwen2.5-coder:32b[/dim]")
+            return
+
+        # Set new model
+        new_model = args[0]
+        old_model = self.session_mgr.model
+        self.session_mgr.model = new_model
+        self.config.model = new_model
+
+        self.console.print(f"[green]✓[/green] Model changed: {old_model} → {new_model}")
+
+    def _cmd_workspace(self, args: list):
+        """Handle workspace command
+
+        Args:
+            args: Command arguments
+        """
+        if not args:
+            # Show current workspace
+            self.console.print(f"\n[bold cyan]Current Workspace:[/bold cyan] {self.session_mgr.workspace}")
+
+            # Show workspace stats
+            workspace = self.session_mgr.workspace
+            if workspace.exists():
+                files = list(workspace.rglob("*"))
+                file_count = sum(1 for f in files if f.is_file())
+                dir_count = sum(1 for f in files if f.is_dir())
+                self.console.print(f"[dim]Files: {file_count}, Directories: {dir_count}[/dim]")
+
+            self.console.print("\n[dim]To change: /workspace <path>[/dim]")
+            return
+
+        # Change workspace
+        new_workspace = Path(args[0]).resolve()
+
+        if not new_workspace.exists():
+            self.console.print(f"[red]Directory not found:[/red] {new_workspace}")
+            create = Prompt.ask("Create it?", choices=["y", "n"], default="n")
+            if create == "y":
+                new_workspace.mkdir(parents=True, exist_ok=True)
+                self.console.print(f"[green]✓[/green] Created directory: {new_workspace}")
+            else:
+                return
+
+        if not new_workspace.is_dir():
+            self.console.print(f"[red]Not a directory:[/red] {new_workspace}")
+            return
+
+        old_workspace = self.session_mgr.workspace
+        self.session_mgr.workspace = new_workspace
+
+        # Update interactive session for file completion
+        self.interactive.update_workspace(new_workspace)
+
+        self.console.print(f"[green]✓[/green] Workspace changed: {old_workspace} → {new_workspace}")
