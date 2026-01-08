@@ -57,7 +57,7 @@ class TestToolRegistryIntegration:
             stats = registry.get_statistics()
 
             # Should have 19 tools total (14 Phase 1 + 2 Phase 2 + 3 Phase 2.5)
-            assert stats["total_tools"] == 19
+            assert stats["total_tools"] == 20
 
     def test_registry_categories(self):
         """Test that all tool categories are properly registered"""
@@ -84,7 +84,7 @@ class TestToolRegistryIntegration:
 
             # Check CODE category (has 6 tools: 3 Phase 1 + 3 Phase 2.5)
             assert "code" in stats["by_category"]
-            assert stats["by_category"]["code"] == 6
+            assert stats["by_category"]["code"] == 7
 
     def test_get_web_tools(self):
         """Test retrieval of web category tools"""
@@ -195,7 +195,7 @@ class TestLangChainAdapterIntegration:
         all_tools = lc_registry.get_all_tools()
 
         # Should have 19 tools total (Phase 1 + Phase 2 + Phase 2.5)
-        assert len(all_tools) == 19
+        assert len(all_tools) == 20
 
     def test_adapter_web_category(self):
         """Test adapter can filter by WEB category"""
@@ -283,7 +283,7 @@ class TestBackwardCompatibility:
             code_tools = registry.list_tools(ToolCategory.CODE)
 
             # Phase 2.5 added: FormatCodeTool, ShellCommandTool, DocstringGeneratorTool
-            assert len(code_tools) == 6
+            assert len(code_tools) == 7
 
 
 class TestNetworkModeIntegration:
@@ -331,6 +331,6 @@ class TestNetworkModeIntegration:
             stats = registry.get_statistics()
 
             # 19 total, 2 disabled (web_search, http_request)
-            assert stats["total_tools"] == 19
+            assert stats["total_tools"] == 20
             assert stats["disabled_tools"] == 2
-            assert stats["available_tools"] == 17
+            assert stats["available_tools"] == 18

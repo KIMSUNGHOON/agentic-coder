@@ -512,7 +512,7 @@ class TestPhase25ToolsIntegration:
             stats = registry.get_statistics()
 
             # Should have 19 tools total (16 + 3 new)
-            assert stats["total_tools"] == 19
+            assert stats["total_tools"] == 20
 
     def test_code_category_count_updated(self):
         with patch.dict(os.environ, {"NETWORK_MODE": "online"}):
@@ -524,4 +524,4 @@ class TestPhase25ToolsIntegration:
             code_tools = registry.list_tools(ToolCategory.CODE)
 
             # Should have 6 code tools (3 + 3 new)
-            assert len(code_tools) == 6
+            assert len(code_tools) == 7

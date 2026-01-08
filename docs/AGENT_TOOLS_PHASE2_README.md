@@ -8,11 +8,12 @@
 
 ## Overview
 
-This document covers all features introduced in Agent Tools Phases 2, 2.5, and 3:
+This document covers all features introduced in Agent Tools Phases 2, 2.5, 3, and 4:
 
 - **Phase 2**: Network Mode System + Web Tools (HttpRequestTool, DownloadFileTool)
 - **Phase 2.5**: Code Tools (FormatCodeTool, ShellCommandTool, DocstringGeneratorTool)
 - **Phase 3**: Performance Optimization (Connection Pooling, Caching, Progress Tracking)
+- **Phase 4**: Sandbox Execution (SandboxExecuteTool - Docker-based isolated code execution)
 
 ### Key Features
 
@@ -26,7 +27,7 @@ This document covers all features introduced in Agent Tools Phases 2, 2.5, and 3
 8. **Result Caching** - LRU cache with TTL for GET requests
 9. **Progress Tracking** - Real-time download progress with callbacks
 
-**Total Tools**: 19 (14 Phase 1 + 2 Phase 2 + 3 Phase 2.5)
+**Total Tools**: 20 (14 Phase 1 + 2 Phase 2 + 3 Phase 2.5 + 1 Phase 4)
 
 ---
 
@@ -87,6 +88,7 @@ NETWORK_MODE=offline  # Block EXTERNAL_API tools only
 | format_code | LOCAL | Yes | Yes | 2.5 |
 | shell_command | LOCAL | Yes | Yes | 2.5 |
 | generate_docstring | LOCAL | Yes | Yes | 2.5 |
+| sandbox_execute | LOCAL | Yes | Yes | 4 |
 
 ---
 
@@ -519,6 +521,101 @@ tracker.complete(success=True)
 | speed_mbps | float | Speed in Mbps |
 | eta_seconds | float | Estimated time remaining |
 | status | string | starting/downloading/completed/failed |
+
+---
+
+## Phase 4: Sandbox Execution
+
+Isolated code execution environment using AIO Sandbox (Docker-based).
+
+### SandboxExecuteTool
+
+Execute code in a secure, isolated Docker container.
+
+**Network Type**: `LOCAL` (Docker runs locally)
+
+**Features**:
+- Python, Node.js, TypeScript, Shell support
+- Isolated container execution (no host access)
+- Resource limits (memory, CPU, timeout)
+- Offline-ready (uses pre-built Docker images)
+
+**Docker Image**: `ghcr.io/agent-infra/sandbox:latest`
+
+**Example Usage**:
+```python
+from app.tools.registry import ToolRegistry
+
+registry = ToolRegistry()
+sandbox_tool = registry.get_tool("sandbox_execute")
+
+# Python execution
+result = await sandbox_tool.execute(
+    code="print('Hello, World!')",
+    language="python",
+    timeout=60
+)
+
+# Node.js execution
+result = await sandbox_tool.execute(
+    code="console.log('Hello');",
+    language="nodejs"
+)
+
+# Shell command
+result = await sandbox_tool.execute(
+    code="ls -la && cat /etc/os-release",
+    language="shell"
+)
+
+# Result structure
+# result.output = {
+#     "stdout": "Hello, World!\n",
+#     "stderr": "",
+#     "exit_code": 0,
+#     "language": "python",
+#     "execution_time_seconds": 0.234
+# }
+```
+
+**Parameters**:
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| code | string | Yes | - | Code to execute |
+| language | string | No | python | Language (python/nodejs/typescript/shell) |
+| timeout | integer | No | 60 | Timeout in seconds (max 300) |
+| working_dir | string | No | /home/user | Working directory in container |
+
+**Environment Variables**:
+```bash
+# Docker image
+SANDBOX_IMAGE=ghcr.io/agent-infra/sandbox:latest
+
+# For offline/airgapped environments
+SANDBOX_REGISTRY=harbor.company.com
+
+# API settings
+SANDBOX_HOST=localhost
+SANDBOX_PORT=8080
+
+# Resource limits
+SANDBOX_TIMEOUT=60
+SANDBOX_MEMORY=1g
+SANDBOX_CPU=2.0
+```
+
+**Offline Setup**:
+```bash
+# Pull image once (online)
+docker pull ghcr.io/agent-infra/sandbox:latest
+
+# Push to internal registry
+docker tag ghcr.io/agent-infra/sandbox:latest harbor.company.com/sandbox/aio:latest
+docker push harbor.company.com/sandbox/aio:latest
+
+# Set environment for offline use
+export SANDBOX_REGISTRY=harbor.company.com
+```
 
 ---
 

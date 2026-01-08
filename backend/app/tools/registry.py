@@ -19,6 +19,7 @@ from .code_tools import (
 from .git_tools import GitStatusTool, GitDiffTool, GitLogTool, GitBranchTool, GitCommitTool
 from .web_tools import WebSearchTool, HttpRequestTool, DownloadFileTool
 from .search_tools import CodeSearchTool
+from .sandbox_tools import SandboxExecuteTool  # Phase 4: NEW
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,9 @@ class ToolRegistry:
 
             # Search tools (Phase 1: NEW)
             CodeSearchTool(),
+
+            # Sandbox tools (Phase 4: NEW)
+            SandboxExecuteTool(),
         ]
 
         for tool in default_tools:

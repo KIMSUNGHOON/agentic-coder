@@ -109,8 +109,8 @@ class TestToolRegistration:
             stats = registry.get_statistics()
 
             # Should have 19 tools (Phase 1 + Phase 2 + Phase 2.5)
-            assert stats["total_tools"] == 19
-            assert stats["available_tools"] == 19
+            assert stats["total_tools"] == 20
+            assert stats["available_tools"] == 20
 
     def test_tools_by_category(self, clean_registry):
         """Test tool categorization"""
@@ -124,7 +124,7 @@ class TestToolRegistration:
             search_tools = registry.list_tools(ToolCategory.SEARCH)
 
             assert len(file_tools) == 4
-            assert len(code_tools) == 6  # 3 Phase 1 + 3 Phase 2.5
+            assert len(code_tools) == 7  # 3 Phase 1 + 3 Phase 2.5
             assert len(git_tools) == 5
             assert len(web_tools) == 3
             assert len(search_tools) == 1
@@ -338,11 +338,11 @@ class TestNetworkModeE2E:
             offline_stats = registry.get_statistics()
 
         # Online should have all tools available
-        assert online_stats["available_tools"] == 19
+        assert online_stats["available_tools"] == 20
         assert online_stats["disabled_tools"] == 0
 
         # Offline should have 2 blocked (http_request, web_search)
-        assert offline_stats["available_tools"] == 17
+        assert offline_stats["available_tools"] == 18
         assert offline_stats["disabled_tools"] == 2
 
 
