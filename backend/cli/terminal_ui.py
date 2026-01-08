@@ -87,16 +87,29 @@ class TerminalUI:
         current_agent = None
         current_content = ""
         artifacts = []
+        streaming_display = None
+
+        # Agent-specific status messages
+        agent_status_map = {
+            "Supervisor": "🧠 Analyzing request and planning workflow...",
+            "PlanningHandler": "📋 Creating detailed implementation plan...",
+            "CoderHandler": "💻 Generating code...",
+            "ReviewerHandler": "🔍 Reviewing code quality...",
+            "RefinerHandler": "✨ Refining and optimizing code...",
+            "DebugHandler": "🐛 Debugging and fixing errors...",
+            "TestHandler": "🧪 Writing tests...",
+            "DocHandler": "📝 Generating documentation...",
+        }
 
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             console=self.console,
-            transient=True
+            transient=False
         ) as progress:
             # Create progress task
-            task = progress.add_task("[cyan]Processing...", total=None)
+            task = progress.add_task("[cyan]Initializing...", total=None)
 
             try:
                 async for update in self.session_mgr.execute_streaming_workflow(user_request):
@@ -104,17 +117,36 @@ class TerminalUI:
 
                     if update_type == "agent_start":
                         current_agent = update.get("agent")
-                        progress.update(task, description=f"[cyan]{current_agent} working...")
+
+                        # Get agent-specific status message
+                        status_msg = agent_status_map.get(current_agent, f"{current_agent} working...")
+                        progress.update(task, description=f"[cyan]{status_msg}")
+
+                        # Reset content for new agent
+                        current_content = ""
 
                     elif update_type == "agent_stream":
-                        # Accumulate streaming content
+                        # Accumulate and update streaming content
                         chunk = update.get("content", "")
                         current_content += chunk
 
+                        # Update progress with content length indicator
+                        char_count = len(current_content)
+                        if char_count > 0:
+                            status_msg = agent_status_map.get(current_agent, current_agent)
+                            progress.update(
+                                task,
+                                description=f"[cyan]{status_msg} ({char_count} chars)"
+                            )
+
                     elif update_type == "agent_end":
-                        # Display accumulated content
+                        # Display accumulated content with Live rendering
                         if current_content:
+                            # Stop progress to display content
+                            progress.stop()
                             self._display_agent_response(current_agent, current_content)
+                            # Resume progress
+                            progress.start()
                             current_content = ""
 
                     elif update_type == "artifact":
@@ -125,15 +157,21 @@ class TerminalUI:
                         # Display final response
                         final_content = update.get("content", "")
                         if final_content and final_content != current_content:
-                            self.console.print("\n[bold green]Final Response:[/bold green]")
+                            progress.stop()
+                            self.console.print("\n[bold green]✅ Complete![/bold green]")
                             self.console.print(Markdown(final_content))
+                            progress.start()
 
                     elif update_type == "error":
                         error_msg = update.get("message", "Unknown error")
+                        progress.stop()
                         self.console.print(f"\n[bold red]❌ Error:[/bold red] {error_msg}")
+                        progress.start()
 
             except Exception as e:
                 self.console.print(f"\n[bold red]❌ Execution Error:[/bold red] {str(e)}")
+                import traceback
+                self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
                 return
 
         # Display artifacts if any
@@ -141,7 +179,7 @@ class TerminalUI:
             self._display_artifacts(artifacts)
 
     def _display_agent_response(self, agent: str, content: str):
-        """Display agent response with formatting
+        """Display agent response with formatting and syntax highlighting
 
         Args:
             agent: Agent name
@@ -152,15 +190,23 @@ class TerminalUI:
 
         self.console.print(f"\n[bold magenta]{agent}:[/bold magenta]")
 
-        # Try to render as markdown
-        try:
-            self.console.print(Markdown(content))
-        except Exception:
-            # Fallback to plain text
-            self.console.print(content)
+        # Check if content contains code blocks for syntax highlighting
+        if "```" in content:
+            # Render as markdown which handles code blocks
+            try:
+                self.console.print(Markdown(content))
+            except Exception:
+                # Fallback to plain text
+                self.console.print(content)
+        else:
+            # Plain text or markdown without code blocks
+            try:
+                self.console.print(Markdown(content))
+            except Exception:
+                self.console.print(content)
 
     def _display_artifacts(self, artifacts: list):
-        """Display file artifacts
+        """Display file artifacts with detailed information
 
         Args:
             artifacts: List of artifact updates
@@ -168,12 +214,13 @@ class TerminalUI:
         if not artifacts:
             return
 
-        self.console.print("\n[bold green]📁 Files:[/bold green]")
+        self.console.print("\n[bold green]📁 Files Generated:[/bold green]")
 
-        table = Table(show_header=True, header_style="bold cyan")
-        table.add_column("Action", style="dim", width=12)
-        table.add_column("File Path")
-        table.add_column("Lines", justify="right")
+        table = Table(show_header=True, header_style="bold cyan", show_lines=False)
+        table.add_column("Action", style="dim", width=10)
+        table.add_column("File Path", overflow="fold")
+        table.add_column("Lines", justify="right", width=8)
+        table.add_column("Size", justify="right", width=10)
 
         for artifact in artifacts:
             action = artifact.get("action", "unknown")
@@ -183,16 +230,60 @@ class TerminalUI:
             # Color code by action
             if action == "created":
                 action_str = "[green]CREATED[/green]"
+                icon = "✨"
             elif action == "modified":
                 action_str = "[yellow]MODIFIED[/yellow]"
+                icon = "📝"
             elif action == "deleted":
                 action_str = "[red]DELETED[/red]"
+                icon = "🗑️"
             else:
                 action_str = action
+                icon = "📄"
 
-            table.add_row(action_str, file_path, str(lines) if lines else "-")
+            # Get file size if file exists
+            file_size_str = "-"
+            try:
+                file_full_path = Path(self.session_mgr.workspace) / file_path
+                if file_full_path.exists():
+                    size_bytes = file_full_path.stat().st_size
+                    if size_bytes < 1024:
+                        file_size_str = f"{size_bytes}B"
+                    elif size_bytes < 1024 * 1024:
+                        file_size_str = f"{size_bytes / 1024:.1f}KB"
+                    else:
+                        file_size_str = f"{size_bytes / (1024 * 1024):.1f}MB"
+            except Exception:
+                pass
+
+            # Format file path with icon
+            file_display = f"{icon} {file_path}"
+
+            table.add_row(
+                action_str,
+                file_display,
+                str(lines) if lines else "-",
+                file_size_str
+            )
 
         self.console.print(table)
+
+        # Summary
+        total_files = len(artifacts)
+        created = sum(1 for a in artifacts if a.get("action") == "created")
+        modified = sum(1 for a in artifacts if a.get("action") == "modified")
+        deleted = sum(1 for a in artifacts if a.get("action") == "deleted")
+
+        summary = []
+        if created:
+            summary.append(f"[green]{created} created[/green]")
+        if modified:
+            summary.append(f"[yellow]{modified} modified[/yellow]")
+        if deleted:
+            summary.append(f"[red]{deleted} deleted[/red]")
+
+        if summary:
+            self.console.print(f"\n[dim]Total: {total_files} files ({', '.join(summary)})[/dim]")
 
     def _handle_command(self, command: str):
         """Handle slash commands
@@ -217,6 +308,8 @@ class TerminalUI:
             self._cmd_context()
         elif cmd_name == "files":
             self._cmd_files()
+        elif cmd_name == "preview":
+            self._cmd_preview(cmd_args)
         elif cmd_name == "clear":
             self._cmd_clear()
         elif cmd_name in ["exit", "quit"]:
@@ -241,6 +334,7 @@ class TerminalUI:
 
 ## Workspace
 - `/files` - Show generated/modified files
+- `/preview <file>` - Preview file with syntax highlighting
 - `/clear` - Clear terminal screen
 
 ## Utility
@@ -251,6 +345,12 @@ class TerminalUI:
 - Press Ctrl+C to cancel current input
 - Press Ctrl+D to exit
 - Use arrow keys to navigate command history
+
+## Examples
+```bash
+/preview calculator.py
+/preview src/utils.ts
+```
         """
         self.console.print(Markdown(help_text))
 
@@ -346,6 +446,99 @@ class TerminalUI:
         # In production, this should track actual modified files
         self.console.print(f"\n[bold cyan]Workspace:[/bold cyan] {workspace}\n")
         self.console.print("[yellow]Note: File tracking will be implemented with artifact system[/yellow]")
+
+    def _cmd_preview(self, args: list):
+        """Preview file with syntax highlighting
+
+        Args:
+            args: Command arguments (file path)
+        """
+        if not args:
+            self.console.print("[yellow]Usage: /preview <file_path>[/yellow]")
+            self.console.print("Example: /preview calculator.py")
+            return
+
+        file_path = " ".join(args)  # Support paths with spaces
+        full_path = Path(self.session_mgr.workspace) / file_path
+
+        if not full_path.exists():
+            self.console.print(f"[red]File not found:[/red] {file_path}")
+            return
+
+        if not full_path.is_file():
+            self.console.print(f"[red]Not a file:[/red] {file_path}")
+            return
+
+        try:
+            # Read file content
+            content = full_path.read_text(encoding='utf-8')
+
+            # Detect language from file extension
+            ext = full_path.suffix.lower()
+            language_map = {
+                '.py': 'python',
+                '.js': 'javascript',
+                '.ts': 'typescript',
+                '.tsx': 'tsx',
+                '.jsx': 'jsx',
+                '.java': 'java',
+                '.c': 'c',
+                '.cpp': 'cpp',
+                '.h': 'c',
+                '.hpp': 'cpp',
+                '.cs': 'csharp',
+                '.go': 'go',
+                '.rs': 'rust',
+                '.rb': 'ruby',
+                '.php': 'php',
+                '.swift': 'swift',
+                '.kt': 'kotlin',
+                '.md': 'markdown',
+                '.json': 'json',
+                '.yaml': 'yaml',
+                '.yml': 'yaml',
+                '.toml': 'toml',
+                '.xml': 'xml',
+                '.html': 'html',
+                '.css': 'css',
+                '.scss': 'scss',
+                '.sql': 'sql',
+                '.sh': 'bash',
+                '.bash': 'bash',
+                '.ps1': 'powershell',
+                '.r': 'r',
+                '.R': 'r',
+            }
+            lexer_name = language_map.get(ext, 'text')
+
+            # Display file info
+            file_size = full_path.stat().st_size
+            if file_size < 1024:
+                size_str = f"{file_size}B"
+            elif file_size < 1024 * 1024:
+                size_str = f"{file_size / 1024:.1f}KB"
+            else:
+                size_str = f"{file_size / (1024 * 1024):.1f}MB"
+
+            line_count = content.count('\n') + 1
+
+            self.console.print(f"\n[bold cyan]File:[/bold cyan] {file_path}")
+            self.console.print(f"[dim]Size: {size_str} | Lines: {line_count} | Type: {lexer_name}[/dim]\n")
+
+            # Display with syntax highlighting
+            syntax = Syntax(
+                content,
+                lexer_name,
+                theme="monokai",
+                line_numbers=True,
+                word_wrap=False
+            )
+            self.console.print(syntax)
+
+        except UnicodeDecodeError:
+            self.console.print(f"[red]Cannot preview binary file:[/red] {file_path}")
+        except Exception as e:
+            self.console.print(f"[red]Error reading file:[/red] {e}")
 
     def _cmd_clear(self):
         """Clear terminal screen"""

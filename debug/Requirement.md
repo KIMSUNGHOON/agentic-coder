@@ -2173,6 +2173,187 @@ TestCodeAgent/
 - **Push 상태**: Ready to commit
 
 ### 다음 단계
-1. Git commit & push (CLI Phase 1)
-2. CLI Phase 2 구현 (Streaming UI 개선)
-3. 점진적 CLI 전환
+1. ✅ Git commit & push (CLI Phase 1)
+2. ✅ CLI Phase 2 구현 (Streaming UI 개선)
+3. CLI Phase 3 구현 (Advanced features)
+4. 점진적 CLI 전환
+
+---
+
+## Issue 52: CLI Phase 2 - 스트리밍 UI 개선 (2026-01-08)
+
+### 개요
+CLI의 사용자 경험을 크게 개선했습니다. 실시간 스트리밍 진행 표시, Agent별 상태 메시지, Syntax highlighting, 상세한 파일 정보 표시 등을 구현했습니다.
+
+### 완료된 작업
+
+#### 1. Agent별 맞춤 진행 메시지
+각 Agent에 대한 구체적이고 직관적인 상태 메시지:
+```python
+agent_status_map = {
+    "Supervisor": "🧠 Analyzing request and planning workflow...",
+    "PlanningHandler": "📋 Creating detailed implementation plan...",
+    "CoderHandler": "💻 Generating code...",
+    "ReviewerHandler": "🔍 Reviewing code quality...",
+    "RefinerHandler": "✨ Refining and optimizing code...",
+    "DebugHandler": "🐛 Debugging and fixing errors...",
+    "TestHandler": "🧪 Writing tests...",
+    "DocHandler": "📝 Generating documentation...",
+}
+```
+
+#### 2. 실시간 스트리밍 진행 표시
+- **Progress Bar 개선**:
+  - `transient=False`로 변경하여 진행 상황이 화면에 남도록 함
+  - 실시간 character count 표시: `"💻 Generating code... (1234 chars)"`
+  - Agent 전환 시 자동 상태 업데이트
+
+- **Content 표시**:
+  - Agent 작업 완료 시 즉시 내용 표시
+  - Progress stop/start로 출력 간섭 방지
+
+#### 3. 향상된 Artifact 표시
+새로운 4-column 테이블 형식:
+
+| Column | Content | Features |
+|--------|---------|----------|
+| Action | CREATED/MODIFIED/DELETED | 색상 코딩 + 이모지 |
+| File Path | 파일 경로 | 이모지 아이콘 |
+| Lines | 라인 수 | 우측 정렬 |
+| Size | 파일 크기 | B/KB/MB 자동 포맷 |
+
+**이모지 아이콘**:
+- ✨ Created files
+- 📝 Modified files
+- 🗑️ Deleted files
+
+**Summary Line**:
+```
+Total: 3 files (2 created, 1 modified)
+```
+
+#### 4. `/preview` 명령어 추가
+파일 내용을 Syntax highlighting과 함께 표시:
+
+**기능**:
+- 30+ 프로그래밍 언어 지원 (Python, JS, TS, Java, C/C++, Go, Rust, etc.)
+- Line numbers 표시
+- Monokai 테마 적용
+- 파일 정보 헤더: `Size: 1.5KB | Lines: 63 | Type: python`
+- Binary 파일 감지 및 경고
+- 공백이 포함된 경로 지원
+
+**지원 언어** (일부):
+```python
+.py → python, .js → javascript, .ts → typescript
+.java → java, .go → go, .rs → rust, .rb → ruby
+.md → markdown, .json → json, .yaml → yaml
+.sh → bash, .sql → sql, .html → html, .css → css
+```
+
+**사용 예**:
+```bash
+/preview calculator.py
+/preview src/utils/helper.ts
+/preview config.json
+```
+
+#### 5. 에러 처리 개선
+- Progress bar와 출력이 겹치지 않도록 stop/start 사용
+- Traceback 표시 (debug 모드)
+- 더 명확한 에러 메시지
+
+### 수정된 파일
+
+| # | 파일 | 변경 사항 |
+|---|------|----------|
+| 1 | `backend/cli/terminal_ui.py` | Progress, Artifact, Preview 개선 (+200 lines) |
+| 2 | `backend/cli/test_preview.py` | /preview 테스트 (NEW, 55 lines) |
+| 3 | `test_calculator.py` | 테스트용 샘플 코드 (NEW, 63 lines) |
+
+### 개선 효과
+
+#### Before (Phase 1):
+```
+⠋ Processing...
+
+Agent: Some content here
+```
+
+#### After (Phase 2):
+```
+⠋ 💻 Generating code... (1234 chars) ━━━━━━━━━━━━━━━━━━━━━━
+
+CoderHandler:
+[Markdown rendered content with syntax highlighting]
+
+📁 Files Generated:
+┌──────────┬─────────────────────┬────────┬────────┐
+│ Action   │ File Path           │ Lines  │ Size   │
+├──────────┼─────────────────────┼────────┼────────┤
+│ CREATED  │ ✨ calculator.py    │ 63     │ 1.5KB  │
+│ MODIFIED │ 📝 utils.py         │ 120    │ 3.2KB  │
+└──────────┴─────────────────────┴────────┴────────┘
+
+Total: 2 files (1 created, 1 modified)
+```
+
+### 테스트 결과
+
+#### 기본 테스트
+```
+✅ All basic tests passed!
+- SessionManager: ✓
+- TerminalUI: ✓
+- All slash commands: ✓
+- Session persistence: ✓
+```
+
+#### Preview 테스트
+```
+✅ /preview command tests completed!
+[Test 1] Preview test_calculator.py ✓
+[Test 2] Preview non-existent file ✓ (proper error)
+[Test 3] Preview without arguments ✓ (usage help)
+[Test 4] Preview with spaces ✓ (path joining)
+```
+
+### 사용자 경험 개선
+
+1. **실시간 피드백**: Agent가 무엇을 하고 있는지 명확히 표시
+2. **진행 상황 파악**: Character count로 작업량 가늠 가능
+3. **상세한 파일 정보**: 크기와 라인 수로 변경 규모 파악
+4. **Syntax highlighting**: 코드를 색상과 함께 보기 쉽게 표시
+5. **이모지 사용**: 시각적으로 구분하기 쉬운 UI
+
+### CLI 업데이트 명령어 목록
+
+**Phase 1 명령어 (8개)**:
+- /help, /status, /history, /context, /files, /sessions, /clear, /exit
+
+**Phase 2 추가 (1개)**:
+- **/preview** `<file_path>` - File preview with syntax highlighting
+
+**총 9개 Slash Commands**
+
+### 성공 지표
+
+| 항목 | 목표 | 달성 |
+|------|------|------|
+| Agent 진행 메시지 | 8개 Agent 맞춤 메시지 | ✅ 8개 구현 |
+| 실시간 업데이트 | Char count 표시 | ✅ 구현 |
+| Artifact 정보 | 파일 크기 + 라인 수 | ✅ 4-column table |
+| Syntax Highlighting | Preview 명령어 | ✅ 30+ 언어 지원 |
+| Code Quality | 기존 테스트 통과 | ✅ All passed |
+
+### 기술 스택
+
+- **Rich**: Progress, Table, Syntax, Markdown, Panel
+- **Python Syntax**: 파일 확장자 → 언어 매핑
+- **Monokai Theme**: Syntax highlighting 테마
+- **Emoji Icons**: 시각적 구분 (✨📝🗑️🧠💻🔍 등)
+
+### 참고 문서
+
+- `docs/CLI_README.md` - CLI 사용 가이드 (업데이트 필요)
+- `docs/CLI_IMPLEMENTATION_TODOS.md` - Phase 2 tasks (완료)
