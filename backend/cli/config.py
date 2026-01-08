@@ -260,22 +260,45 @@ class ConfigManager:
         return CLIConfig.from_dict(merged_dict)
 
     def _apply_env_overrides(self, config: CLIConfig) -> CLIConfig:
-        """Apply environment variable overrides"""
+        """Apply environment variable overrides from .env file and system environment.
+
+        Environment variable priority (highest to lowest):
+        1. System environment variables
+        2. .env file values (loaded by __main__.py)
+        3. Config file values
+        4. Default values
+        """
+        # Environment variable mappings (env_var -> config attribute)
         env_mappings = {
+            # Agentic Coder specific
+            "AGENTIC_CODER_MODEL": "model",
+            "AGENTIC_CODER_API_ENDPOINT": "api_endpoint",
+            "AGENTIC_CODER_NETWORK_MODE": "network_mode",
+            "AGENTIC_CODER_DEBUG": "debug",
+            # Legacy TestCodeAgent (backward compatibility)
             "TESTCODEAGENT_MODEL": "model",
             "TESTCODEAGENT_API_ENDPOINT": "api_endpoint",
             "TESTCODEAGENT_NETWORK_MODE": "network_mode",
             "TESTCODEAGENT_DEBUG": "debug",
+            # Standard LLM settings (from .env)
             "LLM_MODEL": "model",
             "LLM_ENDPOINT": "api_endpoint",
+            "REASONING_MODEL": "model",  # Use reasoning model if available
+            "VLLM_REASONING_ENDPOINT": "api_endpoint",  # Use reasoning endpoint
+            # Network and debug
             "NETWORK_MODE": "network_mode",
+            "LOG_LEVEL": "debug",  # DEBUG level enables debug mode
         }
 
         for env_var, attr in env_mappings.items():
             value = os.getenv(env_var)
             if value is not None:
                 if attr == "debug":
-                    value = value.lower() in ("true", "1", "yes")
+                    # Handle both boolean and log level values
+                    if value.upper() == "DEBUG":
+                        value = True
+                    else:
+                        value = value.lower() in ("true", "1", "yes")
                 setattr(config, attr, value)
 
         return config

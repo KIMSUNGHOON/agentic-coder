@@ -510,9 +510,9 @@ User Message
 |------|------|
 | [ROADMAP.md](./ROADMAP.md) | 개발 로드맵 및 Phase 진행 상황 |
 | [MOCK_MODE.md](./MOCK_MODE.md) | vLLM 없이 Mock 테스트 가이드 |
-| [MULTI_USER_ANALYSIS.md](./MULTI_USER_ANALYSIS.md) | 다중 사용자 동시 접속 분석 |
-| [OPTIMIZATION_RECOMMENDATIONS.md](./OPTIMIZATION_RECOMMENDATIONS.md) | H100 GPU 최적화 권장사항 |
-| [REFINEMENT_CYCLE_GUIDE.md](./REFINEMENT_CYCLE_GUIDE.md) | 코드 개선 워크플로우 가이드 |
+| [AGENT_TOOLS_PHASE2_README.md](./AGENT_TOOLS_PHASE2_README.md) | Agent Tools 문서 |
+| [CLI_README.md](./CLI_README.md) | CLI 사용 가이드 |
+| [SESSION_HANDOFF.md](./SESSION_HANDOFF.md) | 세션 인계 문서 |
 
 ---
 

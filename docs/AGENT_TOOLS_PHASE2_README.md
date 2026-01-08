@@ -917,10 +917,10 @@ logger.info(f"Active connections: {stats.get('active_connections', 0)}")
 
 ## Related Documentation
 
-- [Phase 1 README](./AGENT_TOOLS_PHASE1_README.md) - Original tools documentation
-- [Network Mode Design](./AGENT_TOOLS_NETWORK_MODE_DESIGN.md) - Architecture details
-- [Session Handover](./SESSION_HANDOVER_AGENT_TOOLS_PHASE2.md) - Implementation summary
-- [CLI User Guide](./CLI_PHASE3_USER_GUIDE.md) - CLI interface documentation
+- [ROADMAP.md](./ROADMAP.md) - Development roadmap and phase progress
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture documentation
+- [CLI_README.md](./CLI_README.md) - CLI interface documentation
+- [SESSION_HANDOFF.md](./SESSION_HANDOFF.md) - Session continuity document
 
 ---
 
