@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🚀 Phase 4: Sandbox Execution & CLI Fixes (2026-01-08)
+
+#### Added - Sandbox Execution Tool
+**Commit**: `6c3411e`
+
+Docker 기반 격리된 코드 실행 환경 (AIO Sandbox 통합)
+
+**New Files**:
+- `backend/app/tools/sandbox_tools.py` (~400 lines)
+- `backend/app/tools/tests/test_sandbox_tools.py` (38 tests)
+
+**Components**:
+- `SandboxConfig`: 환경변수 기반 설정 관리
+- `SandboxManager`: Docker 컨테이너 라이프사이클 (싱글톤)
+- `SandboxExecuteTool`: 코드 실행 도구
+- `SandboxFileManager`: 샌드박스 내 파일 작업
+
+**Supported Languages**:
+- Python (Jupyter API)
+- Node.js / TypeScript (Shell API)
+- Shell/Bash
+
+**Configuration** (`.env`):
+```bash
+SANDBOX_IMAGE=ghcr.io/agent-infra/sandbox:latest
+SANDBOX_HOST=localhost
+SANDBOX_PORT=8080
+SANDBOX_TIMEOUT=60
+SANDBOX_MEMORY=1g
+SANDBOX_CPU=2.0
+```
+
+---
+
+#### Fixed - CLI Optional Dependencies
+**Commit**: `dd4860d`
+
+`prompt_toolkit` 미설치 시 `NameError: name 'Completer' is not defined` 오류 수정
+
+**Problem**: `prompt_toolkit` import 실패 시 클래스 정의에서 `Completer` 참조 오류
+
+**Solution**: Fallback 클래스 추가 (`interactive.py`):
+- `Completer`, `Completion`, `PathCompleter`
+- `Style`, `HTML`, `KeyBindings`, `Keys`
+
+**Additional**:
+- `terminal_ui.py`: `rich` 미설치 시 명확한 에러 메시지
+- `test_cli_basic.py`, `test_preview.py`: 의존성 없을 시 skip
+
+---
+
+#### Fixed - DynamicWorkflowManager Import Error
+**Commit**: `ac8fe43`
+
+CLI에서 `ImportError: cannot import name 'DynamicWorkflowManager'` 오류 수정
+
+**Problem**: `session_manager.py`가 존재하지 않는 `DynamicWorkflowManager` import
+
+**Solution**: `dynamic_workflow.py`에 wrapper 클래스 추가:
+```python
+class DynamicWorkflowManager:
+    """Alias class for CLI compatibility"""
+    def __init__(self):
+        self._workflow = DynamicWorkflow()
+
+    async def execute_streaming_workflow(self, user_request, workspace_dir, ...):
+        async for update in self._workflow.execute(...):
+            yield update
+```
+
+---
+
+#### Added - Documentation Updates
+**Commit**: `ac574c2`
+
+- `README.md`: 영문 전체 문서화 (~430 lines)
+- `README_KO.md`: 한국어 문서 신규 생성
+- `.env.example`: 샌드박스 설정 명확화
+- `docs/AGENT_TOOLS_PHASE2_README.md`: Phase 4 섹션 추가
+
+---
+
+#### Tool Count Update
+- **Total**: 20 tools (was 19)
+- **Phase 4**: +1 (sandbox_execute)
+
+**Tests**: 262 passed, 8 skipped, 3 warnings
+
+---
+
 ### 🔧 버그 수정 및 UI 개선 (2026-01-05)
 
 #### Fixed - HITL 모달 Quality Gate 상세 결과 표시
