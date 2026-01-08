@@ -19,15 +19,24 @@ import asyncio
 from typing import Optional, Dict, Any
 from pathlib import Path
 
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.prompt import Prompt
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.live import Live
-from rich.text import Text
+try:
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.prompt import Prompt
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.syntax import Syntax
+    from rich.table import Table
+    from rich.live import Live
+    from rich.text import Text
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+    # Provide minimal fallback message
+    raise ImportError(
+        "The 'rich' package is required for CLI mode. "
+        "Install it with: pip install rich"
+    )
 
 from cli.session_manager import SessionManager
 from cli.config import ConfigManager, CLIConfig

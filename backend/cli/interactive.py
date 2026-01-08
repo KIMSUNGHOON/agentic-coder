@@ -25,6 +25,49 @@ try:
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
+    # Fallback classes when prompt_toolkit is not installed
+    class Completer:
+        """Fallback Completer base class"""
+        def get_completions(self, document, complete_event):
+            return iter([])
+
+    class Completion:
+        """Fallback Completion class"""
+        def __init__(self, text, start_position=0, display=None, display_meta=None):
+            self.text = text
+            self.start_position = start_position
+            self.display = display
+            self.display_meta = display_meta
+
+    class PathCompleter(Completer):
+        """Fallback PathCompleter"""
+        def __init__(self, expanduser=False, only_directories=False):
+            pass
+
+    class Style:
+        """Fallback Style class"""
+        @staticmethod
+        def from_dict(style_dict):
+            return None
+
+    class HTML:
+        """Fallback HTML class"""
+        def __init__(self, text):
+            self.text = text
+
+    class KeyBindings:
+        """Fallback KeyBindings class"""
+        def add(self, *args, **kwargs):
+            def decorator(func):
+                return func
+            return decorator
+
+    class Keys:
+        """Fallback Keys class"""
+        ControlD = 'ctrl-d'
+        ControlC = 'ctrl-c'
+        ControlL = 'ctrl-l'
+
 
 # Slash commands with descriptions for auto-completion
 SLASH_COMMANDS = {

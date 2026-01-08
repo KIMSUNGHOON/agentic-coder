@@ -10,6 +10,22 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
+import pytest
+
+# Check for required CLI dependencies
+try:
+    import rich
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+# Skip entire module if rich is not available
+if not RICH_AVAILABLE:
+    pytest.skip(
+        "CLI tests require 'rich' package: pip install rich",
+        allow_module_level=True
+    )
+
 from cli.session_manager import SessionManager
 from cli.terminal_ui import TerminalUI
 
