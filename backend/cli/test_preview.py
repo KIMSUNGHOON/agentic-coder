@@ -32,9 +32,12 @@ def test_preview():
     print("Testing /preview command...")
     print("=" * 60)
 
+    # Use project root as workspace (cross-platform compatible)
+    project_root = Path(__file__).parent.parent.parent
+
     # Create session manager and UI
     session_mgr = SessionManager(
-        workspace="/home/user/agentic-coder",
+        workspace=str(project_root),
         auto_save=False
     )
 

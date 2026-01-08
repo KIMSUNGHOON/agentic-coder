@@ -87,7 +87,11 @@ Ahead of origin/main: 2 commits (Phase 5 + Phase 6)
 
 ### 1. Verify Current State
 ```bash
-cd C:\Users\kingm\PycharmProjects\TestCodeAgent
+# Navigate to project root (use your actual path)
+# Windows: cd C:\path\to\agentic-coder
+# Linux/Mac: cd /path/to/agentic-coder
+cd <project-root>
+
 git status
 git log --oneline -5
 ```

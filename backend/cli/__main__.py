@@ -21,6 +21,7 @@ Usage:
 """
 
 import sys
+import os
 import argparse
 from pathlib import Path
 from typing import Optional
@@ -29,6 +30,47 @@ from typing import Optional
 backend_dir = Path(__file__).parent.parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
+
+# Load .env file from project root (cross-platform compatible)
+def load_dotenv_file():
+    """Load .env file from project root directory."""
+    # Find project root (backend's parent)
+    project_root = backend_dir.parent
+    env_file = project_root / ".env"
+
+    if env_file.exists():
+        try:
+            # Try using python-dotenv if available
+            from dotenv import load_dotenv
+            load_dotenv(env_file)
+            return True
+        except ImportError:
+            # Fallback: manually parse .env file
+            try:
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        # Skip empty lines and comments
+                        if not line or line.startswith('#'):
+                            continue
+                        # Parse KEY=VALUE format
+                        if '=' in line:
+                            key, _, value = line.partition('=')
+                            key = key.strip()
+                            value = value.strip()
+                            # Remove surrounding quotes if present
+                            if value and value[0] in ('"', "'") and value[-1] == value[0]:
+                                value = value[1:-1]
+                            # Only set if not already in environment
+                            if key and key not in os.environ:
+                                os.environ[key] = value
+                return True
+            except Exception:
+                return False
+    return False
+
+# Load environment variables before importing other modules
+_env_loaded = load_dotenv_file()
 
 from cli.terminal_ui import TerminalUI
 from cli.session_manager import SessionManager
