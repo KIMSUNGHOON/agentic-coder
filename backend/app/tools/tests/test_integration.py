@@ -4,7 +4,7 @@ Integration tests for Agent Tools
 Tests the integration of tools with ToolRegistry
 LangChain adapter tests are skipped if dependencies are not available
 
-Updated for Phase 2: 16 tools total (14 Phase 1 + 2 Phase 2)
+Updated for Phase 2.5: 19 tools total (14 Phase 1 + 2 Phase 2 + 3 Phase 2.5)
 """
 
 import pytest
@@ -56,8 +56,8 @@ class TestToolRegistryIntegration:
             registry = ToolRegistry()
             stats = registry.get_statistics()
 
-            # Should have 16 tools total (14 Phase 1 + 2 Phase 2)
-            assert stats["total_tools"] == 16
+            # Should have 19 tools total (14 Phase 1 + 2 Phase 2 + 3 Phase 2.5)
+            assert stats["total_tools"] == 19
 
     def test_registry_categories(self):
         """Test that all tool categories are properly registered"""
@@ -82,9 +82,9 @@ class TestToolRegistryIntegration:
             assert "file" in stats["by_category"]
             assert stats["by_category"]["file"] == 4
 
-            # Check CODE category (has 3 tools)
+            # Check CODE category (has 6 tools: 3 Phase 1 + 3 Phase 2.5)
             assert "code" in stats["by_category"]
-            assert stats["by_category"]["code"] == 3
+            assert stats["by_category"]["code"] == 6
 
     def test_get_web_tools(self):
         """Test retrieval of web category tools"""
@@ -190,12 +190,12 @@ class TestLangChainAdapterIntegration:
         assert "download_file" in tool_names
 
     def test_adapter_tool_count(self):
-        """Test that adapter provides all 16 tools"""
+        """Test that adapter provides all 19 tools"""
         lc_registry = LangChainToolRegistry(session_id="test")
         all_tools = lc_registry.get_all_tools()
 
-        # Should have 16 tools total
-        assert len(all_tools) == 16
+        # Should have 19 tools total (Phase 1 + Phase 2 + Phase 2.5)
+        assert len(all_tools) == 19
 
     def test_adapter_web_category(self):
         """Test adapter can filter by WEB category"""
@@ -276,13 +276,14 @@ class TestBackwardCompatibility:
             assert len(file_tools) == 4
 
     def test_code_category_count(self):
-        """Test that CODE category still has 3 tools"""
+        """Test that CODE category has 6 tools (3 Phase 1 + 3 Phase 2.5)"""
         with patch.dict(os.environ, {"NETWORK_MODE": "online"}):
             ToolRegistry._instance = None
             registry = ToolRegistry()
             code_tools = registry.list_tools(ToolCategory.CODE)
 
-            assert len(code_tools) == 3
+            # Phase 2.5 added: FormatCodeTool, ShellCommandTool, DocstringGeneratorTool
+            assert len(code_tools) == 6
 
 
 class TestNetworkModeIntegration:
@@ -329,7 +330,7 @@ class TestNetworkModeIntegration:
             registry = ToolRegistry()
             stats = registry.get_statistics()
 
-            # 16 total, 2 disabled (web_search, http_request)
-            assert stats["total_tools"] == 16
+            # 19 total, 2 disabled (web_search, http_request)
+            assert stats["total_tools"] == 19
             assert stats["disabled_tools"] == 2
-            assert stats["available_tools"] == 14
+            assert stats["available_tools"] == 17

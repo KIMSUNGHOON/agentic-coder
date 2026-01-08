@@ -12,7 +12,10 @@ import os
 
 from .base import BaseTool, ToolCategory, NetworkType
 from .file_tools import ReadFileTool, WriteFileTool, SearchFilesTool, ListDirectoryTool
-from .code_tools import ExecutePythonTool, RunTestsTool, LintCodeTool
+from .code_tools import (
+    ExecutePythonTool, RunTestsTool, LintCodeTool,
+    FormatCodeTool, ShellCommandTool, DocstringGeneratorTool  # Phase 2.5
+)
 from .git_tools import GitStatusTool, GitDiffTool, GitLogTool, GitBranchTool, GitCommitTool
 from .web_tools import WebSearchTool, HttpRequestTool, DownloadFileTool
 from .search_tools import CodeSearchTool
@@ -92,10 +95,15 @@ class ToolRegistry:
             SearchFilesTool(),
             ListDirectoryTool(),
 
-            # Code tools
+            # Code tools (Phase 1)
             ExecutePythonTool(),
             RunTestsTool(),
             LintCodeTool(),
+
+            # Code tools (Phase 2.5: NEW)
+            FormatCodeTool(),
+            ShellCommandTool(),
+            DocstringGeneratorTool(),
 
             # Git tools
             GitStatusTool(),
