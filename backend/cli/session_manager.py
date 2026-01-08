@@ -189,7 +189,7 @@ class SessionManager:
         Yields:
             Stream updates from tool execution
         """
-        from backend.core.supervisor import supervisor
+        from core.supervisor import supervisor
 
         # Add user message to history
         self.add_message("user", user_request)

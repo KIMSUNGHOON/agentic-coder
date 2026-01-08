@@ -134,7 +134,7 @@ def get_concrete_tools_from_registry() -> List[Dict[str, Any]]:
     Returns:
         List of OpenAI-compatible function definitions for all registered tools
     """
-    from backend.app.tools.registry import get_registry
+    from .registry import get_registry
 
     # Get registry
     registry = get_registry()

@@ -1271,7 +1271,7 @@ For each task, select the right tools and use them effectively."""
 
         # Execute concrete action tool from ToolRegistry
         try:
-            from backend.app.tools.registry import get_registry
+            from app.tools.registry import get_registry
 
             registry = get_registry()
             tool = registry.get_tool(tool_name, check_availability=True)

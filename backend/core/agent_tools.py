@@ -35,7 +35,7 @@ from typing import List, Dict, Any
 import logging
 
 # Import converter to get concrete tools from registry
-from backend.app.tools.tool_converter import (
+from app.tools.tool_converter import (
     get_concrete_tools_from_registry,
     add_strategic_tools
 )
@@ -116,7 +116,7 @@ def get_tool_categories() -> Dict[str, List[str]]:
         Dictionary mapping category to list of tool names
         Example: {'file': ['read_file', 'write_file'], 'code': [...]}
     """
-    from backend.app.tools.registry import get_registry
+    from app.tools.registry import get_registry
 
     registry = get_registry()
     categories = {}
@@ -143,7 +143,7 @@ def get_tool_statistics() -> Dict[str, Any]:
     Returns:
         Dictionary with tool counts, categories, network modes, etc.
     """
-    from backend.app.tools.registry import get_registry
+    from app.tools.registry import get_registry
 
     registry = get_registry()
     stats = registry.get_statistics()
