@@ -1,94 +1,223 @@
-# TestCodeAgent - Full Stack AI Coding Assistant
+<div align="center">
 
-A production-ready AI coding assistant implementing **Unified Workflow Architecture** similar to Claude Code and OpenAI Codex.
+# Agentic Coder
 
-[한국어 문서 (Korean Documentation)](README_KO.md)
+### Enterprise-Grade AI Coding Assistant
 
----
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18+-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-## Overview
+**Production-ready AI coding assistant with Claude Code-style Unified Workflow Architecture**
 
-TestCodeAgent is an enterprise-grade AI-powered coding assistant that provides:
-
-- **Intelligent Code Generation** - Multi-step code generation with planning and review
-- **Multi-Model Support** - DeepSeek-R1, Qwen3-Coder, GPT-OSS, and more
-- **Agent Tools** - 20 specialized tools for file, git, code, web, and sandbox operations
-- **Network Mode** - Online/Offline mode for secure air-gapped environments
-- **Sandbox Execution** - Docker-based isolated code execution
+[Features](#-key-features) • [Quick Start](#-quick-start) • [Documentation](#-documentation) • [Roadmap](#-roadmap)
 
 ---
 
-## Architecture
+[한국어 문서 (Korean)](README_KO.md)
+
+</div>
+
+---
+
+## Why Agentic Coder?
+
+Unlike simple code generation tools, Agentic Coder provides a **complete coding workflow** similar to Claude Code and GitHub Copilot Workspace.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Unique Strengths
+
+- **Unified Workflow** - Intelligent request routing (Q&A, Planning, Code Gen, Review, Debug)
+- **20 Agent Tools** - File, Git, Code, Web, Sandbox operations
+- **Network Mode** - Online/Offline for air-gapped enterprise environments
+- **Multi-Model** - DeepSeek-R1, Qwen3-Coder, GPT-OSS
+- **Korean NLP** - Native Korean language support
+- **CLI + Web UI** - Both interfaces with full feature parity
+
+</td>
+<td width="50%" valign="top">
+
+### Enterprise Ready
+
+- **Air-Gapped Support** - Works completely offline
+- **Data Privacy** - No external API calls in offline mode
+- **Sandbox Execution** - Docker isolation for secure code runs
+- **Session Management** - Persistent conversation history
+- **Self-Hosted** - Run on your own infrastructure
+- **262 Tests** - Production-quality test coverage
+
+</td>
+</tr>
+</table>
+
+---
+
+## Key Features
+
+### 1. Unified Workflow Architecture
 
 ```
-User Prompt
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Unified Chat Endpoint                         │
-│                    POST /chat/unified                            │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    UnifiedAgentManager                           │
-│  - Session context management                                    │
-│  - Supervisor analysis request                                   │
-│  - Response type routing                                         │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    SupervisorAgent                               │
-│  - Request analysis (Reasoning LLM)                             │
-│  - Response type determination                                   │
-│  - Complexity evaluation                                         │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ├─► QUICK_QA ─────────► Direct LLM Response
-    ├─► PLANNING ─────────► PlanningHandler (plan + file save)
-    ├─► CODE_GENERATION ──► CodeGenerationHandler (workflow)
-    ├─► CODE_REVIEW ──────► CodeReviewHandler
-    └─► DEBUGGING ────────► DebuggingHandler
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    ResponseAggregator                            │
-│  - UnifiedResponse generation                                    │
-│  - Next Actions suggestions                                      │
-│  - Context DB storage                                            │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         User Request                                  │
+└──────────────────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                    Supervisor Agent (Reasoning LLM)                   │
+│                                                                       │
+│   Analyzes request → Determines response type → Routes to handler    │
+└──────────────────────────────────────────────────────────────────────┘
+         │              │              │              │              │
+         ▼              ▼              ▼              ▼              ▼
+    ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐
+    │QUICK_QA│    │PLANNING│    │CODE_GEN│    │ REVIEW │    │ DEBUG  │
+    └────────┘    └────────┘    └────────┘    └────────┘    └────────┘
+         │              │              │              │              │
+         └──────────────┴──────────────┴──────────────┴──────────────┘
+                                       │
+                                       ▼
+                    ┌──────────────────────────────────┐
+                    │     Unified Response + Artifacts  │
+                    └──────────────────────────────────┘
+```
+
+**What makes it special:**
+- Single entry point handles all request types
+- Supervisor uses Reasoning LLM (DeepSeek-R1) for intelligent analysis
+- Automatic routing based on request complexity
+- Consistent response format across all handlers
+
+---
+
+### 2. Agent Tools (20 Tools)
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**File & Git**
+| Tool | Function |
+|:-----|:---------|
+| `read_file` | Read contents |
+| `write_file` | Write/create |
+| `search_files` | Pattern search |
+| `list_directory` | List files |
+| `git_status` | Repo status |
+| `git_diff` | View changes |
+| `git_log` | History |
+| `git_branch` | Branches |
+| `git_commit` | Commit |
+
+</td>
+<td width="33%" valign="top">
+
+**Code Operations**
+| Tool | Function |
+|:-----|:---------|
+| `execute_python` | Run Python |
+| `run_tests` | Test runner |
+| `lint_code` | Linting |
+| `format_code` | Formatting |
+| `shell_command` | Shell exec |
+| `generate_docstring` | Docstrings |
+| `sandbox_execute` | Isolated run |
+
+</td>
+<td width="33%" valign="top">
+
+**Web & Search**
+| Tool | Function |
+|:-----|:---------|
+| `code_search` | Code search |
+| `web_search` | Web search |
+| `http_request` | REST API |
+| `download_file` | Downloads |
+
+**Network Mode**
+- `online` = All tools
+- `offline` = Block external API
+
+</td>
+</tr>
+</table>
+
+---
+
+### 3. Network Mode (Air-Gapped Support)
+
+Perfect for **enterprise environments** with strict security requirements.
+
+| Mode | Description | Blocked Tools |
+|:-----|:------------|:--------------|
+| `online` | Full functionality | None |
+| `offline` | Air-gapped mode | `web_search`, `http_request` |
+
+**Security Policy:**
+- **Block**: Tools that send data externally
+- **Allow**: Tools that only receive data (downloads)
+- **Allow**: All local tools (file, git, code)
+
+```bash
+# Enable offline mode
+NETWORK_MODE=offline
 ```
 
 ---
 
-## Features
+### 4. Sandbox Execution (Docker Isolation)
 
-### Core Capabilities
+Execute untrusted code safely in isolated containers.
 
-| Feature | Description |
-|---------|-------------|
-| **Unified Workflow** | Single entry point with intelligent routing |
-| **Multi-Model Support** | DeepSeek-R1, Qwen3-Coder, GPT-OSS with auto-detection |
-| **Context Persistence** | Conversation and task context stored in DB |
-| **Real-time Streaming** | Code generation with live progress display |
-| **Korean Language Support** | Native Korean NLP with verb stem pattern matching |
+```python
+sandbox = registry.get_tool("sandbox_execute")
 
-### Agent Tools (20 Tools)
+# Python execution
+result = await sandbox.execute(
+    code="import os; print(os.getcwd())",
+    language="python",
+    timeout=60
+)
 
-| Phase | Tools | Description |
-|-------|-------|-------------|
-| **Phase 1** | 14 tools | File, Git, Code, Search operations |
-| **Phase 2** | 2 tools | HTTP requests, File downloads with network mode |
-| **Phase 2.5** | 3 tools | Code formatting, Shell commands, Docstring generation |
-| **Phase 4** | 1 tool | Sandbox execution (Docker-based isolation) |
+# Shell execution
+result = await sandbox.execute(
+    code="ls -la && whoami",
+    language="shell"
+)
+```
 
-### Network Mode System
+**Supported Languages**: Python, Node.js, TypeScript, Shell
 
-| Mode | Description | EXTERNAL_API Tools |
-|------|-------------|--------------------|
-| `online` | All tools available | Enabled |
-| `offline` | Secure/air-gapped mode | Blocked |
+**Offline Setup:**
+```bash
+docker pull ghcr.io/agent-infra/sandbox:latest
+# Works offline after first pull
+```
+
+---
+
+### 5. CLI Interface
+
+Full-featured command-line interface with:
+
+- **Command History** - Persistent across sessions
+- **Auto-Completion** - Tab completion for commands and files
+- **Slash Commands** - `/help`, `/status`, `/preview`, `/config`
+- **Streaming Output** - Real-time code generation display
+
+```bash
+# Start interactive mode
+python -m cli
+
+# One-shot mode
+python -m cli "Create a Python REST API"
+
+# With options
+python -m cli --workspace ./project --model qwen2.5-coder:32b
+```
 
 ---
 
@@ -96,60 +225,56 @@ User Prompt
 
 ### Prerequisites
 
-1. **vLLM Server** (start before app):
-   ```bash
-   # Terminal 1: Reasoning Model
-   vllm serve deepseek-ai/DeepSeek-R1 --port 8001
-
-   # Terminal 2: Coding Model
-   vllm serve Qwen/Qwen3-8B-Coder --port 8002
-   ```
-
-2. **Python 3.12+** and **Node.js 20+**
-
-3. **Docker** (for sandbox execution)
+| Requirement | Version |
+|:------------|:--------|
+| Python | 3.12+ |
+| Node.js | 20+ |
+| Docker | Latest (for sandbox) |
+| GPU | NVIDIA recommended (for vLLM) |
 
 ### Installation
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/your-org/TestCodeAgent.git
-cd TestCodeAgent
+# 1. Clone
+git clone https://github.com/your-org/agentic-coder.git
+cd agentic-coder
 
-# 2. Environment setup
+# 2. Environment
 cp .env.example .env
-# Edit .env with your configuration
 
-# 3. Backend setup
+# 3. Backend
 cd backend
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
-# 4. Frontend setup
+# 4. Frontend
 cd ../frontend
 npm install
 
-# 5. (Optional) Pull sandbox image for isolated execution
+# 5. Sandbox (optional)
 docker pull ghcr.io/agent-infra/sandbox:latest
 ```
 
-### Running the Application
+### Start Services
 
 ```bash
-# Terminal 1: Backend
-cd backend
-source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Terminal 1: vLLM (Reasoning)
+vllm serve deepseek-ai/DeepSeek-R1 --port 8001
 
-# Terminal 2: Frontend
-cd frontend
-npm run dev
+# Terminal 2: vLLM (Coding)
+vllm serve Qwen/Qwen3-8B-Coder --port 8002
+
+# Terminal 3: Backend
+cd backend && uvicorn app.main:app --port 8000 --reload
+
+# Terminal 4: Frontend
+cd frontend && npm run dev
 ```
 
-Access the application at: http://localhost:5173
+**Access:** http://localhost:5173
 
-### Mock Mode (Testing without vLLM)
+### Mock Mode (No GPU)
 
 ```bash
 ./RUN_MOCK.sh  # Linux/Mac
@@ -160,268 +285,123 @@ RUN_MOCK.bat   # Windows
 
 ## Configuration
 
-### Environment Variables
-
 ```bash
-# LLM Configuration
-LLM_ENDPOINT=http://localhost:8001/v1
-LLM_MODEL=deepseek-ai/DeepSeek-R1
+# .env
 
-# Task-specific models
+# LLM Endpoints
 VLLM_REASONING_ENDPOINT=http://localhost:8001/v1
 VLLM_CODING_ENDPOINT=http://localhost:8002/v1
 REASONING_MODEL=deepseek-ai/DeepSeek-R1
 CODING_MODEL=Qwen/Qwen3-8B-Coder
 
-# Network Mode (online/offline)
-NETWORK_MODE=online
+# Network Mode
+NETWORK_MODE=online  # or 'offline'
 
-# Sandbox Configuration
+# Sandbox
 SANDBOX_IMAGE=ghcr.io/agent-infra/sandbox:latest
 SANDBOX_HOST=localhost
 SANDBOX_PORT=8080
 SANDBOX_TIMEOUT=60
 ```
 
-See [.env.example](.env.example) for full configuration options.
-
 ---
 
-## Agent Tools
+## API Reference
 
-### Tool Categories
+### Unified Chat
 
-| Category | Tools | Network Type |
-|----------|-------|--------------|
-| **FILE** | read_file, write_file, search_files, list_directory | LOCAL |
-| **GIT** | git_status, git_diff, git_log, git_branch, git_commit | LOCAL |
-| **CODE** | execute_python, run_tests, lint_code, format_code, shell_command, generate_docstring, sandbox_execute | LOCAL |
-| **SEARCH** | code_search, web_search | LOCAL / EXTERNAL_API |
-| **WEB** | http_request, download_file | EXTERNAL_API / EXTERNAL_DOWNLOAD |
-
-### Tool Availability by Network Mode
-
-| Tool | Online | Offline | Phase |
-|------|--------|---------|-------|
-| read_file | ✅ | ✅ | 1 |
-| write_file | ✅ | ✅ | 1 |
-| git_* (5 tools) | ✅ | ✅ | 1 |
-| code_search | ✅ | ✅ | 1 |
-| web_search | ✅ | ❌ | 1 |
-| http_request | ✅ | ❌ | 2 |
-| download_file | ✅ | ✅ | 2 |
-| format_code | ✅ | ✅ | 2.5 |
-| shell_command | ✅ | ✅ | 2.5 |
-| generate_docstring | ✅ | ✅ | 2.5 |
-| sandbox_execute | ✅ | ✅ | 4 |
-
-### Sandbox Execution
-
-Execute code in isolated Docker containers:
-
-```python
-from app.tools.registry import ToolRegistry
-
-registry = ToolRegistry()
-sandbox = registry.get_tool("sandbox_execute")
-
-# Python execution
-result = await sandbox.execute(
-    code="print('Hello, World!')",
-    language="python",
-    timeout=60
-)
-
-# Shell execution
-result = await sandbox.execute(
-    code="ls -la && cat /etc/os-release",
-    language="shell"
-)
-```
-
-**Offline Setup:**
-```bash
-# Pull image once (requires internet)
-docker pull ghcr.io/agent-infra/sandbox:latest
-
-# Image is cached locally - works offline after first pull
-```
-
----
-
-## API Endpoints
-
-### Unified Chat (Non-streaming)
-
-```
+```http
 POST /chat/unified
-```
+Content-Type: application/json
 
-```json
 {
-  "message": "Create a calculator in Python",
+  "message": "Create a Python calculator with tests",
   "session_id": "session-123",
-  "workspace": "/home/user/workspace"
+  "workspace": "/path/to/workspace"
 }
 ```
 
-**Response:**
-```json
-{
-  "response_type": "code_generation",
-  "content": "## Code Generation Complete\n\n...",
-  "artifacts": [...],
-  "next_actions": ["Run tests", "Request code review"],
-  "session_id": "session-123",
-  "success": true
-}
-```
+### Streaming
 
-### Unified Chat (Streaming)
-
-```
+```http
 POST /chat/unified/stream
-```
-
----
-
-## Project Structure
-
-```
-TestCodeAgent/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                    # FastAPI entry point
-│   │   ├── agent/
-│   │   │   ├── unified_agent_manager.py
-│   │   │   └── handlers/              # Response type handlers
-│   │   ├── tools/                     # Agent tools (20 tools)
-│   │   │   ├── base.py                # BaseTool, ToolResult
-│   │   │   ├── registry.py            # ToolRegistry
-│   │   │   ├── file_tools.py          # File operations
-│   │   │   ├── git_tools.py           # Git operations
-│   │   │   ├── code_tools.py          # Code operations
-│   │   │   ├── code_tools_phase25.py  # Phase 2.5 tools
-│   │   │   ├── search_tools.py        # Search tools
-│   │   │   ├── web_tools.py           # HTTP/download tools
-│   │   │   ├── sandbox_tools.py       # Sandbox execution
-│   │   │   └── performance.py         # Connection pool, caching
-│   │   └── api/
-│   │       └── main_routes.py         # API endpoints
-│   ├── core/
-│   │   ├── supervisor.py              # SupervisorAgent
-│   │   ├── response_aggregator.py     # UnifiedResponse
-│   │   └── context_store.py           # Context storage
-│   └── shared/
-│       └── llm/
-│           ├── base.py                # LLMProvider interface
-│           └── adapters/              # Model-specific adapters
-├── frontend/
-│   └── src/
-│       ├── components/
-│       │   ├── WorkflowInterface.tsx  # Unified mode UI
-│       │   ├── NextActionsPanel.tsx   # Action buttons
-│       │   └── PlanFileViewer.tsx     # Plan file viewer
-│       └── api/
-│           └── client.ts              # API client
-├── docs/                              # Documentation
-├── .env.example                       # Configuration template
-└── README.md                          # This file
 ```
 
 ---
 
 ## Testing
 
-### Run All Tests
-
 ```bash
 cd backend
 pytest app/tools/tests/ -v
 
-# Results: 262 passed, 6 skipped
+# 262 passed, 8 skipped
 ```
-
-### Test Modules
-
-| Module | Tests | Description |
-|--------|-------|-------------|
-| test_network_mode.py | 44 | Network mode system |
-| test_web_tools_phase2.py | 41 | HTTP and download tools |
-| test_code_tools_phase25.py | 53 | Code formatting, shell, docstring |
-| test_sandbox_tools.py | 38 | Sandbox execution |
-| test_performance.py | 24 | Connection pool, caching |
-| test_e2e.py | 21 | End-to-end integration |
-| test_integration.py | 17 | Tool integration |
 
 ---
 
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
-| [AGENT_TOOLS_PHASE2_README.md](docs/AGENT_TOOLS_PHASE2_README.md) | Complete Agent Tools documentation |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture details |
-| [MOCK_MODE.md](docs/MOCK_MODE.md) | Mock mode testing guide |
-| [CLI_PHASE3_USER_GUIDE.md](docs/CLI_PHASE3_USER_GUIDE.md) | CLI interface guide |
+|:---------|:------------|
+| [Agent Tools Guide](docs/AGENT_TOOLS_PHASE2_README.md) | All 20 tools documentation |
+| [Architecture](docs/ARCHITECTURE.md) | System design |
+| [CLI Guide](docs/CLI_PHASE3_USER_GUIDE.md) | Command-line interface |
+| [Mock Mode](docs/MOCK_MODE.md) | Testing without GPU |
 
 ---
 
-## Development History
+## Roadmap
 
-### Phase 4 (Current) - Sandbox Execution
-- **SandboxExecuteTool** - Docker-based isolated code execution
-- **AIO Sandbox integration** - Uses pre-built development environment
-- **Multi-language support** - Python, Node.js, TypeScript, Shell
-- **Offline-ready** - Works with locally cached Docker images
-
-### Phase 3 - Performance Optimization
-- **Connection Pooling** - Shared HTTP connections
-- **Result Caching** - LRU cache with TTL
-- **Progress Tracking** - Real-time download progress
-
-### Phase 2.5 - Code Tools
-- **FormatCodeTool** - Black/autopep8/yapf formatting
-- **ShellCommandTool** - Safe shell execution with blocklist
-- **DocstringGeneratorTool** - Auto-generate docstrings
-
-### Phase 2 - Network Mode
-- **Network Mode System** - Online/Offline control
-- **HttpRequestTool** - REST API calls
-- **DownloadFileTool** - File downloads with progress
-
-### Phase 1 - Foundation
-- 14 core tools (file, git, code, search)
-- Tool registry system
-- Basic tool execution framework
+- [x] **Phase 1** - Core tools (14 tools)
+- [x] **Phase 2** - Network mode + Web tools
+- [x] **Phase 2.5** - Code formatting tools
+- [x] **Phase 3** - Performance optimization
+- [x] **Phase 4** - Sandbox execution
+- [ ] **Phase 5** - Plan mode with approval workflow
+- [ ] **Phase 6** - MCP (Model Context Protocol) integration
+- [ ] **Phase 7** - Multi-agent collaboration
 
 ---
 
-## Supported LLM Models
+## Supported Models
 
-| Model | Characteristics | Prompt Format |
-|-------|-----------------|---------------|
-| DeepSeek-R1 | Reasoning model | `<think></think>` tags |
-| Qwen3-Coder | Coding specialized | Standard prompts |
-| GPT-OSS | OpenAI Harmony | Structured reasoning |
-
----
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
+| Model | Type | Strengths |
+|:------|:-----|:----------|
+| DeepSeek-R1 | Reasoning | Complex analysis, planning |
+| Qwen3-Coder | Coding | Code generation, completion |
+| GPT-OSS | General | Balanced performance |
 
 ---
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push branch (`git push origin feature/amazing`)
+5. Open Pull Request
 
 ---
 
-**Maintained by**: TestCodeAgent Team
-**Last Updated**: 2026-01-08
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**Built with**
+
+[![Python](https://img.shields.io/badge/-Python-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/-React-61DAFB?style=flat-square&logo=react&logoColor=black)](https://reactjs.org)
+[![vLLM](https://img.shields.io/badge/-vLLM-FF6F00?style=flat-square&logo=lightning&logoColor=white)](https://vllm.ai)
+[![Docker](https://img.shields.io/badge/-Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+
+---
+
+**If this project helps you, please give it a ⭐**
+
+</div>
