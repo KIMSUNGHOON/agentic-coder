@@ -130,7 +130,7 @@ class RemoteClient:
             async with self.client.stream(
                 "POST",
                 f"{self.server_url}/api/sessions/{self.session_id}/execute",
-                json={"request": user_request},
+                json={"user_request": user_request},
                 timeout=None
             ) as response:
                 if response.status_code != 200:
@@ -140,6 +140,8 @@ class RemoteClient:
 
                 # Parse SSE stream
                 current_status = "Processing..."
+                current_event = None
+
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -148,7 +150,15 @@ class RemoteClient:
                     task = progress.add_task(current_status, total=None)
 
                     async for line in response.aiter_lines():
-                        if not line or not line.startswith("data: "):
+                        if not line:
+                            continue
+
+                        # Parse SSE format: "event: <type>" and "data: <json>"
+                        if line.startswith("event: "):
+                            current_event = line[7:]  # Remove "event: " prefix
+                            continue
+
+                        if not line.startswith("data: "):
                             continue
 
                         data_str = line[6:]  # Remove "data: " prefix
@@ -157,56 +167,43 @@ class RemoteClient:
 
                         try:
                             import json
-                            update = json.loads(data_str)
-                            update_type = update.get("type")
+                            event_data = json.loads(data_str)
 
-                            if update_type == "status":
-                                status = update.get("message", "Processing...")
-                                progress.update(task, description=status)
+                            # Handle different event types
+                            if current_event == "supervisor":
+                                node_data = event_data.get("data", {})
+                                decision = node_data.get("supervisor_decision", {})
+                                if decision:
+                                    progress.update(task, description=f"[cyan]Supervisor: {decision.get('action', 'thinking')}[/cyan]")
 
-                            elif update_type == "reasoning":
-                                reasoning = update.get("content", "")
-                                if reasoning:
+                            elif current_event == "tool":
+                                node_data = event_data.get("data", {})
+                                tool_name = node_data.get("tool_name", "unknown")
+                                progress.update(task, description=f"[yellow]Executing: {tool_name}[/yellow]")
+
+                            elif current_event == "response":
+                                node_data = event_data.get("data", {})
+                                response_text = node_data.get("response", "")
+                                if response_text:
                                     progress.stop()
                                     self.console.print(Panel(
-                                        f"[italic dim]{reasoning[:500]}[/italic dim]",
-                                        title="[bold cyan]💭 AI Reasoning[/bold cyan]",
-                                        border_style="cyan"
+                                        f"[bold white]{response_text}[/bold white]",
+                                        title="[bold green]✅ Response[/bold green]",
+                                        border_style="green",
+                                        padding=(1, 2)
                                     ))
                                     progress.start()
 
-                            elif update_type == "tool_result":
-                                tool = update.get("tool", "unknown")
-                                success = update.get("success", False)
-                                if success:
-                                    progress.stop()
-                                    self.console.print(f"[green]✓[/green] {tool} completed")
-                                    progress.start()
-                                else:
-                                    error = update.get("error", "Unknown error")
-                                    progress.stop()
-                                    self.console.print(f"[red]✗[/red] {tool} failed: {error}")
-                                    progress.start()
-
-                            elif update_type == "final_response":
-                                response_text = update.get("content", "")
+                            elif current_event == "error":
+                                node_data = event_data.get("data", {})
+                                error_msg = node_data.get("error", "Unknown error")
                                 progress.stop()
-                                self.console.print()
-                                self.console.print(Panel(
-                                    Markdown(response_text),
-                                    title="[bold green]✅ Complete[/bold green]",
-                                    border_style="green",
-                                    padding=(1, 2)
-                                ))
+                                self.console.print(f"[red]✗ Error: {error_msg}[/red]")
+                                progress.start()
 
-                            elif update_type == "error":
-                                error_msg = update.get("message", "Unknown error")
-                                progress.stop()
-                                self.console.print(Panel(
-                                    f"[red]{error_msg}[/red]",
-                                    title="[bold red]❌ Error[/bold red]",
-                                    border_style="red"
-                                ))
+                            elif current_event == "complete":
+                                progress.update(task, description="[green]✓ Completed[/green]")
+                                break
 
                         except json.JSONDecodeError:
                             continue
