@@ -1386,8 +1386,17 @@ For each task, select the right tools and use them effectively."""
                     "arguments": arguments
                 }
 
-            # Execute tool
+            # Execute tool with context support
             logger.info(f"   → Executing {tool_name} from category: {tool.category.value}")
+
+            # For file tools, inject workspace path into arguments if context provided
+            if context and tool.category.value == "file":
+                workspace = context.get("workspace")
+                if workspace and "path" in arguments:
+                    # Inject workspace for path resolution
+                    arguments["_workspace"] = workspace
+                    logger.info(f"   📁 Workspace context: {workspace}")
+
             result = await tool.execute(**arguments)
 
             # Convert ToolResult to dict
