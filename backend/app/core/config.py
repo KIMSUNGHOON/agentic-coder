@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     vllm_reasoning_endpoint: Optional[str] = None
     vllm_coding_endpoint: Optional[str] = None
 
+    # Optional: Multiple endpoints for load balancing (comma-separated)
+    # Example: "http://localhost:8001/v1,http://localhost:8002/v1"
+    # If set, load balances across all endpoints using round-robin
+    vllm_endpoints: Optional[str] = None
+
     # Optional: Task-specific models (override llm_model if set)
     reasoning_model: Optional[str] = None
     coding_model: Optional[str] = None
@@ -133,6 +138,17 @@ class Settings(BaseSettings):
         if self.model_type:
             return self.model_type
         return detect_model_type(self.get_coding_model)
+
+    @property
+    def get_vllm_endpoints_list(self) -> List[str]:
+        """Get list of vLLM endpoints for load balancing.
+
+        Returns:
+            List of endpoint URLs. If vllm_endpoints is not set, returns list with single llm_endpoint.
+        """
+        if self.vllm_endpoints:
+            return [endpoint.strip() for endpoint in self.vllm_endpoints.split(",")]
+        return [self.llm_endpoint]
 
     # =========================
     # Agent Framework Selection
@@ -236,10 +252,20 @@ def log_configuration():
     _config_logger.info(f"   LLM_ENDPOINT: {settings.llm_endpoint}")
     _config_logger.info(f"   LLM_MODEL: {settings.llm_model}")
     _config_logger.info(f"   MODEL_TYPE: {settings.model_type or 'auto-detect'}")
-    _config_logger.info(f"   REASONING_ENDPOINT: {settings.get_reasoning_endpoint}")
-    _config_logger.info(f"   CODING_ENDPOINT: {settings.get_coding_endpoint}")
-    _config_logger.info(f"   REASONING_MODEL: {settings.get_reasoning_model}")
-    _config_logger.info(f"   CODING_MODEL: {settings.get_coding_model}")
+
+    # Load Balancing Configuration
+    endpoints = settings.get_vllm_endpoints_list
+    if len(endpoints) > 1:
+        _config_logger.info(f"   LOAD BALANCING: Enabled ({len(endpoints)} endpoints)")
+        for i, endpoint in enumerate(endpoints):
+            _config_logger.info(f"      [{i+1}] {endpoint}")
+    else:
+        _config_logger.info(f"   LOAD BALANCING: Disabled (single endpoint)")
+        if settings.vllm_reasoning_endpoint and settings.vllm_coding_endpoint:
+            _config_logger.info(f"   REASONING_ENDPOINT: {settings.get_reasoning_endpoint}")
+            _config_logger.info(f"   CODING_ENDPOINT: {settings.get_coding_endpoint}")
+            _config_logger.info(f"   REASONING_MODEL: {settings.get_reasoning_model}")
+            _config_logger.info(f"   CODING_MODEL: {settings.get_coding_model}")
     _config_logger.info("-" * 60)
     _config_logger.info("Workflow Settings:")
     _config_logger.info(f"   AGENT_FRAMEWORK: {settings.agent_framework}")
