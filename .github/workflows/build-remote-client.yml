@@ -82,13 +82,19 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R artifacts
 
+      - name: Prepare release files with unique names
+        run: |
+          mkdir -p release-files
+          cp artifacts/agentic-coder-client-linux/agentic-coder-client release-files/agentic-coder-client-linux
+          cp artifacts/agentic-coder-client-windows.exe/agentic-coder-client.exe release-files/agentic-coder-client-windows.exe
+          cp artifacts/agentic-coder-client-macos/agentic-coder-client release-files/agentic-coder-client-macos
+          chmod +x release-files/agentic-coder-client-*
+          ls -lh release-files/
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/agentic-coder-client-linux/agentic-coder-client
-            artifacts/agentic-coder-client-windows.exe/agentic-coder-client.exe
-            artifacts/agentic-coder-client-macos/agentic-coder-client
+          files: release-files/*
           body: |
             ## Agentic Coder Remote Client - ${{ github.ref_name }}
 
