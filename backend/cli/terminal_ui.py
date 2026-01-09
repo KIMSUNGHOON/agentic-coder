@@ -81,8 +81,13 @@ class TerminalUI:
 
         while True:
             try:
+                # Build dynamic prompt with workspace info
+                workspace_name = self.session_mgr.workspace.name
+                session_id_short = self.session_mgr.session_id.split('-')[-1][:8]
+                prompt_text = f"[{workspace_name}:{session_id_short}] You"
+
                 # Get user input using enhanced interactive session
-                user_input = self.interactive.prompt("You")
+                user_input = self.interactive.prompt(prompt_text)
 
                 # Handle None (Ctrl+D)
                 if user_input is None:
@@ -128,89 +133,284 @@ class TerminalUI:
         Args:
             user_request: User's request
         """
-        current_agent = None
-        current_content = ""
         artifacts = []
-        streaming_display = None
+        current_iteration = 0
+        total_iterations = 15  # Default max
+        current_status = "Initializing..."
 
-        # Agent-specific status messages
-        agent_status_map = {
-            "Supervisor": "🧠 Analyzing request and planning workflow...",
-            "PlanningHandler": "📋 Creating detailed implementation plan...",
-            "CoderHandler": "💻 Generating code...",
-            "ReviewerHandler": "🔍 Reviewing code quality...",
-            "RefinerHandler": "✨ Refining and optimizing code...",
-            "DebugHandler": "🐛 Debugging and fixing errors...",
-            "TestHandler": "🧪 Writing tests...",
-            "DocHandler": "📝 Generating documentation...",
-        }
+        # Show initial request in a clear panel
+        self.console.print()
+        self.console.print(Panel(
+            f"[bold white]{user_request}[/bold white]",
+            title="[bold cyan]🎯 Your Request[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2)
+        ))
+        self.console.print()
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            console=self.console,
-            transient=False
-        ) as progress:
-            # Create progress task
-            task = progress.add_task("[cyan]Initializing...", total=None)
+        from rich.live import Live
+        from rich.table import Table
+
+        def create_status_display():
+            """Create live status display table"""
+            table = Table.grid(padding=(0, 2))
+            table.add_column(style="cyan", justify="right")
+            table.add_column(style="white")
+
+            # Progress indicator
+            progress_bar = "█" * int((current_iteration / total_iterations) * 20) + "░" * (20 - int((current_iteration / total_iterations) * 20))
+            progress_text = f"{current_iteration}/{total_iterations}"
+
+            table.add_row("[bold]Progress:", f"[{progress_bar}] {progress_text}")
+            table.add_row("[bold]Status:", current_status)
+
+            return Panel(
+                table,
+                title="[bold yellow]⚙️  Working...[/bold yellow]",
+                border_style="yellow",
+                padding=(0, 2)
+            )
+
+        with Live(create_status_display(), console=self.console, refresh_per_second=4) as live:
 
             try:
-                async for update in self.session_mgr.execute_streaming_workflow(user_request):
+                # Use Tool Use workflow (dynamic LLM-driven approach)
+                async for update in self.session_mgr.execute_tool_use_workflow(user_request):
                     update_type = update.get("type")
 
-                    if update_type == "agent_start":
-                        current_agent = update.get("agent")
+                    # Handle different update types from Tool Use pattern
+                    if update_type == "tool_iteration":
+                        # New iteration starting
+                        current_iteration = update.get("iteration", 0)
+                        total_iterations = update.get("max_iterations", 15)
+                        current_status = f"🔄 Starting iteration {current_iteration}..."
+                        live.update(create_status_display())
 
-                        # Get agent-specific status message
-                        status_msg = agent_status_map.get(current_agent, f"{current_agent} working...")
-                        progress.update(task, description=f"[cyan]{status_msg}")
+                    elif update_type == "reasoning":
+                        # LLM reasoning/thinking (CoT) - MOST IMPORTANT FOR UX!
+                        reasoning = update.get("content", "")
+                        if reasoning and len(reasoning.strip()) > 10:
+                            current_status = "🧠 AI is thinking and planning next steps..."
+                            live.update(create_status_display())
 
-                        # Reset content for new agent
-                        current_content = ""
+                            # Pause live display to show reasoning
+                            live.stop()
 
-                    elif update_type == "agent_stream":
-                        # Accumulate and update streaming content
-                        chunk = update.get("content", "")
-                        current_content += chunk
+                            # Show full reasoning in an expandable panel
+                            reasoning_text = reasoning.strip()
+                            if len(reasoning_text) > 500:
+                                reasoning_preview = reasoning_text[:500] + "..."
+                            else:
+                                reasoning_preview = reasoning_text
 
-                        # Update progress with content length indicator
-                        char_count = len(current_content)
-                        if char_count > 0:
-                            status_msg = agent_status_map.get(current_agent, current_agent)
-                            progress.update(
-                                task,
-                                description=f"[cyan]{status_msg} ({char_count} chars)"
-                            )
+                            self.console.print(Panel(
+                                f"[italic dim]{reasoning_preview}[/italic dim]",
+                                title="[bold cyan]💭 AI Reasoning (Chain-of-Thought)[/bold cyan]",
+                                subtitle="[dim]Thinking about the best approach...[/dim]",
+                                border_style="cyan",
+                                padding=(1, 2)
+                            ))
 
-                    elif update_type == "agent_end":
-                        # Display accumulated content with Live rendering
-                        if current_content:
-                            # Stop progress to display content
-                            progress.stop()
-                            self._display_agent_response(current_agent, current_content)
-                            # Resume progress
-                            progress.start()
-                            current_content = ""
+                            live.start()
+                            current_status = "✅ Reasoning complete, executing actions..."
+                            live.update(create_status_display())
 
-                    elif update_type == "artifact":
-                        # Store artifact for later display
-                        artifacts.append(update)
+                    elif update_type == "tool_call_start":
+                        # Tool execution starting
+                        tool_name = update.get("tool")
+                        arguments = update.get("arguments", {})
+
+                        # Create human-readable tool description
+                        tool_descriptions = {
+                            "write_file": "📝 Writing file",
+                            "read_file": "📖 Reading file",
+                            "execute_python": "🐍 Running Python code",
+                            "execute_bash": "⚡ Executing command",
+                            "search_files": "🔍 Searching files",
+                            "list_directory": "📂 Listing directory",
+                            "git_commit": "📦 Committing changes",
+                            "web_search": "🌐 Searching web",
+                        }
+
+                        tool_desc = tool_descriptions.get(tool_name, f"🔧 {tool_name}")
+
+                        # Show key argument
+                        if "path" in arguments:
+                            detail = f": {arguments['path']}"
+                        elif "command" in arguments:
+                            cmd = str(arguments['command'])[:40]
+                            detail = f": {cmd}..."
+                        elif "code" in arguments:
+                            detail = ": <code snippet>"
+                        else:
+                            detail = ""
+
+                        current_status = f"{tool_desc}{detail}"
+                        live.update(create_status_display())
+
+                    elif update_type == "tool_call_result":
+                        # Tool execution completed
+                        tool_name = update.get("tool")
+                        result = update.get("result", {})
+                        success = result.get("success", False)
+
+                        if success:
+                            # Pause live to show result
+                            live.stop()
+
+                            # Special handling for file operations with full paths
+                            if tool_name == "write_file":
+                                metadata = result.get("metadata", {})
+                                path = metadata.get("path", "unknown")
+                                lines = metadata.get("lines", 0)
+                                size = metadata.get("bytes", 0)
+
+                                # Show full path with file icon and success badge
+                                self.console.print(Panel(
+                                    f"[bold cyan]{path}[/bold cyan]\n"
+                                    f"[dim]→ {lines} lines, {size:,} bytes[/dim]",
+                                    title="[bold green]✅ File Created[/bold green]",
+                                    border_style="green",
+                                    padding=(0, 2)
+                                ))
+
+                                artifacts.append({
+                                    "action": "created",
+                                    "filename": path,
+                                    "lines": lines,
+                                    "size": size
+                                })
+                            elif tool_name == "read_file":
+                                metadata = result.get("metadata", {})
+                                path = metadata.get("path", "unknown")
+                                lines = metadata.get("lines", 0)
+                                size_mb = metadata.get("size_mb", 0)
+
+                                self.console.print(f"[green]✓ Read:[/green] [cyan]{path}[/cyan] [dim]({lines} lines, {size_mb:.2f} MB)[/dim]")
+                            elif tool_name == "execute_python":
+                                output = result.get("output", "")
+                                if output and len(output.strip()) > 0:
+                                    output_preview = output[:200] + "..." if len(output) > 200 else output
+                                    self.console.print(Panel(
+                                        f"[dim]{output_preview}[/dim]",
+                                        title="[bold green]✅ Python Execution Result[/bold green]",
+                                        border_style="green",
+                                        padding=(1, 2)
+                                    ))
+                                else:
+                                    self.console.print("[green]✓[/green] Python code executed successfully")
+                            elif tool_name == "execute_bash":
+                                output = result.get("output", "")
+                                if output and len(output.strip()) > 0:
+                                    output_preview = output[:200] + "..." if len(output) > 200 else output
+                                    self.console.print(f"[green]✓ Command output:[/green]\n[dim]{output_preview}[/dim]")
+                                else:
+                                    self.console.print("[green]✓[/green] Command executed successfully")
+                            else:
+                                # Generic tool success
+                                self.console.print(f"[green]✓[/green] {tool_name} completed")
+
+                            # Resume live display
+                            current_status = f"✅ {tool_name} completed"
+                            live.start()
+                            live.update(create_status_display())
+                        else:
+                            # Show tool error with more detail
+                            error = result.get("error", "Unknown error")
+                            live.stop()
+
+                            self.console.print(Panel(
+                                f"[red]{error}[/red]",
+                                title=f"[bold red]❌ {tool_name} Failed[/bold red]",
+                                border_style="red",
+                                padding=(1, 2)
+                            ))
+
+                            current_status = f"❌ {tool_name} failed"
+                            live.start()
+                            live.update(create_status_display())
 
                     elif update_type == "final_response":
-                        # Display final response
-                        final_content = update.get("content", "")
-                        if final_content and final_content != current_content:
-                            progress.stop()
-                            self.console.print("\n[bold green]✅ Complete![/bold green]")
-                            self.console.print(Markdown(final_content))
-                            progress.start()
+                        # Final response from LLM - Task complete!
+                        response = update.get("content", "")
+                        summary = update.get("summary", "")
+
+                        # Try to parse JSON response (in case LLM didn't use tool calling properly)
+                        import json as json_module
+                        if response.strip().startswith("{") and "response" in response:
+                            try:
+                                parsed = json_module.loads(response)
+                                if "response" in parsed:
+                                    response = parsed["response"]
+                                if "summary" in parsed and not summary:
+                                    summary = parsed["summary"]
+                            except:
+                                pass  # Keep original response if parsing fails
+
+                        # Stop live display
+                        current_status = "✅ Task completed!"
+                        live.update(create_status_display())
+                        live.stop()
+
+                        self.console.print()  # Spacing
+
+                        # Build final response panel
+                        final_content = []
+                        if summary and summary != "Completed without additional tools":
+                            final_content.append(f"**Summary:** {summary}\n")
+                        if response:
+                            final_content.append(response)
+
+                        if final_content:
+                            self.console.print(Panel(
+                                Markdown("\n".join(final_content)),
+                                title="[bold green]✅ Task Complete[/bold green]",
+                                subtitle=f"[dim]Completed in {current_iteration} iteration(s)[/dim]",
+                                border_style="green",
+                                padding=(1, 2)
+                            ))
+                        else:
+                            self.console.print(Panel(
+                                "[bold green]Task completed successfully![/bold green]",
+                                title="[bold green]✅ Complete[/bold green]",
+                                border_style="green"
+                            ))
 
                     elif update_type == "error":
+                        # Execution error
                         error_msg = update.get("message", "Unknown error")
-                        progress.stop()
-                        self.console.print(f"\n[bold red]❌ Error:[/bold red] {error_msg}")
-                        progress.start()
+                        live.stop()
+
+                        self.console.print(Panel(
+                            f"[red]{error_msg}[/red]",
+                            title="[bold red]❌ Error[/bold red]",
+                            border_style="red",
+                            padding=(1, 2)
+                        ))
+
+                        current_status = f"❌ Error occurred"
+                        live.start()
+                        live.update(create_status_display())
+
+                    elif update_type == "max_iterations_reached":
+                        # Hit max iteration limit
+                        live.stop()
+
+                        content = update.get("content", "")
+                        message = f"[yellow]Maximum iterations ({total_iterations}) reached.[/yellow]"
+                        if content:
+                            message += f"\n\n{content}"
+
+                        self.console.print(Panel(
+                            message,
+                            title="[bold yellow]⚠️  Iteration Limit Reached[/bold yellow]",
+                            border_style="yellow",
+                            padding=(1, 2)
+                        ))
+
+                        current_status = "⚠️ Max iterations reached"
+                        live.start()
+                        live.update(create_status_display())
 
             except Exception as e:
                 self.console.print(f"\n[bold red]❌ Execution Error:[/bold red] {str(e)}")
@@ -647,7 +847,8 @@ class TerminalUI:
 [bold cyan]Agentic Coder CLI[/bold cyan] - Interactive AI Coding Assistant
 
 [dim]Session ID:[/dim] {self.session_mgr.session_id}
-[dim]Workspace:[/dim] {self.session_mgr.workspace}
+[dim]Base Workspace:[/dim] {self.session_mgr.base_workspace}
+[dim]Session Workspace:[/dim] {self.session_mgr.workspace}
 [dim]Model:[/dim] {self.session_mgr.model}
 
 Type your request or use slash commands (type [cyan]/help[/cyan] for available commands)

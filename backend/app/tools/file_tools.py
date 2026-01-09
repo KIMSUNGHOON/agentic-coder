@@ -40,9 +40,18 @@ class ReadFileTool(BaseTool):
     def validate_params(self, path: str, **kwargs) -> bool:
         return isinstance(path, str) and len(path) > 0
 
-    async def execute(self, path: str, max_size_mb: int = 10) -> ToolResult:
+    async def execute(self, path: str, max_size_mb: int = 10, _workspace: str = None, **kwargs) -> ToolResult:
         try:
-            file_path = pathlib.Path(path).resolve()
+            # Resolve path: absolute paths are used as-is, relative paths use workspace
+            if pathlib.Path(path).is_absolute():
+                file_path = pathlib.Path(path).resolve()
+            elif _workspace:
+                # Relative path + workspace context
+                file_path = (pathlib.Path(_workspace) / path).resolve()
+                logger.info(f"   📂 Resolved relative path: {path} → {file_path}")
+            else:
+                # Fallback to current directory (backward compatibility)
+                file_path = pathlib.Path(path).resolve()
 
             # Security checks
             if not file_path.exists():
@@ -122,10 +131,21 @@ class WriteFileTool(BaseTool):
         self,
         path: str,
         content: str,
-        create_dirs: bool = True
+        create_dirs: bool = True,
+        _workspace: str = None,
+        **kwargs
     ) -> ToolResult:
         try:
-            file_path = pathlib.Path(path).resolve()
+            # Resolve path: absolute paths are used as-is, relative paths use workspace
+            if pathlib.Path(path).is_absolute():
+                file_path = pathlib.Path(path).resolve()
+            elif _workspace:
+                # Relative path + workspace context
+                file_path = (pathlib.Path(_workspace) / path).resolve()
+                logger.info(f"   📂 Resolved relative path: {path} → {file_path}")
+            else:
+                # Fallback to current directory (backward compatibility)
+                file_path = pathlib.Path(path).resolve()
 
             # Create parent directories if needed
             if create_dirs:
@@ -196,10 +216,25 @@ class SearchFilesTool(BaseTool):
         self,
         pattern: str,
         path: str = ".",
-        max_results: int = 100
+        max_results: int = 100,
+        _workspace: str = None,
+        **kwargs
     ) -> ToolResult:
         try:
-            base_path = pathlib.Path(path).resolve()
+            # Resolve path: absolute paths are used as-is, relative paths use workspace
+            if pathlib.Path(path).is_absolute():
+                base_path = pathlib.Path(path).resolve()
+            elif _workspace and path == ".":
+                # Default "." should use workspace
+                base_path = pathlib.Path(_workspace).resolve()
+                logger.info(f"   📂 Using workspace as base: {base_path}")
+            elif _workspace:
+                # Relative path + workspace context
+                base_path = (pathlib.Path(_workspace) / path).resolve()
+                logger.info(f"   📂 Resolved relative path: {path} → {base_path}")
+            else:
+                # Fallback to current directory (backward compatibility)
+                base_path = pathlib.Path(path).resolve()
 
             if not base_path.exists():
                 return ToolResult(False, None, f"Base path does not exist: {path}")
@@ -267,10 +302,25 @@ class ListDirectoryTool(BaseTool):
         self,
         path: str = ".",
         recursive: bool = False,
-        max_depth: int = 3
+        max_depth: int = 3,
+        _workspace: str = None,
+        **kwargs
     ) -> ToolResult:
         try:
-            dir_path = pathlib.Path(path).resolve()
+            # Resolve path: absolute paths are used as-is, relative paths use workspace
+            if pathlib.Path(path).is_absolute():
+                dir_path = pathlib.Path(path).resolve()
+            elif _workspace and path == ".":
+                # Default "." should use workspace
+                dir_path = pathlib.Path(_workspace).resolve()
+                logger.info(f"   📂 Using workspace as base: {dir_path}")
+            elif _workspace:
+                # Relative path + workspace context
+                dir_path = (pathlib.Path(_workspace) / path).resolve()
+                logger.info(f"   📂 Resolved relative path: {path} → {dir_path}")
+            else:
+                # Fallback to current directory (backward compatibility)
+                dir_path = pathlib.Path(path).resolve()
 
             if not dir_path.exists():
                 return ToolResult(False, None, f"Directory not found: {path}")

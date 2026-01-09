@@ -20,26 +20,32 @@ class SessionManager:
 
     def __init__(
         self,
-        workspace: str = ".",
+        workspace: str = None,
         session_id: Optional[str] = None,
-        model: str = "deepseek-r1:14b",
+        model: str = None,
         auto_save: bool = True
     ):
         """Initialize session manager
 
         Args:
-            workspace: Working directory for code generation
+            workspace: Working directory for code generation (default: from .env DEFAULT_WORKSPACE or ".")
             session_id: Optional session ID to resume
-            model: LLM model to use
+            model: LLM model to use (default: from .env LLM_MODEL or deepseek-ai/DeepSeek-R1)
             auto_save: Whether to auto-save after each interaction
         """
-        self.workspace = Path(workspace).resolve()
+        import os
+
+        # Get base workspace from .env if not provided
+        if workspace is None:
+            workspace = os.getenv("DEFAULT_WORKSPACE", ".")
+
+        # Get model from .env if not provided
+        if model is None:
+            model = os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-R1")
+
+        self.base_workspace = Path(workspace).resolve()
         self.model = model
         self.auto_save = auto_save
-
-        # Session directory
-        self.session_dir = self.workspace / ".agentic-coder" / "sessions"
-        self.session_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize or resume session
         if session_id:
@@ -51,8 +57,16 @@ class SessionManager:
             self.metadata = {
                 "created_at": datetime.now().isoformat(),
                 "model": model,
-                "workspace": str(self.workspace)
+                "base_workspace": str(self.base_workspace)
             }
+
+        # Actual workspace: base_workspace/session_id
+        self.workspace = self.base_workspace / self.session_id
+        self.workspace.mkdir(parents=True, exist_ok=True)
+
+        # Session metadata directory (separate from workspace)
+        self.session_dir = self.base_workspace / ".agentic-coder" / "sessions"
+        self.session_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize workflow manager (lazy load to avoid import errors)
         self.workflow_mgr = None
@@ -81,11 +95,11 @@ class SessionManager:
         self.conversation_history = data.get("conversation_history", [])
         self.metadata = data.get("metadata", {})
 
-        # Update workspace if different
-        saved_workspace = self.metadata.get("workspace")
-        if saved_workspace and saved_workspace != str(self.workspace):
-            print(f"⚠️  Session workspace: {saved_workspace}")
-            print(f"   Current workspace: {self.workspace}")
+        # Update base workspace if different
+        saved_base = self.metadata.get("base_workspace", self.metadata.get("workspace"))
+        if saved_base and saved_base != str(self.base_workspace):
+            print(f"⚠️  Session base workspace: {saved_base}")
+            print(f"   Current base workspace: {self.base_workspace}")
 
     def save_session(self):
         """Save session to file"""
@@ -149,6 +163,55 @@ class SessionManager:
             user_request=user_request,
             workspace_dir=str(self.workspace),
             conversation_history=self.conversation_history
+        ):
+            # Store final response
+            if update.get("type") == "final_response":
+                final_response = update.get("content", "")
+
+            yield update
+
+        # Add assistant response to history
+        if final_response:
+            self.add_message("assistant", final_response)
+
+    async def execute_tool_use_workflow(
+        self,
+        user_request: str,
+        max_iterations: int = 15
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Execute workflow using Tool Use pattern (NEW - Dynamic LLM-driven)
+
+        Instead of hardcoded workflow types (QUICK_QA, CODE_GENERATION),
+        the LLM freely decides which concrete tools to call.
+
+        This is the Claude Code / ChatGPT approach - maximum flexibility.
+
+        Args:
+            user_request: User's request
+            max_iterations: Maximum tool call iterations (prevent infinite loops)
+
+        Yields:
+            Stream updates from tool execution
+        """
+        from core.supervisor import supervisor
+
+        # Add user message to history
+        self.add_message("user", user_request)
+
+        # Build context
+        context = {
+            "conversation_history": self.conversation_history,
+            "workspace": str(self.workspace),
+            "session_id": self.session_id,
+            "model": self.model
+        }
+
+        # Execute with Tool Use pattern
+        final_response = None
+        async for update in supervisor.execute_with_tools(
+            user_request=user_request,
+            context=context,
+            max_iterations=max_iterations
         ):
             # Store final response
             if update.get("type") == "final_response":

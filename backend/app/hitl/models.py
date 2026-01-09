@@ -283,3 +283,55 @@ class HITLTemplates:
             ),
             priority="high"
         )
+
+    @staticmethod
+    def ask_human(
+        workflow_id: str,
+        stage_id: str,
+        question: str,
+        reason: str,
+        options: Optional[List[str]] = None,
+        agent_id: str = "supervisor"
+    ) -> HITLRequest:
+        """Create HITL request for asking human a question (Tool Use pattern)
+
+        This is the key interface for LLM-driven ask_human tool.
+        LLM calls this when it needs clarification or important decisions.
+
+        Args:
+            workflow_id: Current workflow ID
+            stage_id: Current stage ID
+            question: Question to ask the human
+            reason: Why the LLM is asking (for context)
+            options: Optional list of suggested answers
+            agent_id: Agent asking the question
+
+        Returns:
+            HITLRequest configured for asking question
+        """
+        # Build choice options if provided
+        choice_options = []
+        if options:
+            for i, option in enumerate(options):
+                choice_options.append(ChoiceOption(
+                    option_id=f"option_{i}",
+                    title=option,
+                    description=f"Select: {option}",
+                    recommended=(i == 0)  # First option as default recommendation
+                ))
+
+        return HITLRequest(
+            workflow_id=workflow_id,
+            stage_id=stage_id,
+            agent_id=agent_id,
+            checkpoint_type=HITLCheckpointType.CHOICE if options else HITLCheckpointType.REVIEW,
+            title="Question from AI",
+            description=f"{question}\n\n**Why I'm asking:** {reason}",
+            content=HITLContent(
+                options=choice_options,
+                summary=question,
+                details={"reason": reason, "agent": agent_id}
+            ),
+            allow_skip=False,  # Questions require answers
+            priority="high"
+        )

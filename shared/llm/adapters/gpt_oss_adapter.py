@@ -307,6 +307,27 @@ class GptOssAdapter(BaseLLMProvider):
         if tools:
             logger.info(f"Function calling enabled with {len(tools)} tools")
 
+    @property
+    def model_type(self) -> str:
+        """Return the model type identifier"""
+        return "gpt-oss"
+
+    def format_prompt(self, prompt: str, task_type: TaskType) -> str:
+        """Format prompt according to GPT-OSS requirements
+
+        GPT-OSS doesn't require special prompt formatting - just pass through.
+        The system prompt handles task-specific instructions.
+
+        Args:
+            prompt: The raw prompt text
+            task_type: Type of task being performed
+
+        Returns:
+            Formatted prompt string
+        """
+        # GPT-OSS uses standard chat format, no special formatting needed
+        return prompt
+
     def format_system_prompt(self, task_type: TaskType) -> str:
         """Get task-specific system prompt with reasoning effort"""
         base_prompt = GPT_OSS_SYSTEM_PROMPTS.get(

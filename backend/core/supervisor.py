@@ -3,13 +3,18 @@
 This is the orchestrator that analyzes user requests and dynamically
 constructs workflows based on task complexity and requirements.
 
-Uses DeepSeek-R1 for reasoning and planning via vLLM API.
+Supports two modes:
+1. Traditional: Analyze request → Build fixed workflow (backward compatible)
+2. Tool Use: LLM freely decides which agents to call iteratively (new, flexible)
+
+Uses DeepSeek-R1 or GPT-OSS for reasoning and planning via vLLM API.
 """
 
 import asyncio
 import logging
 import re
-from typing import AsyncGenerator, Dict, List, Optional, Tuple
+import json
+from typing import AsyncGenerator, Dict, List, Optional, Tuple, Any
 from datetime import datetime
 from dataclasses import dataclass, field
 
@@ -40,6 +45,9 @@ from shared.prompts.gpt_oss import (
     GPT_OSS_QA_PROMPT,
     GPT_OSS_CONFIG,
 )
+
+# Import agent tools for Tool Use pattern
+from core.agent_tools import get_agent_tools
 
 logger = logging.getLogger(__name__)
 
@@ -946,6 +954,584 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
         except Exception as e:
             logger.warning(f"RCA API call failed: {e}")
             return f"RCA unavailable: {failure_reason}"
+
+    # ============================================
+    # NEW: Tool Use Pattern (Phase 2)
+    # ============================================
+
+    async def execute_with_tools(
+        self,
+        user_request: str,
+        context: Optional[Dict] = None,
+        max_iterations: int = 10
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Execute workflow using Tool Use pattern (Claude Code style)
+
+        Instead of fixed workflow types, LLM freely decides which agents to call.
+        This provides maximum flexibility for handling any type of request.
+
+        Args:
+            user_request: User's request
+            context: Optional context (conversation history, etc.)
+            max_iterations: Maximum tool call iterations (prevent infinite loops)
+
+        Yields:
+            Stream updates for each tool call and response
+        """
+        logger.info(f"🔧 Supervisor: Starting Tool Use execution")
+        logger.info(f"   Request: {user_request[:100]}...")
+
+        # Build messages
+        messages = []
+
+        # System prompt with tool instructions
+        tool_system_prompt = self._build_tool_use_system_prompt()
+        messages.append({"role": "system", "content": tool_system_prompt})
+
+        # Add context if available
+        if context and context.get("conversation_history"):
+            formatted_context = self._format_context_harmony(context)
+            messages.append({
+                "role": "user",
+                "content": f"## Previous Context\n{formatted_context}"
+            })
+
+        # Add user request
+        messages.append({"role": "user", "content": user_request})
+
+        # Get agent tools
+        tools = get_agent_tools()
+
+        # Iterative Tool Use Loop (like Claude Code)
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            logger.info(f"🔄 Iteration {iteration}/{max_iterations}")
+
+            # Yield iteration start
+            yield {
+                "type": "tool_iteration",
+                "iteration": iteration,
+                "max_iterations": max_iterations
+            }
+
+            try:
+                # Call LLM with tools
+                client = vllm_router.get_client("reasoning")
+
+                response = await client.chat_completion_with_tools(
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.7,
+                    max_tokens=8192  # Increased to allow longer tool arguments
+                )
+
+                message = response.choices[0].message
+
+                # Check if LLM wants to call tools
+                if message.tool_calls:
+                    logger.info(f"🔧 LLM requested {len(message.tool_calls)} tool calls")
+
+                    # GPT-OSS Note: Only calls 1 tool at a time (no parallel calling)
+                    # This is correct behavior for GPT-OSS-120B
+
+                    # Preserve CoT: Include reasoning content from LLM
+                    # For GPT-OSS, message.content may include chain-of-thought reasoning
+                    assistant_content = message.content or ""
+
+                    # Add assistant message with tool calls (preserves CoT)
+                    messages.append({
+                        "role": "assistant",
+                        "content": assistant_content,  # Contains CoT for GPT-OSS
+                        "tool_calls": message.tool_calls
+                    })
+
+                    # Yield thinking if available (for streaming UI)
+                    if assistant_content:
+                        yield {
+                            "type": "reasoning",
+                            "content": assistant_content,
+                            "iteration": iteration
+                        }
+
+                    # Execute each tool call
+                    for tool_call in message.tool_calls:
+                        tool_name = tool_call.function.name
+
+                        # Normalize tool name (handle common variations)
+                        tool_name = self._normalize_tool_name(tool_name)
+
+                        # Parse tool arguments with error handling
+                        try:
+                            tool_args = json.loads(tool_call.function.arguments)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse tool arguments: {e}")
+                            logger.error(f"Raw arguments: {tool_call.function.arguments[:500]}...")
+
+                            # Try to fix common JSON errors
+                            try:
+                                raw = tool_call.function.arguments
+                                import re
+
+                                # Fix 1: Remove trailing commas
+                                fixed = raw.replace(',}', '}').replace(',]', ']').replace(', }', '}').replace(', ]', ']')
+
+                                # Fix 2: Handle truncated JSON (missing closing braces)
+                                # Count open/close for strings (respect string literals)
+                                in_string = False
+                                escape_next = False
+                                open_braces = 0
+                                close_braces = 0
+                                open_brackets = 0
+                                close_brackets = 0
+
+                                for char in fixed:
+                                    if escape_next:
+                                        escape_next = False
+                                        continue
+                                    if char == '\\':
+                                        escape_next = True
+                                        continue
+                                    if char == '"':
+                                        in_string = not in_string
+                                        continue
+                                    if not in_string:
+                                        if char == '{':
+                                            open_braces += 1
+                                        elif char == '}':
+                                            close_braces += 1
+                                        elif char == '[':
+                                            open_brackets += 1
+                                        elif char == ']':
+                                            close_brackets += 1
+
+                                # Add missing closures
+                                if open_braces > close_braces:
+                                    # Close any open strings first
+                                    if in_string:
+                                        fixed += '"'
+                                        logger.warning("Closed unclosed string")
+                                    fixed += '}' * (open_braces - close_braces)
+                                    logger.warning(f"Added {open_braces - close_braces} missing closing braces")
+
+                                if open_brackets > close_brackets:
+                                    fixed += ']' * (open_brackets - close_brackets)
+                                    logger.warning(f"Added {open_brackets - close_brackets} missing closing brackets")
+
+                                # Try to parse
+                                tool_args = json.loads(fixed)
+                                logger.warning("✓ Fixed malformed JSON arguments")
+                            except Exception as fix_error:
+                                # If still fails, skip this tool call
+                                logger.error(f"❌ Could not parse arguments for {tool_name}, skipping tool call")
+
+                                # Yield error to UI
+                                yield {
+                                    "type": "tool_call_result",
+                                    "tool": tool_name,
+                                    "result": {
+                                        "success": False,
+                                        "error": "Failed to parse tool arguments - malformed JSON from LLM",
+                                        "raw_args": tool_call.function.arguments[:200]
+                                    }
+                                }
+
+                                # Add error message to conversation
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps({
+                                        "error": "Failed to parse arguments - malformed JSON",
+                                        "suggestion": "Please try again with valid JSON"
+                                    })
+                                })
+
+                                # Continue to next tool call
+                                continue
+
+                        logger.info(f"   → Calling: {tool_name}({list(tool_args.keys())})")
+
+                        # Yield tool call start
+                        yield {
+                            "type": "tool_call_start",
+                            "tool": tool_name,
+                            "arguments": tool_args,
+                            "tool_call_id": tool_call.id
+                        }
+
+                        # Execute tool
+                        tool_result = await self._execute_tool(
+                            tool_name=tool_name,
+                            arguments=tool_args,
+                            context=context
+                        )
+
+                        # Yield tool result
+                        yield {
+                            "type": "tool_call_result",
+                            "tool": tool_name,
+                            "result": tool_result,
+                            "tool_call_id": tool_call.id
+                        }
+
+                        # Add tool result to messages
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(tool_result)
+                        })
+
+                        # Check if complete_task was called
+                        if tool_name == "complete_task":
+                            logger.info("✅ Task completed by LLM")
+                            yield {
+                                "type": "final_response",
+                                "content": tool_result.get("response", ""),
+                                "summary": tool_result.get("summary", ""),
+                                "files_created": tool_result.get("files_created", [])
+                            }
+                            return
+
+                        # Check if ask_human was called
+                        if tool_name == "ask_human":
+                            # This will be handled by HITL system
+                            # The human response will be added to messages
+                            pass
+
+                    # Continue loop - LLM will see tool results and decide next step
+
+                else:
+                    # No tool calls - LLM provided final response
+                    logger.info("✅ LLM provided final response (no tool calls)")
+                    yield {
+                        "type": "final_response",
+                        "content": message.content or "Task completed",
+                        "summary": "Completed without additional tools"
+                    }
+                    return
+
+            except Exception as e:
+                logger.error(f"❌ Tool Use execution error: {e}")
+                yield {
+                    "type": "error",
+                    "message": str(e),
+                    "iteration": iteration
+                }
+                return
+
+        # Max iterations reached
+        logger.warning(f"⚠️ Max iterations ({max_iterations}) reached")
+        yield {
+            "type": "max_iterations_reached",
+            "message": f"Reached maximum {max_iterations} iterations",
+            "content": "Task may not be fully complete. Please review the results."
+        }
+
+    def _build_tool_use_system_prompt(self) -> str:
+        """Build system prompt for Tool Use mode with concrete action tools"""
+        return """You are an advanced AI software engineer with access to concrete action tools.
+
+Your role is to:
+1. Understand user requests
+2. Break down tasks into concrete actions
+3. Use available tools to accomplish tasks
+4. Ask humans for STRATEGIC decisions only
+5. Complete tasks successfully
+
+## Available Tools
+
+You have access to 20+ CONCRETE ACTION TOOLS organized by category:
+
+**File Operations:**
+- read_file: Read file contents
+- write_file: Create or overwrite files
+- search_files: Search for files by pattern
+- list_directory: List directory contents
+
+**Code Execution:**
+- execute_python: Run Python code
+- run_tests: Execute test suites
+- lint_code: Check code quality
+- format_code: Auto-format code
+- shell_command: Execute shell commands
+- generate_docstring: Auto-generate documentation
+
+**Git Operations:**
+- git_status: Check repository status
+- git_diff: View changes
+- git_log: View commit history
+- git_branch: Manage branches
+- git_commit: Create commits
+
+**Web & Network:**
+- web_search: Search the web
+- http_request: Make HTTP requests
+- download_file: Download files
+
+**Code Search:**
+- code_search: Semantic code search with ChromaDB
+
+**Sandbox:**
+- sandbox_execute: Isolated code execution
+
+**Strategic Meta-Tools:**
+- ask_human: Ask for STRATEGIC decisions (architecture, dangerous ops) - NOT for info gathering!
+- complete_task: Mark task complete and return final response
+
+## Guidelines
+
+1. **For simple questions** (like "hello", "what is X", "explain Y"):
+   - Answer directly with complete_task()
+   - No need for other tools
+
+2. **For information gathering**:
+   - Use read_file() to read files - DON'T ask humans!
+   - Use code_search() to find code - DON'T ask humans!
+   - Use web_search() for external info - DON'T ask humans!
+   - ask_human() is for STRATEGIC decisions, not information!
+
+3. **For code generation**:
+   - Use read_file() to understand existing code
+   - Use write_file() to create new code
+   - Use execute_python() or run_tests() to verify
+   - Use lint_code() to check quality
+   - Use git_commit() to save changes
+   - Use complete_task() when done
+
+4. **When to use ask_human()** (STRATEGIC DECISIONS ONLY):
+   - Multiple valid architectural approaches (REST vs GraphQL, JWT vs sessions)
+   - Dangerous operations (delete files, drop database, production changes)
+   - Important business decisions with significant impact
+   - Low confidence requiring human judgment
+
+5. **When NOT to use ask_human()**:
+   - "What's in this file?" → Use read_file()!
+   - "What does this function do?" → Use read_file() + analyze!
+   - "Where is X defined?" → Use code_search()!
+   - "What's the API for Y?" → Use web_search()!
+
+6. **Efficiency**:
+   - Combine tools creatively to accomplish tasks
+   - Think step by step: what info do I need? which tools provide it?
+   - Balance thoroughness vs speed
+
+## Your Workflow is DYNAMIC and CREATIVE
+
+You freely decide:
+- Which tools to use
+- In what order and combination
+- How many iterations
+- When to ask humans (rarely!)
+- When task is complete
+
+Think of yourself as an autonomous agent with a toolbox.
+For each task, select the right tools and use them effectively."""
+
+    async def _execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Execute a concrete action tool
+
+        Args:
+            tool_name: Name of the tool to call (e.g., 'read_file', 'execute_python')
+            arguments: Tool arguments
+            context: Optional context (workspace path, etc.)
+
+        Returns:
+            Tool execution result
+        """
+        logger.info(f"🔧 Executing tool: {tool_name}({list(arguments.keys())})")
+
+        # Special case: ask_human (strategic decision HITL)
+        if tool_name == "ask_human":
+            return await self._handle_ask_human(arguments, context)
+
+        # Special case: complete_task (workflow termination)
+        if tool_name == "complete_task":
+            return {
+                "success": True,
+                "summary": arguments.get("summary", ""),
+                "response": arguments.get("response", ""),
+                "files_modified": arguments.get("files_modified", []),
+                "next_steps": arguments.get("next_steps", [])
+            }
+
+        # Execute concrete action tool from ToolRegistry
+        try:
+            from app.tools.registry import get_registry
+
+            registry = get_registry()
+            tool = registry.get_tool(tool_name, check_availability=True)
+
+            if not tool:
+                error_msg = f"Tool '{tool_name}' not found or unavailable in current network mode"
+                logger.error(f"❌ {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "tool": tool_name
+                }
+
+            # Validate parameters
+            if not tool.validate_params(**arguments):
+                error_msg = f"Invalid parameters for tool '{tool_name}'"
+                logger.error(f"❌ {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "tool": tool_name,
+                    "arguments": arguments
+                }
+
+            # Execute tool with context support
+            logger.info(f"   → Executing {tool_name} from category: {tool.category.value}")
+
+            # For file tools, inject workspace path into arguments if context provided
+            if context and tool.category.value == "file":
+                workspace = context.get("workspace")
+                if workspace and "path" in arguments:
+                    # Inject workspace for path resolution
+                    arguments["_workspace"] = workspace
+                    logger.info(f"   📁 Workspace context: {workspace}")
+
+            result = await tool.execute(**arguments)
+
+            # Convert ToolResult to dict
+            result_dict = result.to_dict()
+            result_dict["tool"] = tool_name
+            result_dict["category"] = tool.category.value
+
+            # Log result
+            if result.success:
+                logger.info(f"   ✅ {tool_name} succeeded (took {result.execution_time:.2f}s)")
+            else:
+                logger.warning(f"   ⚠️ {tool_name} failed: {result.error}")
+
+            return result_dict
+
+        except Exception as e:
+            error_msg = f"Tool execution error: {str(e)}"
+            logger.error(f"❌ {error_msg}", exc_info=True)
+            return {
+                "success": False,
+                "error": error_msg,
+                "tool": tool_name,
+                "arguments": arguments
+            }
+
+    async def _handle_ask_human(
+        self,
+        arguments: Dict[str, Any],
+        context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Handle ask_human tool call via HITL system
+
+        Args:
+            arguments: Tool arguments (question, reason, options)
+            context: Context with workflow_id
+
+        Returns:
+            Human's answer
+        """
+        from app.hitl import get_hitl_manager
+        from app.hitl.models import HITLTemplates
+
+        question = arguments.get("question", "")
+        reason = arguments.get("reason", "")
+        options = arguments.get("options")
+
+        logger.info(f"❓ Asking human: {question}")
+
+        # Get workflow ID from context
+        workflow_id = context.get("workflow_id", "default") if context else "default"
+        stage_id = f"ask_human_{datetime.utcnow().timestamp()}"
+
+        # Create HITL request
+        hitl_request = HITLTemplates.ask_human(
+            workflow_id=workflow_id,
+            stage_id=stage_id,
+            question=question,
+            reason=reason,
+            options=options
+        )
+
+        # Send to HITL manager and wait for response
+        hitl_manager = get_hitl_manager()
+        response = await hitl_manager.request_and_wait(hitl_request, timeout=300)
+
+        # Extract answer
+        if response.action == "select" and response.selected_option:
+            # User selected an option
+            selected_idx = int(response.selected_option.split("_")[1])
+            answer = options[selected_idx] if options else response.feedback
+        else:
+            # User provided free-form feedback
+            answer = response.feedback or "No response provided"
+
+        logger.info(f"✅ Human answered: {answer}")
+
+        return {
+            "success": True,
+            "question": question,
+            "answer": answer,
+            "feedback": response.feedback
+        }
+
+    def _normalize_tool_name(self, tool_name: str) -> str:
+        """Normalize tool name to handle LLM variations
+
+        LLMs sometimes generate tool names with slight variations:
+        - writefile -> write_file
+        - readfile -> read_file
+        - listdirectory -> list_directory
+        - gitcommit -> git_commit
+        etc.
+
+        Args:
+            tool_name: Original tool name from LLM
+
+        Returns:
+            Normalized tool name
+        """
+        # Common aliases mapping
+        aliases = {
+            "writefile": "write_file",
+            "readfile": "read_file",
+            "searchfiles": "search_files",
+            "listdirectory": "list_directory",
+            "executepython": "execute_python",
+            "runtests": "run_tests",
+            "lintcode": "lint_code",
+            "formatcode": "format_code",
+            "shellcommand": "shell_command",
+            "generatedocstring": "generate_docstring",
+            "gitstatus": "git_status",
+            "gitdiff": "git_diff",
+            "gitlog": "git_log",
+            "gitbranch": "git_branch",
+            "gitcommit": "git_commit",
+            "websearch": "web_search",
+            "httprequest": "http_request",
+            "downloadfile": "download_file",
+            "codesearch": "code_search",
+            "sandboxexecute": "sandbox_execute",
+            "askhuman": "ask_human",
+            "completetask": "complete_task",
+        }
+
+        # Convert to lowercase for lookup
+        normalized = tool_name.lower()
+
+        # Check if it's an alias
+        if normalized in aliases:
+            corrected = aliases[normalized]
+            logger.info(f"   ℹ️ Normalized tool name: '{tool_name}' → '{corrected}'")
+            return corrected
+
+        return tool_name
 
 
 # Global supervisor instance (with API mode enabled by default)
