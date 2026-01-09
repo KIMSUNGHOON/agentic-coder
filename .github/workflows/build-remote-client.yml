@@ -16,9 +16,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-20.04  # Use older Ubuntu for better GLIBC compatibility
-            artifact_name: agentic-coder-client-linux
-            binary_path: dist/agentic-coder-client
+          # Linux: Build locally due to GLIBC compatibility issues
+          # Use: ./scripts/build_remote_client.sh
           - os: windows-latest
             artifact_name: agentic-coder-client-windows.exe
             binary_path: dist/agentic-coder-client.exe
@@ -85,10 +84,9 @@ jobs:
       - name: Prepare release files with unique names
         run: |
           mkdir -p release-files
-          cp artifacts/agentic-coder-client-linux/agentic-coder-client release-files/agentic-coder-client-linux
           cp artifacts/agentic-coder-client-windows.exe/agentic-coder-client.exe release-files/agentic-coder-client-windows.exe
           cp artifacts/agentic-coder-client-macos/agentic-coder-client release-files/agentic-coder-client-macos
-          chmod +x release-files/agentic-coder-client-*
+          chmod +x release-files/agentic-coder-client-macos
           ls -lh release-files/
 
       - name: Create Release
@@ -100,27 +98,43 @@ jobs:
 
             ### 다운로드
 
-            - **Linux**: `agentic-coder-client-linux`
             - **Windows**: `agentic-coder-client-windows.exe`
             - **macOS**: `agentic-coder-client-macos`
+            - **Linux**: 로컬 빌드 필요 (아래 참조)
 
             ### 사용 방법
 
-            ```bash
-            # Linux/macOS
-            chmod +x agentic-coder-client-*
-            ./agentic-coder-client-linux
-
-            # Windows
-            agentic-coder-client-windows.exe
+            **Windows:**
+            ```cmd
+            agentic-coder-client-windows.exe 192.168.1.100 8000
             ```
 
-            ### 서버 연결
-
-            프로그램 실행 후 서버 IP와 포트를 입력하거나:
-
+            **macOS:**
             ```bash
-            ./agentic-coder-client-linux 192.168.1.100 8000
+            chmod +x agentic-coder-client-macos
+            ./agentic-coder-client-macos 192.168.1.100 8000
+            ```
+
+            **Linux (로컬 빌드):**
+            ```bash
+            # 저장소 클론
+            git clone https://github.com/${{ github.repository }}.git
+            cd agentic-coder
+
+            # 의존성 설치
+            pip install pyinstaller rich httpx
+
+            # 빌드
+            chmod +x scripts/build_remote_client.sh
+            ./scripts/build_remote_client.sh
+
+            # 실행
+            ./dist/agentic-coder-client 192.168.1.100 8000
+            ```
+
+            또는 Python으로 직접 실행:
+            ```bash
+            python -m backend.cli.remote_client 192.168.1.100 8000
             ```
 
             자세한 내용은 [문서](https://github.com/${{ github.repository }}/blob/main/docs/REMOTE_CLIENT_BINARY.md)를 참조하세요.
