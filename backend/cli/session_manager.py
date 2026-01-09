@@ -35,7 +35,7 @@ class SessionManager:
         """
         import os
 
-        # Get workspace from .env if not provided
+        # Get base workspace from .env if not provided
         if workspace is None:
             workspace = os.getenv("DEFAULT_WORKSPACE", ".")
 
@@ -43,13 +43,9 @@ class SessionManager:
         if model is None:
             model = os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-R1")
 
-        self.workspace = Path(workspace).resolve()
+        self.base_workspace = Path(workspace).resolve()
         self.model = model
         self.auto_save = auto_save
-
-        # Session directory
-        self.session_dir = self.workspace / ".agentic-coder" / "sessions"
-        self.session_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize or resume session
         if session_id:
@@ -61,8 +57,16 @@ class SessionManager:
             self.metadata = {
                 "created_at": datetime.now().isoformat(),
                 "model": model,
-                "workspace": str(self.workspace)
+                "base_workspace": str(self.base_workspace)
             }
+
+        # Actual workspace: base_workspace/session_id
+        self.workspace = self.base_workspace / self.session_id
+        self.workspace.mkdir(parents=True, exist_ok=True)
+
+        # Session metadata directory (separate from workspace)
+        self.session_dir = self.base_workspace / ".agentic-coder" / "sessions"
+        self.session_dir.mkdir(parents=True, exist_ok=True)
 
         # Initialize workflow manager (lazy load to avoid import errors)
         self.workflow_mgr = None
@@ -91,11 +95,11 @@ class SessionManager:
         self.conversation_history = data.get("conversation_history", [])
         self.metadata = data.get("metadata", {})
 
-        # Update workspace if different
-        saved_workspace = self.metadata.get("workspace")
-        if saved_workspace and saved_workspace != str(self.workspace):
-            print(f"⚠️  Session workspace: {saved_workspace}")
-            print(f"   Current workspace: {self.workspace}")
+        # Update base workspace if different
+        saved_base = self.metadata.get("base_workspace", self.metadata.get("workspace"))
+        if saved_base and saved_base != str(self.base_workspace):
+            print(f"⚠️  Session base workspace: {saved_base}")
+            print(f"   Current base workspace: {self.base_workspace}")
 
     def save_session(self):
         """Save session to file"""

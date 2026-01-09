@@ -81,8 +81,13 @@ class TerminalUI:
 
         while True:
             try:
+                # Build dynamic prompt with workspace info
+                workspace_name = self.session_mgr.workspace.name
+                session_id_short = self.session_mgr.session_id.split('-')[-1][:8]
+                prompt_text = f"[{workspace_name}:{session_id_short}] You"
+
                 # Get user input using enhanced interactive session
-                user_input = self.interactive.prompt("You")
+                user_input = self.interactive.prompt(prompt_text)
 
                 # Handle None (Ctrl+D)
                 if user_input is None:
@@ -686,7 +691,8 @@ class TerminalUI:
 [bold cyan]Agentic Coder CLI[/bold cyan] - Interactive AI Coding Assistant
 
 [dim]Session ID:[/dim] {self.session_mgr.session_id}
-[dim]Workspace:[/dim] {self.session_mgr.workspace}
+[dim]Base Workspace:[/dim] {self.session_mgr.base_workspace}
+[dim]Session Workspace:[/dim] {self.session_mgr.workspace}
 [dim]Model:[/dim] {self.session_mgr.model}
 
 Type your request or use slash commands (type [cyan]/help[/cyan] for available commands)

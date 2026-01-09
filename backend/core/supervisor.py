@@ -1057,7 +1057,23 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
                     # Execute each tool call
                     for tool_call in message.tool_calls:
                         tool_name = tool_call.function.name
-                        tool_args = json.loads(tool_call.function.arguments)
+
+                        # Parse tool arguments with error handling
+                        try:
+                            tool_args = json.loads(tool_call.function.arguments)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse tool arguments: {e}")
+                            logger.error(f"Raw arguments: {tool_call.function.arguments[:500]}...")
+                            # Try to fix common JSON errors
+                            try:
+                                # Remove trailing commas, fix quotes, etc.
+                                fixed_args = tool_call.function.arguments.replace(',}', '}').replace(',]', ']')
+                                tool_args = json.loads(fixed_args)
+                                logger.warning("Fixed malformed JSON arguments")
+                            except:
+                                # If still fails, use empty dict
+                                logger.error("Could not fix JSON, using empty arguments")
+                                tool_args = {}
 
                         logger.info(f"   → Calling: {tool_name}({list(tool_args.keys())})")
 
