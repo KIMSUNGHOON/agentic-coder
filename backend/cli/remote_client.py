@@ -279,6 +279,34 @@ async def main():
     """Main entry point for remote client"""
     console = Console()
 
+    # Handle command line arguments
+    if len(sys.argv) >= 2:
+        arg = sys.argv[1]
+
+        # Handle --help
+        if arg in ["--help", "-h"]:
+            console.print(Panel(
+                "[bold cyan]Agentic Coder Remote Client[/bold cyan]\n\n"
+                "[bold]Usage:[/bold]\n"
+                "  agentic-coder-client [OPTIONS] [HOST] [PORT]\n\n"
+                "[bold]Options:[/bold]\n"
+                "  --help, -h     Show this help message\n"
+                "  --version, -v  Show version information\n\n"
+                "[bold]Examples:[/bold]\n"
+                "  agentic-coder-client\n"
+                "  agentic-coder-client 192.168.1.100 8000\n"
+                "  agentic-coder-client http://server.local:8000",
+                border_style="cyan",
+                padding=(1, 2)
+            ))
+            return
+
+        # Handle --version
+        if arg in ["--version", "-v"]:
+            console.print("[cyan]Agentic Coder Remote Client[/cyan]")
+            console.print("[dim]Version: 1.0.0[/dim]")
+            return
+
     # Show banner
     console.print(Panel(
         "[bold cyan]Agentic Coder - Remote Client[/bold cyan]\n"
@@ -291,7 +319,7 @@ async def main():
     console.print("\n[bold]Server Connection[/bold]")
 
     # Check for command line arguments
-    if len(sys.argv) >= 2:
+    if len(sys.argv) >= 2 and not sys.argv[1].startswith("--"):
         server_host = sys.argv[1]
         server_port = sys.argv[2] if len(sys.argv) >= 3 else "8000"
     else:
