@@ -1023,7 +1023,7 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
                     messages=messages,
                     tools=tools,
                     temperature=0.7,
-                    max_tokens=4096
+                    max_tokens=8192  # Increased to allow longer tool arguments
                 )
 
                 message = response.choices[0].message
@@ -1064,16 +1064,61 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
                         except json.JSONDecodeError as e:
                             logger.error(f"Failed to parse tool arguments: {e}")
                             logger.error(f"Raw arguments: {tool_call.function.arguments[:500]}...")
+
                             # Try to fix common JSON errors
                             try:
-                                # Remove trailing commas, fix quotes, etc.
-                                fixed_args = tool_call.function.arguments.replace(',}', '}').replace(',]', ']')
-                                tool_args = json.loads(fixed_args)
-                                logger.warning("Fixed malformed JSON arguments")
-                            except:
-                                # If still fails, use empty dict
-                                logger.error("Could not fix JSON, using empty arguments")
-                                tool_args = {}
+                                raw = tool_call.function.arguments
+
+                                # Fix 1: Remove trailing commas
+                                fixed = raw.replace(',}', '}').replace(',]', ']').replace(', }', '}').replace(', ]', ']')
+
+                                # Fix 2: Remove extra quotes around keys
+                                import re
+                                fixed = re.sub(r'(\w+):', r'"\1":', fixed)  # Ensure keys are quoted
+                                fixed = re.sub(r'""(\w+)"":', r'"\1":', fixed)  # Fix double quotes
+
+                                # Fix 3: Handle truncated JSON (missing closing braces)
+                                open_braces = fixed.count('{')
+                                close_braces = fixed.count('}')
+                                if open_braces > close_braces:
+                                    fixed += '}' * (open_braces - close_braces)
+                                    logger.warning("Added missing closing braces")
+
+                                open_brackets = fixed.count('[')
+                                close_brackets = fixed.count(']')
+                                if open_brackets > close_brackets:
+                                    fixed += ']' * (open_brackets - close_brackets)
+                                    logger.warning("Added missing closing brackets")
+
+                                tool_args = json.loads(fixed)
+                                logger.warning("✓ Fixed malformed JSON arguments")
+                            except Exception as fix_error:
+                                # If still fails, skip this tool call
+                                logger.error(f"❌ Could not parse arguments for {tool_name}, skipping tool call")
+
+                                # Yield error to UI
+                                yield {
+                                    "type": "tool_call_result",
+                                    "tool": tool_name,
+                                    "result": {
+                                        "success": False,
+                                        "error": "Failed to parse tool arguments - malformed JSON from LLM",
+                                        "raw_args": tool_call.function.arguments[:200]
+                                    }
+                                }
+
+                                # Add error message to conversation
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps({
+                                        "error": "Failed to parse arguments - malformed JSON",
+                                        "suggestion": "Please try again with valid JSON"
+                                    })
+                                })
+
+                                # Continue to next tool call
+                                continue
 
                         logger.info(f"   → Calling: {tool_name}({list(tool_args.keys())})")
 
