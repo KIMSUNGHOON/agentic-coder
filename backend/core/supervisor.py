@@ -1065,8 +1065,8 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
                         try:
                             tool_args = json.loads(tool_call.function.arguments)
                         except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse tool arguments: {e}")
-                            logger.error(f"Raw arguments: {tool_call.function.arguments[:500]}...")
+                            logger.warning(f"⚠️  Tool call JSON parsing failed for '{tool_name}': {str(e)[:100]}")
+                            logger.debug(f"Raw arguments: {tool_call.function.arguments[:500]}...")
 
                             # Try to fix common JSON errors
                             try:
@@ -1123,7 +1123,8 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
                                 logger.warning("✓ Fixed malformed JSON arguments")
                             except Exception as fix_error:
                                 # If still fails, skip this tool call
-                                logger.error(f"❌ Could not parse arguments for {tool_name}, skipping tool call")
+                                logger.warning(f"⚠️  Could not parse arguments for '{tool_name}' after auto-fix attempt")
+                                logger.debug(f"Fix error: {str(fix_error)[:200]}")
 
                                 # Yield error to UI
                                 yield {
@@ -1131,7 +1132,7 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
                                     "tool": tool_name,
                                     "result": {
                                         "success": False,
-                                        "error": "Failed to parse tool arguments - malformed JSON from LLM",
+                                        "error": f"Failed to parse tool arguments for '{tool_name}'. The LLM may have generated malformed JSON. Retrying...",
                                         "raw_args": tool_call.function.arguments[:200]
                                     }
                                 }

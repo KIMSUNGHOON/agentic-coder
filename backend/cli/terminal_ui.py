@@ -288,22 +288,73 @@ class TerminalUI:
 
                                 self.console.print(f"[green]✓ Read:[/green] [cyan]{path}[/cyan] [dim]({lines} lines, {size_mb:.2f} MB)[/dim]")
                             elif tool_name == "execute_python":
-                                output = result.get("output", "")
-                                if output and len(output.strip()) > 0:
-                                    output_preview = output[:200] + "..." if len(output) > 200 else output
-                                    self.console.print(Panel(
-                                        f"[dim]{output_preview}[/dim]",
-                                        title="[bold green]✅ Python Execution Result[/bold green]",
-                                        border_style="green",
-                                        padding=(1, 2)
-                                    ))
+                                output = result.get("output", {})
+                                # Handle both dict and string output formats
+                                if isinstance(output, dict):
+                                    stdout = output.get("stdout", "")
+                                    stderr = output.get("stderr", "")
+                                    returncode = output.get("returncode", 0)
+
+                                    # Show stdout if available
+                                    if stdout and stdout.strip():
+                                        output_preview = stdout[:200] + "..." if len(stdout) > 200 else stdout
+                                        self.console.print(Panel(
+                                            f"[dim]{output_preview}[/dim]",
+                                            title="[bold green]✅ Python Execution Result[/bold green]",
+                                            border_style="green",
+                                            padding=(1, 2)
+                                        ))
+                                    # Show stderr if there was an error
+                                    elif stderr and stderr.strip():
+                                        self.console.print(Panel(
+                                            f"[red]{stderr[:200]}[/red]",
+                                            title="[bold red]❌ Python Error[/bold red]",
+                                            border_style="red"
+                                        ))
+                                    else:
+                                        self.console.print("[green]✓[/green] Python code executed successfully")
+                                elif isinstance(output, str):
+                                    # Fallback for string output
+                                    if output and output.strip():
+                                        output_preview = output[:200] + "..." if len(output) > 200 else output
+                                        self.console.print(Panel(
+                                            f"[dim]{output_preview}[/dim]",
+                                            title="[bold green]✅ Python Execution Result[/bold green]",
+                                            border_style="green",
+                                            padding=(1, 2)
+                                        ))
+                                    else:
+                                        self.console.print("[green]✓[/green] Python code executed successfully")
                                 else:
                                     self.console.print("[green]✓[/green] Python code executed successfully")
                             elif tool_name == "execute_bash":
-                                output = result.get("output", "")
-                                if output and len(output.strip()) > 0:
-                                    output_preview = output[:200] + "..." if len(output) > 200 else output
-                                    self.console.print(f"[green]✓ Command output:[/green]\n[dim]{output_preview}[/dim]")
+                                output = result.get("output", {})
+                                # Handle both dict and string output formats
+                                if isinstance(output, dict):
+                                    stdout = output.get("stdout", "")
+                                    stderr = output.get("stderr", "")
+                                    command = output.get("command", "")
+
+                                    # Show stdout if available
+                                    if stdout and stdout.strip():
+                                        output_preview = stdout[:200] + "..." if len(stdout) > 200 else stdout
+                                        self.console.print(f"[green]✓ Command output:[/green]\n[dim]{output_preview}[/dim]")
+                                    # Show stderr if there was an error
+                                    elif stderr and stderr.strip():
+                                        self.console.print(Panel(
+                                            f"[red]{stderr[:200]}[/red]",
+                                            title="[bold red]❌ Command Error[/bold red]",
+                                            border_style="red"
+                                        ))
+                                    else:
+                                        self.console.print("[green]✓[/green] Command executed successfully")
+                                elif isinstance(output, str):
+                                    # Fallback for string output
+                                    if output and output.strip():
+                                        output_preview = output[:200] + "..." if len(output) > 200 else output
+                                        self.console.print(f"[green]✓ Command output:[/green]\n[dim]{output_preview}[/dim]")
+                                    else:
+                                        self.console.print("[green]✓[/green] Command executed successfully")
                                 else:
                                     self.console.print("[green]✓[/green] Command executed successfully")
                             else:
