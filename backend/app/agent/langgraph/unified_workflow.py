@@ -126,14 +126,43 @@ class UnifiedLangGraphWorkflow:
                     "workflow_strategy": supervisor_analysis.get("workflow_strategy", "parallel_gates"),
                     "required_agents": supervisor_analysis.get("required_agents", []),
                     "api_used": supervisor_analysis.get("api_used", False),
+                    "intent": supervisor_analysis.get("intent", "unknown"),
+                    "requires_workflow": supervisor_analysis.get("requires_workflow", True),
                 },
                 "status": "running",
                 "timestamp": datetime.utcnow().isoformat()
             }
 
             logger.info(f"✅ Supervisor Analysis Complete:")
-            logger.info(f"   Complexity: {supervisor_analysis['complexity']}")
+            logger.info(f"   Intent: {supervisor_analysis.get('intent', 'unknown')}")
+            logger.info(f"   Requires Workflow: {supervisor_analysis.get('requires_workflow', True)}")
+            logger.info(f"   Complexity: {supervisor_analysis.get('complexity', 'N/A')}")
             logger.info(f"   Task Type: {supervisor_analysis['task_type']}")
+
+            # CHECK: If simple conversation/question, return direct response without workflow
+            if not supervisor_analysis.get("requires_workflow", True):
+                direct_response = supervisor_analysis.get("direct_response", "I can help you with that!")
+
+                logger.info(f"💬 Direct Response (No Workflow Needed):")
+                logger.info(f"   Response: {direct_response[:100]}...")
+
+                # Yield final response
+                yield {
+                    "node": "supervisor",
+                    "updates": {
+                        "final_response": direct_response,
+                        "intent": supervisor_analysis.get("intent"),
+                        "task_type": supervisor_analysis.get("task_type"),
+                        "workflow_skipped": True
+                    },
+                    "status": "completed",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+
+                logger.info("✅ Request completed without workflow (direct response)")
+                return
+
+            # Log workflow requirements
             logger.info(f"   Strategy: {supervisor_analysis['workflow_strategy']}")
             logger.info(f"   Required Agents: {supervisor_analysis['required_agents']}")
 
