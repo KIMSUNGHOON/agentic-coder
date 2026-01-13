@@ -11,20 +11,23 @@
 ### ✅ 최근 완료된 작업
 | 커밋 해시 | 설명 | 상태 |
 |----------|------|------|
+| `0091975` | **Phase 3**: Monitoring, analytics, and auto-cleanup | ✅ 완료 |
+| `e4bf8b6` | **Phase 2**: Smart environment checks and auto-cleanup | ✅ 완료 |
+| `5003fa7` | **Phase 1**: Prevent temporary files and add sandbox fallback | ✅ 완료 |
+| `648f8b2` | 이슈 및 개선 계획 문서화 (CURRENT_ISSUES.md) | ✅ 완료 |
 | `b9cdecd` | Remote client를 local CLI workflow와 동기화 | ✅ 완료 |
 | `964a406` | Windows PowerShell 종료 처리 수정 | ✅ 완료 |
-| `1ca1097` | Session API에서 dynamic_workflow 사용 방식 수정 | ✅ 완료 |
-| `251ce97` | GitHub Actions에서 Linux 빌드 제거 (로컬 빌드) | ✅ 완료 |
-| `f88ffde` | Code execution tools의 dict 출력 형식 처리 | ✅ 완료 |
 
 ### 📊 프로젝트 구성
 ```
 ✅ Local CLI: backend/cli/terminal_ui.py (Tool Use workflow)
 ✅ Remote Client: backend/cli/remote_client.py (Tool Use workflow via SSE)
 ✅ Session API: backend/app/api/routes/session_routes.py (SessionManager)
+✅ Monitoring API: backend/app/api/routes/monitoring_routes.py (Phase 3)
 ✅ Tool Registry: 27개 도구 등록 (file, code, git, web, search, sandbox)
 ✅ GitHub Actions: Windows/macOS 자동 빌드
-✅ Documentation: SERVER_SETUP.md, REMOTE_CLIENT_BINARY.md
+✅ Smart Startup: scripts/start_server.sh/bat (환경 체크 + 바이패스)
+✅ Documentation: CURRENT_ISSUES.md, SANDBOX_SETUP.md, REMOTE_CLIENT_BINARY.md
 ```
 
 ### 🔧 환경 정보
