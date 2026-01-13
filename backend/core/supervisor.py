@@ -552,6 +552,11 @@ class SupervisorAgent:
                 return {
                     "user_request": user_request,
                     "timestamp": datetime.utcnow().isoformat(),
+                    # NEW: Intent classification fields
+                    "intent": parsed.get("intent", "unknown"),
+                    "requires_workflow": parsed.get("requires_workflow", True),
+                    "direct_response": parsed.get("direct_response", ""),
+                    # Original fields
                     "response_type": parsed.get("response_type", self._determine_response_type(user_request)),
                     "complexity": parsed.get("complexity", TaskComplexity.MODERATE),
                     "task_type": parsed.get("task_type", "general"),
@@ -585,9 +590,20 @@ class SupervisorAgent:
             Analysis dict
         """
         response_type = self._determine_response_type(request)
+
+        # NEW: Determine intent and workflow requirement using rule-based logic
+        intent = self._determine_intent_from_response_type(response_type, request)
+        requires_workflow = response_type not in [ResponseType.QUICK_QA]
+        direct_response = "" if requires_workflow else self._generate_quick_answer(request)
+
         return {
             "user_request": request,
             "timestamp": datetime.utcnow().isoformat(),
+            # NEW: Intent classification fields
+            "intent": intent,
+            "requires_workflow": requires_workflow,
+            "direct_response": direct_response,
+            # Original fields
             "response_type": response_type,  # NEW: determines workflow routing
             "complexity": self._assess_complexity(request),
             "task_type": self._determine_task_type(request),
@@ -639,26 +655,72 @@ class SupervisorAgent:
         return ResponseType.PLANNING
 
     def _is_quick_qa_request(self, request_lower: str) -> bool:
-        """Check if request is a simple Q&A question
+        """Check if request is a simple Q&A question or greeting
 
-        Simple questions that don't need code generation.
+        Simple questions/conversations that don't need code generation.
 
         Args:
             request_lower: Lowercase user request
 
         Returns:
-            True if this is a Q&A request
+            True if this is a Q&A request or simple conversation
         """
+        # Check for greetings first (CRITICAL: must not trigger workflows!)
+        greeting_patterns = [
+            # Korean greetings
+            "안녕", "안녕하세요", "반갑습니다", "감사합니다", "고마워", "알겠어", "알겠습니다", "네", "좋아",
+            # English greetings (with word boundaries)
+            "how are you", "what's up", "good morning", "good afternoon", "good evening",
+        ]
+
+        # Specific short greetings that should match even without much context
+        short_greetings = ["hello", "hi", "hey", "thanks", "thank you", "okay", "ok", "yes", "sure"]
+
+        # CRITICAL: Check for mixed intent (greeting + code request)
+        # If there's code intent, DON'T treat as quick Q&A even if there's a greeting
+        if self._has_code_intent(request_lower):
+            return False
+
+        # Check if it's a pure greeting (very short and matches pattern)
+        if len(request_lower.strip()) < 50:
+            # Check short greetings as whole words
+            words = request_lower.strip().split()
+            if any(word in short_greetings for word in words):
+                return True
+            # Check longer greeting patterns
+            if any(p in request_lower for p in greeting_patterns):
+                return True
+
+        # Check for Q&A patterns
         qa_patterns = [
             # Korean
-            "뭐야", "뭔가요", "무엇", "알려줘", "설명해", "어떻게 동작",
+            "뭐야", "뭔가요", "무엇", "알려줘", "어떻게 동작",
             "왜", "차이점", "비교", "장단점", "추천", "조언",
             # English
-            "what is", "what are", "how does", "why", "explain",
+            "what is", "what are", "what can", "how does", "why",
             "difference between", "compare", "pros and cons",
-            "recommend", "advice", "tell me about",
+            "recommend", "advice", "tell me about", "help me with",
         ]
-        return any(p in request_lower for p in qa_patterns) and not self._has_code_intent(request_lower)
+
+        # Special Q&A patterns that should ALWAYS be Q&A (even with certain keywords)
+        strong_qa_patterns = ["explain what", "explain how", "설명해", "tell me about"]
+
+        # Check strong Q&A patterns first
+        if any(p in request_lower for p in strong_qa_patterns):
+            # Only return True if there's NO explicit code creation request
+            has_strong_code = any(w in request_lower for w in ["create", "make", "build", "implement", "generate", "만들", "구현", "작성"])
+            if not has_strong_code:
+                return True
+
+        # Check if matches Q&A and doesn't have code intent
+        if any(p in request_lower for p in qa_patterns) and not self._has_code_intent(request_lower):
+            return True
+
+        # Special case: "I need help" without specific code intent is a question
+        if ("help" in request_lower or "도와" in request_lower) and len(request_lower.strip()) < 50:
+            return not self._has_code_intent(request_lower)
+
+        return False
 
     def _is_planning_request(self, request_lower: str) -> bool:
         """Check if request is for planning/design
@@ -756,19 +818,37 @@ class SupervisorAgent:
         """Check if request has intent to generate code
 
         Uses verb stems to match various Korean conjugations.
+        CRITICAL: Must distinguish "설명해줘" (explain) from "만들어줘" (create)
         """
-        code_intent_words = [
-            # Korean - verb stems
-            "만들", "만드", "구현", "작성", "개발", "코드",
-            "생성", "추가",
-            # Intent patterns
-            "싶습니다", "싶어요", "싶어", "원합니다", "원해요", "원해",
-            "해줘", "해주세요",
-            # English
-            "create", "implement", "write", "develop", "generate code",
-            "build", "make a", "code for",
+        # Explicit code verbs (Korean - verb stems)
+        code_verbs = ["만들", "만드", "구현", "작성", "개발", "생성", "추가", "수정", "변경"]
+
+        # Check if request has code verbs
+        has_code_verb = any(v in request_lower for v in code_verbs)
+
+        # Explicit code-related words
+        code_keywords = ["코드", "api", "서버", "앱", "프로그램", "함수", "클래스"]
+        has_code_keyword = any(k in request_lower for k in code_keywords)
+
+        # Intent patterns that ONLY count if there's a code verb
+        intent_patterns_with_verb = ["싶습니다", "싶어요", "싶어", "원합니다", "원해요", "원해"]
+        has_intent_with_verb = has_code_verb and any(p in request_lower for p in intent_patterns_with_verb)
+
+        # "해줘"/"해주세요" ONLY if there's a code verb before it
+        # This prevents "설명해줘" from matching
+        has_code_request = False
+        if "해줘" in request_lower or "해주세요" in request_lower:
+            # Check if there's a code verb nearby
+            has_code_request = has_code_verb
+
+        # English patterns (more explicit)
+        english_patterns = [
+            "create", "implement", "write code", "develop", "generate code",
+            "build", "make a", "code for", "write a function", "write a class",
         ]
-        return any(w in request_lower for w in code_intent_words)
+        has_english_code = any(p in request_lower for p in english_patterns)
+
+        return has_code_verb or has_code_keyword or has_intent_with_verb or has_code_request or has_english_code
 
     def _assess_complexity(self, request: str) -> str:
         """Assess task complexity
@@ -954,6 +1034,91 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
 **Strategy:** {self._build_workflow_strategy(request)} approach with {len(agents)} agents."""
 
         return reasoning
+
+    def _determine_intent_from_response_type(self, response_type: str, request: str = "") -> str:
+        """Map response_type to intent category
+
+        Args:
+            response_type: Response type from _determine_response_type
+            request: Original user request (to distinguish greeting vs question)
+
+        Returns:
+            Intent category (simple_conversation, simple_question, coding_task, complex_task)
+        """
+        intent_mapping = {
+            ResponseType.QUICK_QA: "simple_question",  # Questions without code
+            ResponseType.PLANNING: "complex_task",     # Design/planning tasks
+            ResponseType.CODE_GENERATION: "coding_task",  # Code creation
+            ResponseType.CODE_REVIEW: "coding_task",   # Code review
+            ResponseType.DEBUGGING: "coding_task",     # Bug fixing
+        }
+
+        # Check if it's a greeting/simple conversation (QUICK_QA only)
+        if response_type == ResponseType.QUICK_QA and request:
+            request_lower = request.lower().strip()
+
+            # Greeting patterns (same as in _is_quick_qa_request)
+            greeting_patterns = [
+                "안녕", "안녕하세요", "반갑습니다", "감사합니다", "고마워", "알겠어", "알겠습니다",
+                "hello", "hi", "hey", "thanks", "thank you", "okay", "ok",
+                "how are you", "what's up",
+            ]
+
+            # If it's short and matches greeting, label as simple_conversation
+            if len(request_lower) < 50 and any(p in request_lower for p in greeting_patterns):
+                return "simple_conversation"
+
+            # Otherwise it's a question
+            return "simple_question"
+
+        return intent_mapping.get(response_type, "coding_task")
+
+    def _generate_quick_answer(self, request: str) -> str:
+        """Generate a quick answer for simple questions/greetings
+
+        Args:
+            request: User request
+
+        Returns:
+            Quick answer string
+        """
+        request_lower = request.lower().strip()
+
+        # Check for greetings
+        greeting_patterns = {
+            "안녕": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
+            "안녕하세요": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
+            "hello": "Hello! How can I help you today? I can assist with coding, debugging, code review, and more.",
+            "hi": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and other development tasks.",
+            "감사합니다": "천만에요! 더 도와드릴 것이 있으면 말씀해주세요.",
+            "감사": "천만에요! 더 도와드릴 것이 있으면 말씀해주세요.",
+            "고마워": "천만에요! 필요하신 게 있으면 언제든 말씀해주세요.",
+            "thank you": "You're welcome! Let me know if there's anything else I can help with.",
+            "thanks": "You're welcome! Feel free to ask if you need anything else.",
+        }
+
+        # Check for exact or partial matches
+        for pattern, response in greeting_patterns.items():
+            if pattern in request_lower:
+                return response
+
+        # Check for "what can you do" type questions
+        capability_patterns = ["what can", "what do you", "help me", "도와", "할 수", "뭐 해"]
+        if any(p in request_lower for p in capability_patterns):
+            return """I'm an AI coding assistant that can help you with:
+
+✅ **Code Generation**: Create new code, functions, classes, APIs
+✅ **Code Review**: Analyze and improve existing code
+✅ **Debugging**: Find and fix bugs in your code
+✅ **Testing**: Write unit tests and integration tests
+✅ **Refactoring**: Improve code structure and quality
+✅ **Documentation**: Generate documentation and comments
+✅ **Explanations**: Explain code concepts and best practices
+
+Just describe what you need, and I'll help you implement it!"""
+
+        # Default Q&A response (for "what is X" type questions)
+        return "I'm here to help! Could you provide more details about what you'd like to know?"
 
     async def adjust_workflow(
         self,
