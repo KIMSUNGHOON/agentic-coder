@@ -1,9 +1,9 @@
 {
   "summary": {
     "total_tests": 27,
-    "passed": 20,
-    "failed": 7,
-    "success_rate": 74.07407407407408
+    "passed": 22,
+    "failed": 5,
+    "success_rate": 81.48148148148148
   },
   "results": [
     {
@@ -18,7 +18,7 @@
       "direct_response": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
       "full_analysis": {
         "user_request": "안녕",
-        "timestamp": "2026-01-13T05:02:09.303083",
+        "timestamp": "2026-01-13T05:03:32.107843",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
@@ -49,7 +49,7 @@
       "direct_response": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
       "full_analysis": {
         "user_request": "안녕하세요",
-        "timestamp": "2026-01-13T05:02:09.303339",
+        "timestamp": "2026-01-13T05:03:32.108146",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
@@ -80,7 +80,7 @@
       "direct_response": "Hello! How can I help you today? I can assist with coding, debugging, code review, and more.",
       "full_analysis": {
         "user_request": "Hello",
-        "timestamp": "2026-01-13T05:02:09.303578",
+        "timestamp": "2026-01-13T05:03:32.108375",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "Hello! How can I help you today? I can assist with coding, debugging, code review, and more.",
@@ -111,7 +111,7 @@
       "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and",
       "full_analysis": {
         "user_request": "Hi",
-        "timestamp": "2026-01-13T05:02:09.303827",
+        "timestamp": "2026-01-13T05:03:32.108644",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and other development tasks.",
@@ -142,7 +142,7 @@
       "direct_response": "천만에요! 더 도와드릴 것이 있으면 말씀해주세요.",
       "full_analysis": {
         "user_request": "감사합니다",
-        "timestamp": "2026-01-13T05:02:09.304051",
+        "timestamp": "2026-01-13T05:03:32.108861",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "천만에요! 더 도와드릴 것이 있으면 말씀해주세요.",
@@ -166,18 +166,18 @@
       "input": "Thank you",
       "category": "simple_conversation",
       "expected_intent": "simple_conversation",
-      "actual_intent": "complex_task",
+      "actual_intent": "simple_conversation",
       "expected_workflow": false,
-      "actual_workflow": true,
-      "passed": false,
-      "direct_response": null,
+      "actual_workflow": false,
+      "passed": true,
+      "direct_response": "You're welcome! Let me know if there's anything else I can help with.",
       "full_analysis": {
         "user_request": "Thank you",
-        "timestamp": "2026-01-13T05:02:09.304290",
-        "intent": "complex_task",
-        "requires_workflow": true,
-        "direct_response": "",
-        "response_type": "planning",
+        "timestamp": "2026-01-13T05:03:32.109069",
+        "intent": "simple_conversation",
+        "requires_workflow": false,
+        "direct_response": "You're welcome! Let me know if there's anything else I can help with.",
+        "response_type": "quick_qa",
         "complexity": "simple",
         "task_type": "general",
         "required_agents": [
@@ -204,7 +204,7 @@
       "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
       "full_analysis": {
         "user_request": "How are you?",
-        "timestamp": "2026-01-13T05:02:09.304533",
+        "timestamp": "2026-01-13T05:03:32.109262",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
@@ -235,7 +235,7 @@
       "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
       "full_analysis": {
         "user_request": "네, 알겠어요",
-        "timestamp": "2026-01-13T05:02:09.304774",
+        "timestamp": "2026-01-13T05:03:32.109490",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
@@ -266,7 +266,7 @@
       "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
       "full_analysis": {
         "user_request": "What is Python?",
-        "timestamp": "2026-01-13T05:02:09.305008",
+        "timestamp": "2026-01-13T05:03:32.109685",
         "intent": "simple_question",
         "requires_workflow": false,
         "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
@@ -297,7 +297,7 @@
       "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
       "full_analysis": {
         "user_request": "파이썬이 뭐야?",
-        "timestamp": "2026-01-13T05:02:09.305222",
+        "timestamp": "2026-01-13T05:03:32.109875",
         "intent": "simple_question",
         "requires_workflow": false,
         "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
@@ -321,18 +321,18 @@
       "input": "Explain what REST API is",
       "category": "simple_question",
       "expected_intent": "simple_question",
-      "actual_intent": "complex_task",
+      "actual_intent": "simple_question",
       "expected_workflow": false,
-      "actual_workflow": true,
-      "passed": false,
-      "direct_response": null,
+      "actual_workflow": false,
+      "passed": true,
+      "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
       "full_analysis": {
         "user_request": "Explain what REST API is",
-        "timestamp": "2026-01-13T05:02:09.305463",
-        "intent": "complex_task",
-        "requires_workflow": true,
-        "direct_response": "",
-        "response_type": "planning",
+        "timestamp": "2026-01-13T05:03:32.110105",
+        "intent": "simple_question",
+        "requires_workflow": false,
+        "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
+        "response_type": "quick_qa",
         "complexity": "simple",
         "task_type": "general",
         "required_agents": [
@@ -359,7 +359,7 @@
       "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
       "full_analysis": {
         "user_request": "Docker가 뭔지 설명해줘",
-        "timestamp": "2026-01-13T05:02:09.305701",
+        "timestamp": "2026-01-13T05:03:32.110321",
         "intent": "simple_question",
         "requires_workflow": false,
         "direct_response": "I'm here to help! Could you provide more details about what you'd like to know?",
@@ -390,7 +390,7 @@
       "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and",
       "full_analysis": {
         "user_request": "Tell me about microservices architecture",
-        "timestamp": "2026-01-13T05:02:09.305925",
+        "timestamp": "2026-01-13T05:03:32.110620",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and other development tasks.",
@@ -424,7 +424,7 @@
       "direct_response": "I'm an AI coding assistant that can help you with:\n\n✅ **Code Generation**: Create new code, function",
       "full_analysis": {
         "user_request": "What can you help me with?",
-        "timestamp": "2026-01-13T05:02:09.306150",
+        "timestamp": "2026-01-13T05:03:32.110876",
         "intent": "simple_question",
         "requires_workflow": false,
         "direct_response": "I'm an AI coding assistant that can help you with:\n\n✅ **Code Generation**: Create new code, functions, classes, APIs\n✅ **Code Review**: Analyze and improve existing code\n✅ **Debugging**: Find and fix bugs in your code\n✅ **Testing**: Write unit tests and integration tests\n✅ **Refactoring**: Improve code structure and quality\n✅ **Documentation**: Generate documentation and comments\n✅ **Explanations**: Explain code concepts and best practices\n\nJust describe what you need, and I'll help you implement it!",
@@ -455,7 +455,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Create a Flask server with REST API endpoints",
-        "timestamp": "2026-01-13T05:02:09.306376",
+        "timestamp": "2026-01-13T05:03:32.111083",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -486,7 +486,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "REST API를 만들어줘",
-        "timestamp": "2026-01-13T05:02:09.306576",
+        "timestamp": "2026-01-13T05:03:32.111267",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -517,7 +517,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Implement JWT authentication for the API",
-        "timestamp": "2026-01-13T05:02:09.306780",
+        "timestamp": "2026-01-13T05:03:32.111475",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -554,7 +554,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Fix the bug in the user registration endpoint",
-        "timestamp": "2026-01-13T05:02:09.306982",
+        "timestamp": "2026-01-13T05:03:32.111678",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -585,7 +585,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Write unit tests for the authentication module",
-        "timestamp": "2026-01-13T05:02:09.307178",
+        "timestamp": "2026-01-13T05:03:32.111863",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -622,7 +622,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "이 코드를 리뷰해줘",
-        "timestamp": "2026-01-13T05:02:09.307357",
+        "timestamp": "2026-01-13T05:03:32.112023",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -653,7 +653,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Refactor this function to use async/await",
-        "timestamp": "2026-01-13T05:02:09.307583",
+        "timestamp": "2026-01-13T05:03:32.112203",
         "intent": "complex_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -687,7 +687,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Design a microservices architecture for an e-commerce platform with payment integration",
-        "timestamp": "2026-01-13T05:02:09.307799",
+        "timestamp": "2026-01-13T05:03:32.112400",
         "intent": "complex_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -723,7 +723,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "Build a complete web application with React frontend and FastAPI backend",
-        "timestamp": "2026-01-13T05:02:09.308053",
+        "timestamp": "2026-01-13T05:03:32.112587",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -754,7 +754,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "사용자 인증, 결제, 알림 기능이 있는 전체 시스템을 구축해줘",
-        "timestamp": "2026-01-13T05:02:09.308363",
+        "timestamp": "2026-01-13T05:03:32.112799",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -785,7 +785,7 @@
       "direct_response": null,
       "full_analysis": {
         "user_request": "안녕! Python으로 웹서버 만들어줘",
-        "timestamp": "2026-01-13T05:02:09.308703",
+        "timestamp": "2026-01-13T05:03:32.113013",
         "intent": "coding_task",
         "requires_workflow": true,
         "direct_response": "",
@@ -816,7 +816,7 @@
       "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and",
       "full_analysis": {
         "user_request": "I need help with something",
-        "timestamp": "2026-01-13T05:02:09.308989",
+        "timestamp": "2026-01-13T05:03:32.113213",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and other development tasks.",
@@ -847,7 +847,7 @@
       "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and",
       "full_analysis": {
         "user_request": "How does this authentication work?",
-        "timestamp": "2026-01-13T05:02:09.309305",
+        "timestamp": "2026-01-13T05:03:32.113431",
         "intent": "simple_conversation",
         "requires_workflow": false,
         "direct_response": "Hi there! What can I help you with? I'm here to assist with code generation, debugging, reviews, and other development tasks.",

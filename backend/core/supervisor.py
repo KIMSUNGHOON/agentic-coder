@@ -683,9 +683,15 @@ class SupervisorAgent:
 
         # Check if it's a pure greeting (very short and matches pattern)
         if len(request_lower.strip()) < 50:
-            # Check short greetings as whole words
+            # Check short greetings (both as whole words and phrases)
             words = request_lower.strip().split()
-            if any(word in short_greetings for word in words):
+            # Check single-word greetings
+            single_word_greetings = ["hello", "hi", "hey", "thanks", "okay", "ok", "yes", "sure"]
+            if any(word in single_word_greetings for word in words):
+                return True
+            # Check multi-word greetings as phrases
+            multi_word_greetings = ["thank you", "thanks a lot", "thanks much"]
+            if any(p in request_lower for p in multi_word_greetings):
                 return True
             # Check longer greeting patterns
             if any(p in request_lower for p in greeting_patterns):
@@ -826,9 +832,16 @@ class SupervisorAgent:
         # Check if request has code verbs
         has_code_verb = any(v in request_lower for v in code_verbs)
 
-        # Explicit code-related words
-        code_keywords = ["코드", "api", "서버", "앱", "프로그램", "함수", "클래스"]
+        # Explicit code-related words (ONLY in context of creation/implementation)
+        # "api" in "explain what REST API is" should NOT be code intent
+        code_keywords = ["코드", "서버", "앱", "프로그램", "함수", "클래스"]
         has_code_keyword = any(k in request_lower for k in code_keywords)
+
+        # "API" only counts as code keyword if there's action verbs
+        if "api" in request_lower and not has_code_keyword:
+            # Check if there are creation/implementation verbs
+            action_verbs = ["create", "make", "build", "implement", "develop", "만들", "구현", "작성", "생성"]
+            has_code_keyword = any(v in request_lower for v in action_verbs)
 
         # Intent patterns that ONLY count if there's a code verb
         intent_patterns_with_verb = ["싶습니다", "싶어요", "싶어", "원합니다", "원해요", "원해"]
