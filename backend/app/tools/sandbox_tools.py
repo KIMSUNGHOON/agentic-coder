@@ -683,3 +683,169 @@ async def check_docker_available() -> Dict[str, Any]:
             "status": "unknown",
             "message": f"Unknown error checking Docker: {str(e)}"
         }
+
+
+async def check_sandbox_image_exists(image_name: str = "ghcr.io/agent-infra/sandbox:latest") -> Dict[str, Any]:
+    """
+    Check if Sandbox Docker image exists locally
+
+    Args:
+        image_name: Docker image name to check
+
+    Returns:
+        Dict with:
+        - exists: bool - Whether image exists
+        - image: str - Image name
+        - size: str - Image size (if exists)
+        - created: str - Creation date (if exists)
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "images", image_name, "--format", "{{.Repository}}:{{.Tag}}|{{.Size}}|{{.CreatedAt}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0 and stdout:
+            output = stdout.decode().strip()
+            if output:
+                parts = output.split('|')
+                return {
+                    "exists": True,
+                    "image": parts[0] if len(parts) > 0 else image_name,
+                    "size": parts[1] if len(parts) > 1 else "unknown",
+                    "created": parts[2] if len(parts) > 2 else "unknown"
+                }
+
+        return {
+            "exists": False,
+            "image": image_name,
+            "message": f"Image {image_name} not found. Pull with: docker pull {image_name}"
+        }
+    except Exception as e:
+        return {
+            "exists": False,
+            "image": image_name,
+            "error": str(e)
+        }
+
+
+async def check_sandbox_container_status(container_name: str = "agentic-coder-sandbox") -> Dict[str, Any]:
+    """
+    Check if Sandbox container is running
+
+    Args:
+        container_name: Container name to check
+
+    Returns:
+        Dict with:
+        - running: bool - Whether container is running
+        - exists: bool - Whether container exists (even if stopped)
+        - container_id: str - Container ID (if exists)
+        - status: str - Container status
+    """
+    try:
+        # Check if container exists (running or stopped)
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "-a", "--filter", f"name={container_name}",
+            "--format", "{{.ID}}|{{.Status}}|{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
+            output = stdout.decode().strip()
+            if output:
+                parts = output.split('|')
+                container_id = parts[0] if len(parts) > 0 else ""
+                status = parts[1] if len(parts) > 1 else ""
+                running = "Up" in status
+
+                return {
+                    "running": running,
+                    "exists": True,
+                    "container_id": container_id,
+                    "status": status,
+                    "name": container_name
+                }
+
+        return {
+            "running": False,
+            "exists": False,
+            "container_id": None,
+            "status": "not_found",
+            "name": container_name
+        }
+    except Exception as e:
+        return {
+            "running": False,
+            "exists": False,
+            "error": str(e)
+        }
+
+
+async def get_sandbox_environment_status() -> Dict[str, Any]:
+    """
+    Get comprehensive Sandbox environment status
+
+    Returns complete status including:
+    - Docker installation and running status
+    - Sandbox image availability
+    - Sandbox container status
+    - Recommendations for setup
+    """
+    docker_status = await check_docker_available()
+
+    result = {
+        "docker": docker_status,
+        "ready": False,
+        "recommendations": []
+    }
+
+    # If Docker not available, return early
+    if not docker_status["available"]:
+        result["recommendations"].append({
+            "action": "install_docker",
+            "command": "sudo apt-get update && sudo apt-get install -y docker.io",
+            "description": "Install Docker"
+        })
+        return result
+
+    # Check image
+    image_status = await check_sandbox_image_exists()
+    result["image"] = image_status
+
+    if not image_status["exists"]:
+        result["recommendations"].append({
+            "action": "pull_image",
+            "command": "docker pull ghcr.io/agent-infra/sandbox:latest",
+            "description": "Download Sandbox image"
+        })
+
+    # Check container
+    container_status = await check_sandbox_container_status()
+    result["container"] = container_status
+
+    if image_status["exists"] and not container_status["running"]:
+        if container_status["exists"]:
+            result["recommendations"].append({
+                "action": "start_container",
+                "command": "docker start agentic-coder-sandbox",
+                "description": "Start existing Sandbox container"
+            })
+        else:
+            result["recommendations"].append({
+                "action": "create_container",
+                "command": "# Container will be created automatically on first use",
+                "description": "Sandbox will auto-start when needed"
+            })
+
+    # Mark as ready if everything is available
+    if docker_status["available"] and image_status["exists"]:
+        result["ready"] = True
+        if not result["recommendations"]:
+            result["message"] = "Sandbox environment is ready"
+
+    return result

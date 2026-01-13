@@ -169,14 +169,56 @@ async def health():
         "endpoints": langgraph_routes
     }
 
+    # Check Sandbox environment (Phase 2: NEW)
+    try:
+        from app.tools.sandbox_tools import get_sandbox_environment_status
+        sandbox_status = await get_sandbox_environment_status()
+
+        health_status["components"]["sandbox"] = {
+            "status": "operational" if sandbox_status.get("ready") else "degraded",
+            "docker": sandbox_status.get("docker", {}),
+            "image": sandbox_status.get("image", {}),
+            "container": sandbox_status.get("container", {}),
+            "recommendations": sandbox_status.get("recommendations", [])
+        }
+
+        # Add warnings if sandbox not fully ready
+        if not sandbox_status.get("ready"):
+            if "warnings" not in health_status:
+                health_status["warnings"] = []
+
+            if not sandbox_status["docker"].get("available"):
+                health_status["warnings"].append(
+                    "Docker unavailable: Sandbox features will use fallback mode"
+                )
+            elif not sandbox_status.get("image", {}).get("exists"):
+                health_status["warnings"].append(
+                    "Sandbox image missing: Download with 'docker pull ghcr.io/agent-infra/sandbox:latest'"
+                )
+
+    except Exception as e:
+        health_status["components"]["sandbox"] = {
+            "status": "error",
+            "error": str(e)
+        }
+
     # Overall status
     failed_components = [
         name for name, comp in health_status["components"].items()
         if comp.get("status") == "error"
     ]
 
+    # Degraded if any component is degraded (but not failed)
+    degraded_components = [
+        name for name, comp in health_status["components"].items()
+        if comp.get("status") == "degraded"
+    ]
+
     if failed_components:
         health_status["status"] = "degraded"
         health_status["failed_components"] = failed_components
+    elif degraded_components:
+        health_status["status"] = "degraded"
+        health_status["degraded_components"] = degraded_components
 
     return health_status

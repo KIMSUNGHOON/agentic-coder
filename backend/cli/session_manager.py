@@ -289,3 +289,78 @@ class SessionManager:
         sessions.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
 
         return sessions
+
+    async def cleanup_temporary_files(self) -> int:
+        """Remove temporary files from workspace
+
+        Removes files matching temporary patterns:
+        - code_*.txt (code_1.txt, code_2.txt, etc.)
+        - temp_*.* (temp_script.py, temp_test.js, temp_data.txt)
+        - tmp_* (tmp_anything)
+        - test_*.txt (test_1.txt, test_2.txt)
+
+        Returns:
+            Number of files removed
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        temp_patterns = [
+            "code_*.txt",
+            "temp_*.*",
+            "tmp_*",
+            "test_*.txt"
+        ]
+
+        removed_count = 0
+        removed_files = []
+
+        for pattern in temp_patterns:
+            for file_path in self.workspace.glob(pattern):
+                try:
+                    file_path.unlink()
+                    removed_files.append(file_path.name)
+                    removed_count += 1
+                    logger.info(f"🗑️  Cleaned up temporary file: {file_path.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove {file_path}: {e}")
+
+        if removed_count > 0:
+            logger.info(f"✅ Cleaned up {removed_count} temporary files: {', '.join(removed_files)}")
+        else:
+            logger.debug("No temporary files found to clean up")
+
+        return removed_count
+
+    async def close(self) -> Dict[str, Any]:
+        """Close session with cleanup and save
+
+        Returns:
+            Session summary report
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 1. Cleanup temporary files
+        removed = await self.cleanup_temporary_files()
+
+        # 2. Generate report
+        summary = self.get_history_summary()
+        summary["cleanup"] = {
+            "removed_files": removed,
+            "message": f"Cleaned up {removed} temporary files" if removed > 0 else "No temporary files found"
+        }
+
+        # 3. Save session
+        if self.auto_save:
+            self.save_session()
+            logger.info(f"💾 Session {self.session_id} saved")
+
+        # 4. Log summary
+        logger.info(f"📊 Session {self.session_id} closed:")
+        logger.info(f"   - Interactions: {summary['total_messages']}")
+        logger.info(f"   - Workspace: {summary['workspace']}")
+        if removed > 0:
+            logger.info(f"   - Cleaned up: {removed} files")
+
+        return summary
