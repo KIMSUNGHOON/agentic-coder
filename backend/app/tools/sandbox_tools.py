@@ -638,3 +638,48 @@ async def execute_in_sandbox(
     """
     tool = SandboxExecuteTool()
     return await tool.execute(code=code, language=language, timeout=timeout)
+
+
+async def check_docker_available() -> Dict[str, Any]:
+    """
+    Check if Docker is available and running
+
+    Returns:
+        Dict with:
+        - available: bool - Whether Docker is available
+        - status: str - Status description
+        - message: str - Detailed message
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
+            return {
+                "available": True,
+                "status": "running",
+                "message": "Docker is available and running"
+            }
+        else:
+            error_msg = stderr.decode().strip()
+            return {
+                "available": False,
+                "status": "error",
+                "message": f"Docker error: {error_msg}"
+            }
+    except FileNotFoundError:
+        return {
+            "available": False,
+            "status": "not_installed",
+            "message": "Docker is not installed. Install with: sudo apt-get install docker.io"
+        }
+    except Exception as e:
+        return {
+            "available": False,
+            "status": "unknown",
+            "message": f"Unknown error checking Docker: {str(e)}"
+        }

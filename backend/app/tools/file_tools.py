@@ -125,7 +125,33 @@ class WriteFileTool(BaseTool):
         }
 
     def validate_params(self, path: str, content: str, **kwargs) -> bool:
-        return isinstance(path, str) and isinstance(content, str)
+        """Validate parameters and prevent temporary file creation"""
+        import re
+
+        # Basic type checking
+        if not isinstance(path, str) or not isinstance(content, str):
+            return False
+
+        # Check for temporary file patterns
+        filename = pathlib.Path(path).name
+        temp_patterns = [
+            r'^code_\d+\.txt$',          # code_1.txt, code_2.txt, etc.
+            r'^temp_.*\.(py|js|txt)$',   # temp_script.py, temp_test.js, temp_data.txt
+            r'^tmp_.*$',                  # tmp_anything
+            r'^test_\d+\.txt$',          # test_1.txt, test_2.txt
+        ]
+
+        for pattern in temp_patterns:
+            if re.match(pattern, filename, re.IGNORECASE):
+                logger.warning(
+                    f"🚫 Refused to create temporary file: {filename}\n"
+                    f"   Reason: Matches pattern '{pattern}'\n"
+                    f"   Solution: Use execute_python() or sandbox_execute() directly.\n"
+                    f"   Temporary files pollute the workspace and confuse users."
+                )
+                return False
+
+        return True
 
     async def execute(
         self,

@@ -1316,6 +1316,30 @@ You have access to 20+ CONCRETE ACTION TOOLS organized by category:
    - Think step by step: what info do I need? which tools provide it?
    - Balance thoroughness vs speed
 
+7. **File Operations - IMPORTANT RULES**:
+   ❌ **DO NOT create temporary files for code execution:**
+   - NO: write_file(path="code_1.txt") → execute_python()
+   - NO: write_file(path="temp_script.py") → shell_command()
+   - YES: execute_python(code="...") directly!
+
+   ✅ **ONLY use write_file() for actual project files:**
+   - Source code: main.py, utils.py, models.py
+   - Configuration: config.json, .env, requirements.txt
+   - Documentation: README.md, docs/guide.md
+
+   **Examples:**
+   ```
+   ❌ WRONG:
+   write_file(path="code_1.txt", content="print('hello')")
+   execute_python(code="exec(open('code_1.txt').read())")
+
+   ✅ CORRECT:
+   execute_python(code="print('hello')")
+   ```
+
+   **Why?** Temporary files pollute the workspace and confuse users.
+   Always execute code directly using execute_python() or sandbox_execute().
+
 ## Your Workflow is DYNAMIC and CREATIVE
 
 You freely decide:
@@ -1359,6 +1383,42 @@ For each task, select the right tools and use them effectively."""
                 "files_modified": arguments.get("files_modified", []),
                 "next_steps": arguments.get("next_steps", [])
             }
+
+        # Special case: sandbox_execute fallback when Docker unavailable
+        if tool_name == "sandbox_execute":
+            from app.tools.sandbox_tools import check_docker_available
+
+            docker_status = await check_docker_available()
+            if not docker_status["available"]:
+                language = arguments.get("language", "python")
+
+                # For Python, fallback to execute_python
+                if language == "python":
+                    logger.warning(
+                        f"⚠️  Docker unavailable ({docker_status['message']})\n"
+                        f"   Falling back to execute_python (non-isolated execution)\n"
+                        f"   ⚠️  WARNING: Code will run directly on the system!"
+                    )
+                    tool_name = "execute_python"
+                    # Convert sandbox arguments to execute_python arguments
+                    arguments = {
+                        "code": arguments.get("code", ""),
+                        "timeout": arguments.get("timeout", 30)
+                    }
+                else:
+                    # For other languages, return error
+                    error_msg = (
+                        f"Sandbox unavailable: {docker_status['message']}\n"
+                        f"Language '{language}' requires Docker for execution.\n"
+                        f"Solution: Install Docker or use Python code with execute_python."
+                    )
+                    logger.error(f"❌ {error_msg}")
+                    return {
+                        "success": False,
+                        "error": error_msg,
+                        "tool": tool_name,
+                        "suggestion": docker_status["message"]
+                    }
 
         # Execute concrete action tool from ToolRegistry
         try:
