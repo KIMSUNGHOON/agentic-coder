@@ -71,6 +71,16 @@ class SessionManager:
         # Initialize workflow manager (lazy load to avoid import errors)
         self.workflow_mgr = None
 
+        # Phase 3: Statistics tracking
+        self.statistics = self.metadata.get("statistics", {
+            "tool_usage": {},          # {tool_name: count}
+            "files_created": [],       # List of created file paths
+            "files_modified": [],      # List of modified file paths
+            "total_iterations": 0,     # Total workflow iterations
+            "errors_count": 0,         # Number of errors encountered
+            "workspace_snapshots": []  # Periodic workspace size snapshots
+        })
+
     def _generate_session_id(self) -> str:
         """Generate unique session ID"""
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -111,6 +121,8 @@ class SessionManager:
         # Update metadata
         self.metadata["updated_at"] = datetime.now().isoformat()
         self.metadata["message_count"] = len(self.conversation_history)
+        # Phase 3: Save statistics
+        self.metadata["statistics"] = self.statistics
 
         data = {
             "session_id": self.session_id,
@@ -364,3 +376,305 @@ class SessionManager:
             logger.info(f"   - Cleaned up: {removed} files")
 
         return summary
+
+    def get_workspace_usage(self) -> Dict[str, Any]:
+        """Calculate workspace disk usage
+
+        Returns:
+            Dict with workspace statistics:
+            - total_size_bytes: Total size in bytes
+            - total_size_mb: Total size in MB
+            - file_count: Number of files
+            - largest_files: Top 5 largest files
+        """
+        import os
+
+        total_size = 0
+        file_count = 0
+        file_sizes = []  # [(path, size), ...]
+
+        try:
+            for root, dirs, files in os.walk(self.workspace):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    try:
+                        size = os.path.getsize(file_path)
+                        total_size += size
+                        file_count += 1
+                        # Store relative path and size
+                        rel_path = os.path.relpath(file_path, self.workspace)
+                        file_sizes.append((rel_path, size))
+                    except (OSError, FileNotFoundError):
+                        continue
+
+            # Sort by size and get top 5
+            file_sizes.sort(key=lambda x: x[1], reverse=True)
+            largest_files = [
+                {"path": path, "size_bytes": size, "size_mb": round(size / (1024 * 1024), 2)}
+                for path, size in file_sizes[:5]
+            ]
+
+            return {
+                "total_size_bytes": total_size,
+                "total_size_mb": round(total_size / (1024 * 1024), 2),
+                "file_count": file_count,
+                "largest_files": largest_files,
+                "workspace_path": str(self.workspace)
+            }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "workspace_path": str(self.workspace)
+            }
+
+    def record_tool_usage(self, tool_name: str, success: bool = True):
+        """Record tool usage statistics
+
+        Args:
+            tool_name: Name of the tool used
+            success: Whether the tool execution was successful
+        """
+        # Increment tool usage count
+        if tool_name not in self.statistics["tool_usage"]:
+            self.statistics["tool_usage"][tool_name] = {"success": 0, "failure": 0}
+
+        if success:
+            self.statistics["tool_usage"][tool_name]["success"] += 1
+        else:
+            self.statistics["tool_usage"][tool_name]["failure"] += 1
+            self.statistics["errors_count"] += 1
+
+    def record_file_operation(self, operation: str, file_path: str):
+        """Record file creation or modification
+
+        Args:
+            operation: "created" or "modified"
+            file_path: Path to the file
+        """
+        if operation == "created" and file_path not in self.statistics["files_created"]:
+            self.statistics["files_created"].append(file_path)
+        elif operation == "modified" and file_path not in self.statistics["files_modified"]:
+            self.statistics["files_modified"].append(file_path)
+
+    def record_iteration(self):
+        """Record a workflow iteration"""
+        self.statistics["total_iterations"] += 1
+
+    def snapshot_workspace(self):
+        """Take a snapshot of current workspace size"""
+        usage = self.get_workspace_usage()
+        snapshot = {
+            "timestamp": datetime.now().isoformat(),
+            "size_mb": usage.get("total_size_mb", 0),
+            "file_count": usage.get("file_count", 0)
+        }
+        self.statistics["workspace_snapshots"].append(snapshot)
+
+        # Keep only last 10 snapshots
+        if len(self.statistics["workspace_snapshots"]) > 10:
+            self.statistics["workspace_snapshots"] = self.statistics["workspace_snapshots"][-10:]
+
+    def get_statistics_summary(self) -> Dict[str, Any]:
+        """Get comprehensive statistics summary
+
+        Returns:
+            Dictionary with all statistics
+        """
+        # Calculate top tools
+        tool_usage = self.statistics.get("tool_usage", {})
+        top_tools = sorted(
+            [
+                {
+                    "tool": name,
+                    "success": counts.get("success", 0),
+                    "failure": counts.get("failure", 0),
+                    "total": counts.get("success", 0) + counts.get("failure", 0)
+                }
+                for name, counts in tool_usage.items()
+            ],
+            key=lambda x: x["total"],
+            reverse=True
+        )[:10]
+
+        # Get workspace usage
+        workspace_usage = self.get_workspace_usage()
+
+        # Calculate session duration
+        created_at = datetime.fromisoformat(self.metadata.get("created_at", datetime.now().isoformat()))
+        duration_seconds = (datetime.now() - created_at).total_seconds()
+
+        return {
+            "session_id": self.session_id,
+            "duration_seconds": int(duration_seconds),
+            "duration_formatted": self._format_duration(duration_seconds),
+            "total_messages": len(self.conversation_history),
+            "total_iterations": self.statistics.get("total_iterations", 0),
+            "errors_count": self.statistics.get("errors_count", 0),
+            "top_tools": top_tools,
+            "files_created_count": len(self.statistics.get("files_created", [])),
+            "files_modified_count": len(self.statistics.get("files_modified", [])),
+            "workspace_usage": workspace_usage,
+            "workspace_snapshots": self.statistics.get("workspace_snapshots", [])
+        }
+
+    def _format_duration(self, seconds: float) -> str:
+        """Format duration in human-readable format"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+
+        if hours > 0:
+            return f"{hours}h {minutes}m {secs}s"
+        elif minutes > 0:
+            return f"{minutes}m {secs}s"
+        else:
+            return f"{secs}s"
+
+    @staticmethod
+    def cleanup_old_sessions(
+        base_workspace: str = None,
+        max_age_days: int = 30,
+        max_size_mb: int = 1000,
+        dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """Clean up old or large sessions
+
+        Args:
+            base_workspace: Base workspace directory
+            max_age_days: Maximum age in days (default: 30)
+            max_size_mb: Maximum total workspace size in MB (default: 1000)
+            dry_run: If True, only report what would be deleted
+
+        Returns:
+            Dict with cleanup statistics
+        """
+        import os
+        import shutil
+        from datetime import timedelta
+
+        if base_workspace is None:
+            base_workspace = os.getenv("DEFAULT_WORKSPACE", ".")
+
+        base_path = Path(base_workspace).resolve()
+        session_dir = base_path / ".agentic-coder" / "sessions"
+
+        if not session_dir.exists():
+            return {"error": "Session directory not found"}
+
+        # Collect session information
+        sessions_info = []
+        total_size = 0
+
+        for session_file in session_dir.glob("session-*.json"):
+            try:
+                with open(session_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                metadata = data.get("metadata", {})
+                session_id = data.get("session_id", session_file.stem)
+                workspace_path = base_path / session_id
+
+                # Get workspace size
+                workspace_size = 0
+                if workspace_path.exists():
+                    for root, dirs, files in os.walk(workspace_path):
+                        for file in files:
+                            try:
+                                workspace_size += os.path.getsize(os.path.join(root, file))
+                            except (OSError, FileNotFoundError):
+                                pass
+
+                # Get session age
+                created_at_str = metadata.get("created_at", datetime.now().isoformat())
+                created_at = datetime.fromisoformat(created_at_str)
+                age_days = (datetime.now() - created_at).days
+
+                sessions_info.append({
+                    "session_id": session_id,
+                    "session_file": session_file,
+                    "workspace_path": workspace_path,
+                    "age_days": age_days,
+                    "size_mb": round(workspace_size / (1024 * 1024), 2),
+                    "size_bytes": workspace_size,
+                    "created_at": created_at_str,
+                    "updated_at": metadata.get("updated_at", created_at_str)
+                })
+
+                total_size += workspace_size
+
+            except Exception:
+                continue
+
+        # Determine sessions to delete
+        sessions_to_delete = []
+
+        # Delete sessions older than max_age_days
+        for session in sessions_info:
+            if session["age_days"] > max_age_days:
+                sessions_to_delete.append({
+                    "session": session,
+                    "reason": f"Age {session['age_days']} days > {max_age_days} days"
+                })
+
+        # If total size exceeds limit, delete oldest sessions
+        total_size_mb = round(total_size / (1024 * 1024), 2)
+        if total_size_mb > max_size_mb:
+            # Sort by age (oldest first)
+            remaining_sessions = [s for s in sessions_info
+                                if s not in [d["session"] for d in sessions_to_delete]]
+            remaining_sessions.sort(key=lambda x: x["age_days"], reverse=True)
+
+            current_size_mb = total_size_mb
+            for session in remaining_sessions:
+                if current_size_mb <= max_size_mb:
+                    break
+                sessions_to_delete.append({
+                    "session": session,
+                    "reason": f"Total size {current_size_mb:.2f}MB > {max_size_mb}MB"
+                })
+                current_size_mb -= session["size_mb"]
+
+        # Perform deletion
+        deleted_count = 0
+        deleted_size_mb = 0
+        errors = []
+
+        if not dry_run:
+            for item in sessions_to_delete:
+                session = item["session"]
+                try:
+                    # Delete workspace directory
+                    if session["workspace_path"].exists():
+                        shutil.rmtree(session["workspace_path"])
+
+                    # Delete session file
+                    if session["session_file"].exists():
+                        session["session_file"].unlink()
+
+                    deleted_count += 1
+                    deleted_size_mb += session["size_mb"]
+
+                except Exception as e:
+                    errors.append({
+                        "session_id": session["session_id"],
+                        "error": str(e)
+                    })
+
+        return {
+            "total_sessions": len(sessions_info),
+            "total_size_mb": total_size_mb,
+            "sessions_to_delete": len(sessions_to_delete),
+            "deleted_count": deleted_count if not dry_run else 0,
+            "deleted_size_mb": round(deleted_size_mb, 2) if not dry_run else 0,
+            "dry_run": dry_run,
+            "details": [
+                {
+                    "session_id": item["session"]["session_id"],
+                    "age_days": item["session"]["age_days"],
+                    "size_mb": item["session"]["size_mb"],
+                    "reason": item["reason"]
+                }
+                for item in sessions_to_delete
+            ],
+            "errors": errors
+        }

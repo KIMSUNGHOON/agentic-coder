@@ -10,6 +10,7 @@ from app.api.routes.hitl_routes import router as hitl_router
 from app.api.routes.cache_routes import router as cache_router
 from app.api.routes.plan_routes import router as plan_router
 from app.api.routes.session_routes import router as session_router
+from app.api.routes.monitoring_routes import router as monitoring_router
 
 # Lazy import of optional dependencies
 try:
@@ -112,6 +113,10 @@ logger.info("✅ Plan Mode routes registered at /api/plan")
 # Include Session routes (for remote client)
 app.include_router(session_router, prefix="/api")
 logger.info("✅ Session routes registered at /api/sessions")
+
+# Include Monitoring routes (Phase 3: Statistics and analytics)
+app.include_router(monitoring_router, prefix="/api")
+logger.info("✅ Monitoring routes registered at /api/monitoring")
 
 
 @app.get("/")
