@@ -157,10 +157,11 @@ class UnifiedAgentManager:
                             agent="supervisor",
                             update_type="complete",
                             status="completed",
-                            message="응답 완료",
+                            message=direct_response,  # Include actual response in final update
                             data={
                                 "latency_ms": int(elapsed_ms),
-                                "session_id": session_id
+                                "session_id": session_id,
+                                "full_content": direct_response  # Also include in data for redundancy
                             }
                         )
 
