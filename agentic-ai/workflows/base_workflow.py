@@ -1,0 +1,356 @@
+"""Base Workflow for Agentic 2.0
+
+Provides common workflow structure using LangGraph StateGraph:
+- Plan: Analyze task and create execution plan
+- Execute: Run tools and operations
+- Reflect: Review results and decide next steps
+- Iteration control: Continue or complete
+
+All domain workflows inherit from this base class.
+"""
+
+import logging
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
+from datetime import datetime
+
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, AIMessage
+
+from core.state import (
+    AgenticState,
+    TaskStatus,
+    increment_iteration,
+    update_task_status,
+    add_error,
+)
+from core.llm_client import DualEndpointLLMClient
+from core.tool_safety import ToolSafetyManager
+from tools import FileSystemTools, GitTools, ProcessTools, SearchTools
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class WorkflowResult:
+    """Result of workflow execution"""
+    success: bool
+    output: Any
+    error: Optional[str] = None
+    iterations: int = 0
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class BaseWorkflow:
+    """Base class for all workflows
+
+    Provides common LangGraph structure:
+    - StateGraph with standard nodes
+    - Iteration control
+    - Tool access
+    - Error handling
+
+    Subclasses implement domain-specific logic:
+    - plan_node()
+    - execute_node()
+    - reflect_node()
+
+    Example:
+        >>> class CodingWorkflow(BaseWorkflow):
+        ...     async def plan_node(self, state):
+        ...         # Coding-specific planning
+        ...         return state
+        >>>
+        >>> workflow = CodingWorkflow(llm_client, safety, tools)
+        >>> result = await workflow.run(state)
+    """
+
+    def __init__(
+        self,
+        llm_client: DualEndpointLLMClient,
+        safety_manager: ToolSafetyManager,
+        workspace: Optional[str] = None,
+    ):
+        """Initialize BaseWorkflow
+
+        Args:
+            llm_client: LLM client for AI operations
+            safety_manager: Safety manager for tool validation
+            workspace: Working directory (optional)
+        """
+        self.llm_client = llm_client
+        self.safety = safety_manager
+        self.workspace = workspace
+
+        # Initialize tools
+        self.fs_tools = FileSystemTools(safety_manager, workspace)
+        self.git_tools = GitTools(safety_manager)
+        self.process_tools = ProcessTools(safety_manager)
+        self.search_tools = SearchTools(safety_manager, workspace)
+
+        # Build state graph
+        self.graph = self._build_graph()
+
+        logger.info(f"🔄 {self.__class__.__name__} initialized")
+
+    def _build_graph(self) -> StateGraph:
+        """Build LangGraph StateGraph
+
+        Creates standard workflow graph:
+        START → plan → execute → reflect → should_continue?
+                                    ↓              ↓
+                                  END        → execute
+
+        Returns:
+            Compiled StateGraph
+        """
+        # Create graph
+        workflow = StateGraph(AgenticState)
+
+        # Add nodes
+        workflow.add_node("plan", self.plan_node)
+        workflow.add_node("execute", self.execute_node)
+        workflow.add_node("reflect", self.reflect_node)
+
+        # Set entry point
+        workflow.set_entry_point("plan")
+
+        # Add edges
+        workflow.add_edge("plan", "execute")
+        workflow.add_edge("execute", "reflect")
+
+        # Conditional edge from reflect
+        workflow.add_conditional_edges(
+            "reflect",
+            self.should_continue,
+            {
+                "continue": "execute",  # Continue iteration
+                "end": END,             # Complete workflow
+            }
+        )
+
+        # Compile graph
+        compiled = workflow.compile()
+
+        logger.info("✅ StateGraph compiled")
+        return compiled
+
+    # ===== Node Implementations (to be overridden) =====
+
+    async def plan_node(self, state: AgenticState) -> AgenticState:
+        """Plan node: Analyze task and create execution plan
+
+        This method should be overridden by subclasses.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with plan
+        """
+        logger.info(f"📋 Planning task: {state['task_description'][:100]}")
+
+        # Default implementation: basic planning
+        # Subclasses should override with domain-specific logic
+
+        state["iteration"] = 0
+        state["task_status"] = TaskStatus.IN_PROGRESS.value
+
+        return state
+
+    async def execute_node(self, state: AgenticState) -> AgenticState:
+        """Execute node: Run tools and operations
+
+        This method should be overridden by subclasses.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with execution results
+        """
+        logger.info(f"⚙️  Executing iteration {state['iteration']}")
+
+        # Default implementation: placeholder
+        # Subclasses should override with domain-specific logic
+
+        # Increment iteration
+        state = increment_iteration(state)
+
+        return state
+
+    async def reflect_node(self, state: AgenticState) -> AgenticState:
+        """Reflect node: Review results and decide next steps
+
+        This method should be overridden by subclasses.
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with reflection results
+        """
+        logger.info(f"🤔 Reflecting on iteration {state['iteration']}")
+
+        # Default implementation: simple reflection
+        # Subclasses should override with domain-specific logic
+
+        # Check if max iterations reached
+        if state["iteration"] >= state["max_iterations"]:
+            state["should_continue"] = False
+            logger.warning(f"⚠️  Max iterations reached: {state['max_iterations']}")
+        else:
+            # Default: continue one more iteration then stop
+            state["should_continue"] = state["iteration"] < 2
+
+        return state
+
+    def should_continue(self, state: AgenticState) -> str:
+        """Conditional routing: Continue or end workflow?
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            "continue" or "end"
+        """
+        # Check should_continue flag
+        if not state.get("should_continue", True):
+            logger.info("✅ Workflow complete")
+            return "end"
+
+        # Check iteration limit
+        if state["iteration"] >= state["max_iterations"]:
+            logger.warning("⚠️  Max iterations reached")
+            return "end"
+
+        # Check if task completed
+        if state.get("task_status") == TaskStatus.COMPLETED.value:
+            logger.info("✅ Task completed")
+            return "end"
+
+        # Check if task failed
+        if state.get("task_status") == TaskStatus.FAILED.value:
+            logger.error("❌ Task failed")
+            return "end"
+
+        # Continue iteration
+        logger.info(f"🔄 Continuing to iteration {state['iteration'] + 1}")
+        return "continue"
+
+    # ===== Helper Methods =====
+
+    async def call_llm(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+    ) -> str:
+        """Call LLM with messages
+
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            temperature: Sampling temperature (default: 0.7)
+            max_tokens: Maximum tokens (default: 2000)
+
+        Returns:
+            LLM response content
+        """
+        try:
+            response = await self.llm_client.chat_completion(
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            raise
+
+    async def run(self, state: AgenticState) -> WorkflowResult:
+        """Run workflow with given state
+
+        Args:
+            state: Initial workflow state
+
+        Returns:
+            WorkflowResult with execution results
+        """
+        try:
+            logger.info(f"🚀 Starting workflow: {state['task_description'][:100]}")
+
+            start_time = datetime.now()
+
+            # Run graph
+            final_state = await self.graph.ainvoke(state)
+
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+
+            # Extract results
+            success = final_state.get("task_status") == TaskStatus.COMPLETED.value
+            output = final_state.get("task_result")
+            error = final_state.get("task_error")
+            iterations = final_state.get("iteration", 0)
+
+            logger.info(
+                f"✅ Workflow completed: {iterations} iterations, {duration:.2f}s"
+            )
+
+            return WorkflowResult(
+                success=success,
+                output=output,
+                error=error,
+                iterations=iterations,
+                metadata={
+                    "duration_seconds": duration,
+                    "final_state": final_state,
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Workflow error: {e}")
+
+            return WorkflowResult(
+                success=False,
+                output=None,
+                error=str(e),
+                iterations=state.get("iteration", 0),
+            )
+
+    async def run_with_task(
+        self,
+        task_description: str,
+        task_id: str,
+        workflow_domain: str,
+        workspace: Optional[str] = None,
+        max_iterations: int = 10,
+    ) -> WorkflowResult:
+        """Convenience method: Create state and run workflow
+
+        Args:
+            task_description: Task description
+            task_id: Unique task ID
+            workflow_domain: Workflow domain (coding, research, data, general)
+            workspace: Working directory (optional)
+            max_iterations: Maximum iterations (default: 10)
+
+        Returns:
+            WorkflowResult
+        """
+        from core.state import create_initial_state
+        from core.router import WorkflowDomain
+
+        # Create initial state
+        state = create_initial_state(
+            task_description=task_description,
+            task_id=task_id,
+            workflow_domain=WorkflowDomain(workflow_domain),
+            workspace=workspace or self.workspace,
+            max_iterations=max_iterations,
+        )
+
+        # Run workflow
+        return await self.run(state)

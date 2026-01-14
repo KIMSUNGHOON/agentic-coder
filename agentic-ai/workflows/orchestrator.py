@@ -1,0 +1,315 @@
+"""Workflow Orchestrator for Agentic 2.0
+
+Main orchestrator that:
+1. Classifies user intent using IntentRouter
+2. Selects appropriate workflow (coding, research, data, general)
+3. Executes workflow using LangGraph
+4. Returns results
+
+This is the main entry point for task execution.
+"""
+
+import logging
+import uuid
+from typing import Optional, Dict, Any
+from datetime import datetime
+
+from core.llm_client import DualEndpointLLMClient
+from core.router import IntentRouter, WorkflowDomain, IntentClassification
+from core.tool_safety import ToolSafetyManager
+from core.state import create_initial_state, AgenticState
+from .base_workflow import BaseWorkflow, WorkflowResult
+
+logger = logging.getLogger(__name__)
+
+
+class WorkflowOrchestrator:
+    """Main workflow orchestrator
+
+    Coordinates the entire agentic system:
+    - Intent classification
+    - Workflow selection
+    - Execution management
+    - Result aggregation
+
+    Example:
+        >>> orchestrator = WorkflowOrchestrator(llm_client, safety, workspace)
+        >>> result = await orchestrator.execute_task("Fix the authentication bug")
+        >>> print(result.success, result.output)
+    """
+
+    def __init__(
+        self,
+        llm_client: DualEndpointLLMClient,
+        safety_manager: ToolSafetyManager,
+        workspace: Optional[str] = None,
+        max_iterations: int = 10,
+    ):
+        """Initialize WorkflowOrchestrator
+
+        Args:
+            llm_client: LLM client for AI operations
+            safety_manager: Safety manager for tool validation
+            workspace: Default working directory (optional)
+            max_iterations: Default max iterations per workflow (default: 10)
+        """
+        self.llm_client = llm_client
+        self.safety = safety_manager
+        self.workspace = workspace
+        self.max_iterations = max_iterations
+
+        # Initialize intent router
+        self.router = IntentRouter(llm_client, confidence_threshold=0.7)
+
+        # Workflow registry (lazy loaded)
+        self._workflows: Dict[WorkflowDomain, BaseWorkflow] = {}
+
+        # Statistics
+        self.total_tasks = 0
+        self.tasks_by_domain = {domain: 0 for domain in WorkflowDomain}
+
+        logger.info(
+            f"🎯 WorkflowOrchestrator initialized "
+            f"(workspace: {workspace or 'none'}, max_iterations: {max_iterations})"
+        )
+
+    def _get_workflow(self, domain: WorkflowDomain) -> BaseWorkflow:
+        """Get workflow for domain (lazy loading)
+
+        Args:
+            domain: Workflow domain
+
+        Returns:
+            Workflow instance
+
+        Raises:
+            ValueError: If domain is not supported
+        """
+        # Check cache
+        if domain in self._workflows:
+            return self._workflows[domain]
+
+        # Lazy import and instantiate
+        try:
+            if domain == WorkflowDomain.CODING:
+                from .coding_workflow import CodingWorkflow
+                workflow = CodingWorkflow(self.llm_client, self.safety, self.workspace)
+
+            elif domain == WorkflowDomain.RESEARCH:
+                from .research_workflow import ResearchWorkflow
+                workflow = ResearchWorkflow(self.llm_client, self.safety, self.workspace)
+
+            elif domain == WorkflowDomain.DATA:
+                from .data_workflow import DataWorkflow
+                workflow = DataWorkflow(self.llm_client, self.safety, self.workspace)
+
+            elif domain == WorkflowDomain.GENERAL:
+                from .general_workflow import GeneralWorkflow
+                workflow = GeneralWorkflow(self.llm_client, self.safety, self.workspace)
+
+            else:
+                raise ValueError(f"Unsupported domain: {domain}")
+
+            # Cache workflow
+            self._workflows[domain] = workflow
+
+            logger.info(f"✅ Loaded workflow: {domain.value}")
+            return workflow
+
+        except ImportError as e:
+            logger.error(f"Failed to import workflow for {domain}: {e}")
+            raise ValueError(f"Workflow not implemented: {domain.value}")
+
+    async def classify_and_route(
+        self,
+        task_description: str
+    ) -> tuple[WorkflowDomain, IntentClassification]:
+        """Classify task and determine workflow
+
+        Args:
+            task_description: User's task description
+
+        Returns:
+            Tuple of (domain, classification_result)
+        """
+        logger.info(f"🎯 Classifying task: {task_description[:100]}")
+
+        # Classify intent
+        classification = await self.router.classify(task_description)
+
+        logger.info(
+            f"✅ Classification: {classification.domain.value} "
+            f"(confidence: {classification.confidence:.2%})"
+        )
+
+        return classification.domain, classification
+
+    async def execute_task(
+        self,
+        task_description: str,
+        task_id: Optional[str] = None,
+        workspace: Optional[str] = None,
+        max_iterations: Optional[int] = None,
+        domain_override: Optional[WorkflowDomain] = None,
+    ) -> WorkflowResult:
+        """Execute task with automatic workflow selection
+
+        Main entry point for task execution.
+
+        Args:
+            task_description: User's task description
+            task_id: Optional task ID (auto-generated if not provided)
+            workspace: Optional workspace override
+            max_iterations: Optional max iterations override
+            domain_override: Optional domain override (skip classification)
+
+        Returns:
+            WorkflowResult with execution results
+        """
+        # Generate task ID if not provided
+        if task_id is None:
+            task_id = f"task_{uuid.uuid4().hex[:8]}"
+
+        # Use defaults if not overridden
+        workspace = workspace or self.workspace
+        max_iterations = max_iterations or self.max_iterations
+
+        try:
+            logger.info(f"🚀 Executing task: {task_id}")
+            logger.info(f"📝 Description: {task_description}")
+
+            start_time = datetime.now()
+
+            # Classify and route (unless domain override)
+            if domain_override:
+                domain = domain_override
+                classification = None
+                logger.info(f"⚡ Using domain override: {domain.value}")
+            else:
+                domain, classification = await self.classify_and_route(task_description)
+
+            # Update statistics
+            self.total_tasks += 1
+            self.tasks_by_domain[domain] += 1
+
+            # Get workflow
+            workflow = self._get_workflow(domain)
+
+            # Create initial state
+            state = create_initial_state(
+                task_description=task_description,
+                task_id=task_id,
+                workflow_domain=domain,
+                workspace=workspace,
+                max_iterations=max_iterations,
+            )
+
+            # Add classification metadata
+            if classification:
+                state["context"]["classification"] = {
+                    "domain": classification.domain.value,
+                    "confidence": classification.confidence,
+                    "reasoning": classification.reasoning,
+                    "requires_sub_agents": classification.requires_sub_agents,
+                    "estimated_complexity": classification.estimated_complexity,
+                }
+
+            # Run workflow
+            logger.info(f"🔄 Running {domain.value} workflow")
+            result = await workflow.run(state)
+
+            end_time = datetime.now()
+            total_duration = (end_time - start_time).total_seconds()
+
+            # Add metadata
+            if result.metadata is None:
+                result.metadata = {}
+
+            result.metadata.update({
+                "task_id": task_id,
+                "domain": domain.value,
+                "classification": classification.to_dict() if classification else None,
+                "total_duration_seconds": total_duration,
+                "workspace": workspace,
+            })
+
+            logger.info(
+                f"✅ Task completed: {task_id} "
+                f"({result.iterations} iterations, {total_duration:.2f}s)"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"❌ Task failed: {task_id} - {e}")
+
+            return WorkflowResult(
+                success=False,
+                output=None,
+                error=str(e),
+                iterations=0,
+                metadata={
+                    "task_id": task_id,
+                    "error_type": type(e).__name__,
+                }
+            )
+
+    async def execute_with_domain(
+        self,
+        task_description: str,
+        domain: WorkflowDomain,
+        task_id: Optional[str] = None,
+        workspace: Optional[str] = None,
+        max_iterations: Optional[int] = None,
+    ) -> WorkflowResult:
+        """Execute task with specific domain (skip classification)
+
+        Useful when domain is already known.
+
+        Args:
+            task_description: Task description
+            domain: Specific workflow domain
+            task_id: Optional task ID
+            workspace: Optional workspace
+            max_iterations: Optional max iterations
+
+        Returns:
+            WorkflowResult
+        """
+        return await self.execute_task(
+            task_description=task_description,
+            task_id=task_id,
+            workspace=workspace,
+            max_iterations=max_iterations,
+            domain_override=domain,
+        )
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get orchestrator statistics
+
+        Returns:
+            Dictionary with statistics
+        """
+        return {
+            "total_tasks": self.total_tasks,
+            "tasks_by_domain": {
+                domain.value: count
+                for domain, count in self.tasks_by_domain.items()
+            },
+            "router_stats": self.router.get_stats(),
+            "loaded_workflows": [
+                domain.value for domain in self._workflows.keys()
+            ],
+        }
+
+    async def close(self):
+        """Clean up resources"""
+        logger.info("🔌 Closing orchestrator")
+
+        # Close LLM client
+        await self.llm_client.close()
+
+        # Clear workflow cache
+        self._workflows.clear()
+
+        logger.info("✅ Orchestrator closed")
