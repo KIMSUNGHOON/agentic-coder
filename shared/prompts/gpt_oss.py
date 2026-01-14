@@ -50,7 +50,7 @@ When analyzing complex problems, structure your thinking clearly:
 - Edge cases should be addressed"""
 
 # Supervisor Analysis Prompt for GPT-OSS (Harmony Format Enhanced)
-GPT_OSS_SUPERVISOR_PROMPT = """Analyze the following user request and determine the optimal workflow strategy.
+GPT_OSS_SUPERVISOR_PROMPT = """Analyze the following user request and determine if it needs a workflow or can be answered directly.
 
 ## USER REQUEST
 {user_request}
@@ -58,7 +58,52 @@ GPT_OSS_SUPERVISOR_PROMPT = """Analyze the following user request and determine 
 ## CONVERSATION CONTEXT
 {context}
 
-## ANALYSIS REQUIREMENTS:
+CRITICAL: First determine the user's intent before creating any workflow!
+
+## STEP 1: INTENT CLASSIFICATION
+
+Classify the user's intent into ONE of these categories:
+
+**1. SIMPLE_CONVERSATION** (No workflow needed)
+- Greetings: "hello", "hi", "안녕", "안녕하세요"
+- Thanks: "thank you", "thanks", "감사합니다", "고마워"
+- Casual chat: "how are you", "what's up", "잘 지내?", "뭐해", "오늘 기분 어때?"
+- Acknowledgments: "ok", "okay", "yes", "네", "알겠어"
+- Small talk: who are you, what can you do, etc.
+
+**2. SIMPLE_QUESTION** (No workflow needed)
+- Questions about concepts: "what is X", "무엇인가요"
+- Explanations: "explain Y", "설명해줘"
+- Information requests: "tell me about Z", "알려줘"
+- NO code generation intent
+
+**3. CODING_TASK** (Workflow needed)
+- Code creation: "create", "implement", "build", "만들어", "구현해"
+- Code review: "review this code", "코드 리뷰"
+- Debugging: "fix this bug", "버그 수정"
+- Testing: "write tests", "테스트 작성"
+
+**4. COMPLEX_TASK** (Workflow needed)
+- Multiple steps required
+- Planning/design needed
+- Architecture decisions
+- System design
+
+## STEP 2: RESPONSE DECISION
+
+Based on intent classification:
+
+- If **SIMPLE_CONVERSATION** or **SIMPLE_QUESTION**:
+  * Set `requires_workflow: false`
+  * Set `direct_response` with your answer
+  * NO workflow needed!
+
+- If **CODING_TASK** or **COMPLEX_TASK**:
+  * Set `requires_workflow: true`
+  * Analyze complexity and create workflow plan
+  * Fill in all workflow details
+
+## ANALYSIS REQUIREMENTS (only if workflow needed):
 1. Assess task complexity (simple, moderate, complex, critical)
 2. Determine primary task type (implementation, review, testing, security_audit, general)
 3. Identify required agent capabilities
@@ -81,12 +126,17 @@ AVAILABLE AGENT CAPABILITIES:
 - refinement: Code improvement
 - root_cause_analysis: Deep problem analysis
 
+## OUTPUT FORMAT
+
 Analyze the request and provide your response in the following JSON format:
 
 ```json
 {{
+    "intent": "simple_conversation|simple_question|coding_task|complex_task",
+    "requires_workflow": true|false,
+    "direct_response": "Your direct answer here (if requires_workflow=false)",
     "complexity": "simple|moderate|complex|critical",
-    "task_type": "implementation|review|testing|security_audit|general",
+    "task_type": "implementation|review|testing|security_audit|general|conversation|question",
     "required_agents": ["agent1", "agent2"],
     "workflow_strategy": "linear|parallel_gates|adaptive_loop|staged_approval",
     "max_iterations": 5,
@@ -95,6 +145,67 @@ Analyze the request and provide your response in the following JSON format:
     "analysis_summary": "Brief summary of your analysis"
 }}
 ```
+
+## EXAMPLES
+
+**Example 1: Simple Greeting**
+User: "안녕하세요"
+Response:
+```json
+{{
+    "intent": "simple_conversation",
+    "requires_workflow": false,
+    "direct_response": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
+    "task_type": "conversation",
+    "confidence_score": 1.0
+}}
+```
+
+**Example 2: Casual Question**
+User: "오늘 기분 어때?"
+Response:
+```json
+{{
+    "intent": "simple_conversation",
+    "requires_workflow": false,
+    "direct_response": "저는 AI이지만, 당신을 도울 준비가 되어 있어서 좋습니다! 무엇을 도와드릴까요?",
+    "task_type": "conversation",
+    "confidence_score": 1.0
+}}
+```
+
+**Example 3: Simple Question**
+User: "What is Python?"
+Response:
+```json
+{{
+    "intent": "simple_question",
+    "requires_workflow": false,
+    "direct_response": "Python is a high-level, interpreted programming language known for its readability and versatility. It's widely used for web development, data science, automation, and more.",
+    "task_type": "question",
+    "confidence_score": 0.95
+}}
+```
+
+**Example 4: Coding Task**
+User: "Create a Flask REST API"
+Response:
+```json
+{{
+    "intent": "coding_task",
+    "requires_workflow": true,
+    "complexity": "moderate",
+    "task_type": "implementation",
+    "required_agents": ["planning", "implementation", "review"],
+    "workflow_strategy": "parallel_gates",
+    "max_iterations": 5,
+    "requires_human_approval": false,
+    "confidence_score": 0.9,
+    "analysis_summary": "User requests Flask REST API implementation, requires code generation workflow"
+}}
+```
+
+Remember: NOT EVERYTHING needs a workflow! Simple conversations and questions should get direct answers.
 """
 
 # Planning Response Prompt for GPT-OSS
