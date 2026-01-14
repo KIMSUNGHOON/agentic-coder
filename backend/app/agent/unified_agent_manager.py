@@ -111,6 +111,88 @@ class UnifiedAgentManager:
             response_type = analysis.get("response_type", ResponseType.QUICK_QA)
             logger.info(f"Response type determined: {response_type}")
 
+            # CRITICAL: Check if workflow is NOT required and direct_response exists
+            requires_workflow = analysis.get("requires_workflow", True)
+            direct_response = analysis.get("direct_response")
+
+            if not requires_workflow and direct_response:
+                # Direct response - no need to call handler!
+                logger.info(f"💬 Direct Response (No Handler Needed)")
+                logger.info(f"   Intent: {analysis.get('intent')}")
+                logger.info(f"   Response: {direct_response[:100]}...")
+
+                if stream:
+                    # Streaming mode - yield direct response as stream
+                    async def stream_direct_response():
+                        # Start
+                        yield StreamUpdate(
+                            type="analysis",
+                            content=f"분석 완료: {analysis.get('intent', 'simple_conversation')}",
+                            metadata={"intent": analysis.get('intent')}
+                        )
+
+                        # Content
+                        yield StreamUpdate(
+                            type="content",
+                            content=direct_response,
+                            metadata={"handler_bypassed": True}
+                        )
+
+                        # Save context
+                        await self.context_store.save(
+                            session_id=session_id,
+                            user_message=user_message,
+                            assistant_response=direct_response,
+                            analysis=analysis,
+                            artifacts=[]
+                        )
+
+                        # Complete
+                        elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+                        yield StreamUpdate(
+                            type="complete",
+                            content="",
+                            metadata={
+                                "latency_ms": int(elapsed_ms),
+                                "session_id": session_id
+                            }
+                        )
+
+                    return stream_direct_response()
+
+                else:
+                    # Non-streaming mode
+                    result = HandlerResult(
+                        content=direct_response,
+                        thinking=analysis.get("analysis_summary", ""),
+                        artifacts=[],
+                        metadata={
+                            "intent": analysis.get("intent"),
+                            "requires_workflow": False,
+                            "handler_bypassed": True
+                        }
+                    )
+
+                    # Aggregate and save
+                    response = self.response_aggregator.aggregate(result, analysis)
+
+                    await self.context_store.save(
+                        session_id=session_id,
+                        user_message=user_message,
+                        assistant_response=response.content,
+                        analysis=response.analysis,
+                        artifacts=response.artifacts
+                    )
+
+                    # Add metadata
+                    elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+                    response.metadata = response.metadata or {}
+                    response.metadata["latency_ms"] = int(elapsed_ms)
+                    response.metadata["session_id"] = session_id
+
+                    logger.info(f"Request completed with direct response in {elapsed_ms:.0f}ms")
+                    return response
+
             # 3. 핸들러 선택
             handler = self.handlers.get(response_type)
             if not handler:
@@ -119,7 +201,8 @@ class UnifiedAgentManager:
 
             # 4. 핸들러 실행
             if stream:
-                # 스트리밍 모드
+                # 스트리밍 모드 - direct_response가 있어도 스트리밍 형식으로 yield
+                # (위에서 이미 체크했지만, requires_workflow=True인 경우만 여기 도달)
                 return self._stream_response(
                     handler, user_message, analysis, context, session_id
                 )
