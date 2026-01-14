@@ -32,7 +32,12 @@ def debug_case(input_text: str):
 
 
 if __name__ == "__main__":
-    # Test failing cases
-    debug_case("Thank you")
-    debug_case("Explain what REST API is")
-    debug_case("Tell me about microservices architecture")
+    # Test capability questions (should NOT create workflow)
+    debug_case("계획도 작성 가능합니까?")
+    debug_case("Can you write plans?")
+    debug_case("코드 리뷰 할 수 있어?")
+    debug_case("Are you able to debug?")
+
+    # Test actual requests (SHOULD create workflow)
+    debug_case("계획을 작성해줘")
+    debug_case("Write a plan for me")

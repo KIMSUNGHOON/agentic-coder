@@ -735,7 +735,22 @@ class SupervisorAgent:
         Returns:
             True if this is a Q&A request or simple conversation
         """
-        # Check for greetings first (CRITICAL: must not trigger workflows!)
+        # CRITICAL: Check capability questions FIRST (before code intent check!)
+        # These are questions ABOUT capabilities, not requests to DO something
+        capability_patterns = [
+            # Korean: "가능합니까?", "할 수 있어?", "할 수 있나요?"
+            "가능합니까", "가능해", "가능한가", "할 수 있어", "할 수 있나", "할 수 있니",
+            "지원하나", "지원해", "되나요", "되는지",
+            # English: "can you", "are you able to", "do you support"
+            "can you", "are you able", "do you support", "is it possible",
+            "are you capable", "do you have the ability",
+        ]
+
+        # If it's asking about capability (not requesting action), it's Q&A
+        if any(pattern in request_lower for pattern in capability_patterns):
+            return True
+
+        # Check for greetings (CRITICAL: must not trigger workflows!)
         greeting_patterns = [
             # Korean greetings
             "안녕", "안녕하세요", "반갑습니다", "감사합니다", "고마워", "알겠어", "알겠습니다", "네", "좋아",
