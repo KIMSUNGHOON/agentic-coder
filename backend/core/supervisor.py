@@ -114,60 +114,81 @@ USER REQUEST:
 CONTEXT (if available):
 {context}
 
-CRITICAL: First determine the user's intent before creating any workflow!
+## REASONING INSTRUCTIONS
 
-## STEP 1: INTENT CLASSIFICATION
+Use <think></think> tags to reason through your analysis. Consider these questions step-by-step:
 
-Classify the user's intent into ONE of these categories:
+<think>
+**1. What is the user's PRIMARY GOAL?**
+   - Are they seeking information or knowledge?
+   - Do they want me to create/modify/review code?
+   - Are they engaging in social interaction (greeting, thanking, casual chat)?
+   - Are they making a casual remark without expecting a technical response?
 
-**1. SIMPLE_CONVERSATION** (No workflow needed)
-- Greetings: "hello", "hi", "안녕", "안녕하세요"
-- Thanks: "thank you", "thanks", "감사합니다", "고마워"
-- Casual chat: "how are you", "what's up", "잘 지내?", "뭐해"
-- Acknowledgments: "ok", "okay", "yes", "네", "알겠어"
-- Small talk: who are you, what can you do, etc.
+**2. What kind of OUTPUT do they expect?**
+   - A conversational response? (e.g., answering "How are you?", "오늘 기분 어때?")
+   - An explanation or definition? (e.g., "What is X?", "Tell me about Y")
+   - Working code or technical implementation?
+   - A detailed plan or architecture design?
 
-**2. SIMPLE_QUESTION** (No workflow needed)
-- Questions about concepts: "what is X", "무엇인가요"
-- Explanations: "explain Y", "설명해줘"
-- Information requests: "tell me about Z", "알려줘"
-- NO code generation intent
+**3. Does this require MULTI-STEP WORKFLOW?**
+   - Is there code to write, test, review?
+   - Are there multiple components to build?
+   - Would this need planning, implementation, and validation?
 
-**3. CODING_TASK** (Workflow needed)
-- Code creation: "create", "implement", "build", "만들어", "구현해"
-- Code review: "review this code", "코드 리뷰"
-- Debugging: "fix this bug", "버그 수정"
-- Testing: "write tests", "테스트 작성"
+   OR
 
-**4. COMPLEX_TASK** (Workflow needed)
-- Multiple steps required
-- Planning/design needed
-- Architecture decisions
-- System design
+   - Can I answer this directly in a few sentences?
+   - Is this a simple explanation or conversation?
 
-## STEP 2: RESPONSE DECISION
+**4. Context Clues:**
+   - Action verbs like "create", "build", "implement", "fix" → likely needs workflow
+   - Question words like "what", "how", "why", "explain" → likely just needs explanation
+   - Greetings, thanks, casual remarks → conversation, no workflow
+   - Technical deliverables mentioned (API, server, app, function) → likely needs workflow
+</think>
 
-Based on intent classification:
+## DECISION FRAMEWORK
 
-- If **SIMPLE_CONVERSATION** or **SIMPLE_QUESTION**:
-  * Set `requires_workflow: false`
-  * Set `direct_response` with your answer
-  * NO workflow needed!
+Based on your reasoning, classify the intent:
 
-- If **CODING_TASK** or **COMPLEX_TASK**:
-  * Set `requires_workflow: true`
-  * Analyze complexity and create workflow plan
-  * Fill in all workflow details
+- **SIMPLE_CONVERSATION**: Social interaction, greetings, thanks, casual chat
+  → Set `requires_workflow: false`, provide friendly response
+
+- **SIMPLE_QUESTION**: Information request, explanation, definition
+  → Set `requires_workflow: false`, provide informative answer
+
+- **CODING_TASK**: Code creation, review, debugging, testing
+  → Set `requires_workflow: true`, analyze complexity
+
+- **COMPLEX_TASK**: Multi-step implementation, architecture, system design
+  → Set `requires_workflow: true`, plan detailed workflow
+
+## WORKFLOW ANALYSIS (only if requires_workflow: true)
+
+If workflow is needed, analyze:
+1. **Complexity**: simple, moderate, complex, critical
+2. **Task type**: implementation, review, testing, security_audit, general
+3. **Required agents**: planning, implementation, review, security, testing, refinement, root_cause_analysis
+4. **Strategy**: linear, parallel_gates, adaptive_loop, staged_approval
+5. **Iterations**: Maximum iterations needed
+6. **Human approval**: Whether critical enough to need human review
+
+AVAILABLE STRATEGIES:
+- linear: Sequential execution for simple tasks
+- parallel_gates: Parallel quality gates for moderate tasks
+- adaptive_loop: Dynamic refinement for complex tasks
+- staged_approval: Human approval gates for critical tasks
 
 ## OUTPUT FORMAT
 
-Provide your analysis in JSON format AFTER your thinking:
+After your <think> reasoning, provide your analysis in JSON format:
 
 ```json
 {{
     "intent": "simple_conversation|simple_question|coding_task|complex_task",
     "requires_workflow": true|false,
-    "direct_response": "Your direct answer here (if requires_workflow=false)",
+    "direct_response": "Your answer (if requires_workflow=false)",
     "complexity": "simple|moderate|complex|critical",
     "task_type": "implementation|review|testing|security_audit|general|conversation|question",
     "required_agents": ["agent1", "agent2"],
@@ -178,53 +199,77 @@ Provide your analysis in JSON format AFTER your thinking:
 }}
 ```
 
-## EXAMPLES
+## BOUNDARY CASE EXAMPLES
 
-**Example 1: Simple Greeting**
-User: "안녕하세요"
-Response:
-```json
-{{
-    "intent": "simple_conversation",
-    "requires_workflow": false,
-    "direct_response": "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다.",
-    "task_type": "conversation",
-    "confidence_score": 1.0
-}}
-```
+**Example 1: Ambiguous - Technical Question vs Code Request**
+User: "How do I create a REST API in Flask?"
 
-**Example 2: Simple Question**
-User: "What is Python?"
-Response:
+<think>
+User asks "how do I" - this is seeking knowledge/guidance, not requesting me to build it.
+No explicit "create it for me" or "build me" command.
+They want to learn the process, not get working code.
+Intent: simple_question
+</think>
+
 ```json
 {{
     "intent": "simple_question",
     "requires_workflow": false,
-    "direct_response": "Python is a high-level, interpreted programming language known for its simple syntax and readability. It's widely used for web development, data science, automation, and more.",
+    "direct_response": "To create a REST API in Flask: 1) Install Flask, 2) Create routes using @app.route(), 3) Return JSON responses. Would you like me to implement an example for you?",
     "task_type": "question",
-    "confidence_score": 0.95
+    "confidence_score": 0.8
 }}
 ```
 
-**Example 3: Coding Task**
-User: "Create a REST API for user management"
-Response:
+**Example 2: Clear Code Request**
+User: "Create a Flask REST API with user authentication"
+
+<think>
+Direct action verb "Create" + technical deliverable specified.
+User expects working code output, not just explanation.
+This requires multi-step workflow: planning, implementation, testing.
+Intent: coding_task
+</think>
+
 ```json
 {{
     "intent": "coding_task",
     "requires_workflow": true,
-    "direct_response": null,
     "complexity": "moderate",
     "task_type": "implementation",
-    "required_agents": ["planning", "implementation", "review", "testing"],
+    "required_agents": ["planning", "implementation", "review"],
     "workflow_strategy": "parallel_gates",
     "max_iterations": 5,
     "requires_human_approval": false,
+    "confidence_score": 0.95
+}}
+```
+
+**Example 3: Mixed Intent - Greeting + Question**
+User: "Hi! What's the difference between REST and GraphQL?"
+
+<think>
+Starts with greeting but main intent is information request.
+Focus on primary goal: the technical question.
+No code output expected, just explanation.
+Intent: simple_question (acknowledge greeting in response)
+</think>
+
+```json
+{{
+    "intent": "simple_question",
+    "requires_workflow": false,
+    "direct_response": "Hi! REST uses fixed endpoints for each resource, while GraphQL lets clients request exactly the data they need in a single query. REST: multiple endpoints, GraphQL: single endpoint with flexible queries. Need more details?",
+    "task_type": "question",
     "confidence_score": 0.9
 }}
 ```
 
-Remember: NOT EVERYTHING needs a workflow! Simple conversations and questions should get direct answers.
+## GUIDING PRINCIPLE
+
+**Use your <think> reasoning to deeply understand user intent, not pattern matching.**
+
+When in doubt: If there's no clear expectation of code output or multi-step work, respond directly. Users can always follow up with "please implement this" if they want code.
 """
 
 
