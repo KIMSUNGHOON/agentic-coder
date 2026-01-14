@@ -153,16 +153,41 @@ Use <think></think> tags to reason through your analysis. Consider these questio
 Based on your reasoning, classify the intent:
 
 - **SIMPLE_CONVERSATION**: Social interaction, greetings, thanks, casual chat
-  → Set `requires_workflow: false`, provide friendly response
+  → Set `requires_workflow: false`
+  → Write `direct_response`: A natural, friendly response in the user's language
+  → Example: User says "안녕" → You say "안녕하세요! 무엇을 도와드릴까요?"
 
 - **SIMPLE_QUESTION**: Information request, explanation, definition
-  → Set `requires_workflow: false`, provide informative answer
+  → Set `requires_workflow: false`
+  → Write `direct_response`: A clear, informative answer in the user's language
+  → Example: User asks "What is Python?" → You explain Python directly
 
 - **CODING_TASK**: Code creation, review, debugging, testing
-  → Set `requires_workflow: true`, analyze complexity
+  → Set `requires_workflow: true`
+  → Leave `direct_response` empty or null
+  → Analyze complexity and plan workflow
 
 - **COMPLEX_TASK**: Multi-step implementation, architecture, system design
-  → Set `requires_workflow: true`, plan detailed workflow
+  → Set `requires_workflow: true`
+  → Leave `direct_response` empty or null
+  → Plan detailed workflow
+
+## IMPORTANT: Writing direct_response
+
+When `requires_workflow: false`, you MUST write a complete, natural response that will be shown directly to the user:
+
+✅ GOOD direct_response:
+- "안녕하세요! 무엇을 도와드릴까요? 코드 작성, 리뷰, 디버깅 등 다양한 작업을 도와드릴 수 있습니다."
+- "Python is a high-level programming language known for its simple syntax and readability."
+- "Hi! REST uses fixed endpoints while GraphQL allows flexible queries in a single request."
+
+❌ BAD direct_response:
+- "응답 완료" (Not helpful!)
+- "Korean. Should provide greeting" (This is meta-instruction, not user response!)
+- "" (Empty!)
+- "Respond to user in Korean" (This is instruction to yourself, not the actual response!)
+
+**The direct_response field is what the USER SEES. Write it as if you're speaking directly to them.**
 
 ## WORKFLOW ANALYSIS (only if requires_workflow: true)
 
