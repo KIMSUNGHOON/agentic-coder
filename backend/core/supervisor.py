@@ -1213,23 +1213,66 @@ Strategy: {self._build_workflow_strategy(request)} approach with {len(agents)} a
             if pattern in request_lower:
                 return response
 
-        # Check for "what can you do" type questions
-        capability_patterns = ["what can", "what do you", "help me", "도와", "할 수", "뭐 해"]
-        if any(p in request_lower for p in capability_patterns):
-            return """I'm an AI coding assistant that can help you with:
+        # Check for SPECIFIC capability questions FIRST
+        # Extract the topic being asked about
+        specific_capability_responses = {
+            # Korean patterns
+            ("계획", "작성"): "네, 저는 프로젝트 계획, 개발 계획, 아키텍처 설계 문서 등을 작성할 수 있습니다. 무엇을 도와드릴까요?",
+            ("코드", "리뷰"): "네, 저는 코드 리뷰를 수행할 수 있습니다. 코드를 공유해주시면 품질, 성능, 보안 등을 분석해드리겠습니다.",
+            ("테스트", "작성"): "네, 저는 단위 테스트, 통합 테스트, E2E 테스트 등 다양한 테스트 코드를 작성할 수 있습니다.",
+            ("디버그", ""): "네, 저는 디버깅을 도와드릴 수 있습니다. 오류 메시지나 문제 상황을 알려주시면 원인을 찾고 해결책을 제시해드리겠습니다.",
+            ("리팩토링", ""): "네, 저는 코드 리팩토링을 수행할 수 있습니다. 코드 구조 개선, 가독성 향상, 성능 최적화 등을 도와드릴 수 있습니다.",
+            ("api", "만들"): "네, 저는 REST API, GraphQL API 등 다양한 API를 구현할 수 있습니다. 어떤 API가 필요하신가요?",
+            ("python", ""): "네, 저는 Python을 완벽하게 지원합니다. Python 코드 작성, 리뷰, 디버깅 모두 가능합니다.",
+            ("javascript", ""): "네, 저는 JavaScript와 TypeScript를 지원합니다. 프론트엔드와 백엔드 모두 도와드릴 수 있습니다.",
+            ("docker", ""): "네, 저는 Docker 설정을 도와드릴 수 있습니다. Dockerfile 작성, docker-compose 구성 등을 지원합니다.",
 
-✅ **Code Generation**: Create new code, functions, classes, APIs
-✅ **Code Review**: Analyze and improve existing code
-✅ **Debugging**: Find and fix bugs in your code
-✅ **Testing**: Write unit tests and integration tests
-✅ **Refactoring**: Improve code structure and quality
-✅ **Documentation**: Generate documentation and comments
-✅ **Explanations**: Explain code concepts and best practices
+            # English patterns
+            ("plan", "write"): "Yes, I can write project plans, development roadmaps, and architecture designs. What would you like help with?",
+            ("code", "review"): "Yes, I can review code. Share your code and I'll analyze quality, performance, security, and best practices.",
+            ("test", "write"): "Yes, I can write unit tests, integration tests, and end-to-end tests. What framework are you using?",
+            ("debug", ""): "Yes, I can help debug code. Share the error message or issue, and I'll help identify and fix the problem.",
+            ("refactor", ""): "Yes, I can refactor code to improve structure, readability, and performance. What code needs refactoring?",
+        }
 
-Just describe what you need, and I'll help you implement it!"""
+        # Check if this is a specific capability question
+        capability_question_markers = ["가능", "할 수 있", "지원", "되나요", "can you", "are you able", "do you support", "is it possible"]
+        if any(marker in request_lower for marker in capability_question_markers):
+            # Try to match specific topics
+            for (topic1, topic2), response in specific_capability_responses.items():
+                if topic1 in request_lower and (not topic2 or topic2 in request_lower):
+                    return response
+
+            # Fallback: generic capability response
+            return """네, 저는 다음과 같은 작업을 도와드릴 수 있습니다:
+
+✅ **코드 생성**: 새로운 코드, 함수, 클래스, API 작성
+✅ **코드 리뷰**: 기존 코드 분석 및 개선 제안
+✅ **디버깅**: 버그 찾기 및 수정
+✅ **테스트**: 단위 테스트 및 통합 테스트 작성
+✅ **리팩토링**: 코드 구조 및 품질 개선
+✅ **문서화**: 문서 및 주석 생성
+✅ **설명**: 코드 개념 및 모범 사례 설명
+
+무엇을 도와드릴까요?"""
+
+        # Check for general "what can you do" type questions
+        general_capability_patterns = ["what can", "what do you", "help me", "도와줘", "뭐 해"]
+        if any(p in request_lower for p in general_capability_patterns):
+            return """저는 AI 코딩 어시스턴트입니다. 다음과 같은 작업을 도와드릴 수 있습니다:
+
+✅ **코드 생성**: 새로운 코드, 함수, 클래스, API 작성
+✅ **코드 리뷰**: 기존 코드 분석 및 개선 제안
+✅ **디버깅**: 버그 찾기 및 수정
+✅ **테스트**: 단위 테스트 및 통합 테스트 작성
+✅ **리팩토링**: 코드 구조 및 품질 개선
+✅ **문서화**: 문서 및 주석 생성
+✅ **설명**: 코드 개념 및 모범 사례 설명
+
+무엇이 필요하신가요?"""
 
         # Default Q&A response (for "what is X" type questions)
-        return "I'm here to help! Could you provide more details about what you'd like to know?"
+        return "무엇이 궁금하신가요? 자세히 알려주시면 도와드리겠습니다."
 
     async def adjust_workflow(
         self,

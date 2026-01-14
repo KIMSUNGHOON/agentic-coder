@@ -37,6 +37,8 @@ if __name__ == "__main__":
     debug_case("Can you write plans?")
     debug_case("코드 리뷰 할 수 있어?")
     debug_case("Are you able to debug?")
+    debug_case("계획을 작성 할 수 있어?")  # 사용자 지적 케이스
+    debug_case("Python으로 API 만들 수 있어?")  # 추가 테스트
 
     # Test actual requests (SHOULD create workflow)
     debug_case("계획을 작성해줘")
