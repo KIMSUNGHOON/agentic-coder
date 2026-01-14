@@ -126,16 +126,20 @@ class UnifiedAgentManager:
                     async def stream_direct_response():
                         # Start
                         yield StreamUpdate(
-                            type="analysis",
-                            content=f"분석 완료: {analysis.get('intent', 'simple_conversation')}",
-                            metadata={"intent": analysis.get('intent')}
+                            agent="supervisor",
+                            update_type="analysis",
+                            status="completed",
+                            message=f"분석 완료: {analysis.get('intent', 'simple_conversation')}",
+                            data={"intent": analysis.get('intent')}
                         )
 
                         # Content
                         yield StreamUpdate(
-                            type="content",
-                            content=direct_response,
-                            metadata={"handler_bypassed": True}
+                            agent="supervisor",
+                            update_type="content",
+                            status="streaming",
+                            message=direct_response,
+                            data={"handler_bypassed": True}
                         )
 
                         # Save context
@@ -150,9 +154,11 @@ class UnifiedAgentManager:
                         # Complete
                         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
                         yield StreamUpdate(
-                            type="complete",
-                            content="",
-                            metadata={
+                            agent="supervisor",
+                            update_type="complete",
+                            status="completed",
+                            message="응답 완료",
+                            data={
                                 "latency_ms": int(elapsed_ms),
                                 "session_id": session_id
                             }
