@@ -36,7 +36,7 @@ User Request
     ↓
 UnifiedAgentManager (Entry Point)
     ↓
-SupervisorAgent (DeepSeek-R1)
+SupervisorAgent (GPT-OSS-120B by default, configurable)
     ├─ Intent Classification (Rule-based + LLM)
     ├─ Task Analysis
     └─ Workflow Strategy Selection
@@ -46,10 +46,10 @@ DynamicWorkflowBuilder (LangGraph)
     └─ Builds StateGraph with selected nodes
     ↓
 LangGraph Execution (Custom Nodes)
-    ├─ coder_node (Qwen2.5-Coder)
-    ├─ reviewer_node (Qwen2.5-Coder)
-    ├─ refiner_node (Qwen2.5-Coder)
-    ├─ rca_analyzer_node (DeepSeek-R1)
+    ├─ coder_node (GPT-OSS-120B)
+    ├─ reviewer_node (GPT-OSS-120B)
+    ├─ refiner_node (GPT-OSS-120B)
+    ├─ rca_analyzer_node (GPT-OSS-120B)
     ├─ security_gate_node
     ├─ qa_gate_node
     ├─ quality_aggregator_node
@@ -59,6 +59,12 @@ Response Aggregation
     ↓
 User Response
 ```
+
+**Note on Model Configuration:**
+- **Default Model:** GPT-OSS-120B (via vLLM backend)
+- **Configurable:** Can use DeepSeek-R1, Qwen2.5-Coder, or other models via environment variables
+- **Model Detection:** `detect_model_type()` auto-detects from model name
+- **Agent Registry Labels:** The "deepseek-r1", "qwen-coder" labels in `agent_registry.py` are logical role identifiers, not actual models. All agents use the configured model (GPT-OSS-120B by default).
 
 ### 1.2 Key Components
 
@@ -73,12 +79,17 @@ User Response
 
 **File:** `backend/core/supervisor.py`
 - **Role:** Task analyzer and strategy selector
+- **Model:** GPT-OSS-120B (default), auto-detected via `settings.get_reasoning_model_type`
 - **Responsibilities:**
   - Intent classification (simple_conversation, capability_question, coding_task, etc.)
   - Task complexity analysis
   - Workflow strategy selection
   - Required agents determination
   - Quick Q&A responses
+- **Model-Specific Behavior:**
+  - GPT-OSS: Uses Harmony format without `<think>` tags
+  - DeepSeek-R1: Uses `<think></think>` tags for reasoning (if configured)
+  - Auto-selects appropriate prompts based on model type
 
 **File:** `backend/core/workflow.py` (DynamicWorkflowBuilder)
 - **Role:** LangGraph workflow constructor
@@ -94,7 +105,8 @@ User Response
   - Maps capabilities to agent implementations
   - Resolves dependencies
   - Validates workflow configurations
-  - Tracks which models handle which capabilities
+  - Tracks logical model roles (not actual models)
+- **Important Note:** The `model` field in `AgentInfo` (e.g., "deepseek-r1", "qwen-coder") is a **logical label** for documentation purposes, not the actual model used. All agents use the configured model from `app/core/config.py` (GPT-OSS-120B by default).
 
 ### 1.3 Workflow Strategies
 
@@ -133,13 +145,13 @@ class SupervisorAgent:
 AgentInfo(
     name="coder",
     capability="implementation",
-    model="qwen-coder",
+    model="qwen-coder",  # Logical label, actual model: GPT-OSS-120B
     required_for=["implementation", "general"]
 )
 AgentInfo(
     name="rca_analyzer",
     capability="root_cause_analysis",
-    model="deepseek-r1",
+    model="deepseek-r1",  # Logical label, actual model: GPT-OSS-120B
     required_for=[]
 )
 ```
@@ -148,6 +160,8 @@ AgentInfo(
 > "Each specialized worker agent receives domain-specific tools and tailored prompts."
 
 **Status:** Clear separation of concerns with specialized agents for coding, reviewing, security, testing, etc.
+
+**Note:** The `model` field in the registry is a logical label for documentation/planning purposes. The actual model used is determined by `app/core/config.py` settings (GPT-OSS-120B by default, configurable to DeepSeek-R1, Qwen, etc.).
 
 ---
 
@@ -199,18 +213,20 @@ workflow.add_node("reviewer", reviewer_node)
 @tool
 def code_implementation(request: str, context: dict) -> str:
     """Generate code implementation based on requirements."""
-    coder = QwenCoderAgent()
+    # Uses configured model (GPT-OSS-120B by default)
+    coder = CoderAgent()
     return coder.implement(request, context)
 
 @tool
 def code_review(code: str, requirements: str) -> str:
     """Review code for quality and correctness."""
-    reviewer = QwenReviewerAgent()
+    # Uses configured model (GPT-OSS-120B by default)
+    reviewer = ReviewerAgent()
     return reviewer.review(code, requirements)
 
 # Supervisor uses tool-calling:
 supervisor_agent = create_react_agent(
-    model=deepseek_r1,
+    model=settings.get_reasoning_model,  # GPT-OSS-120B by default
     tools=[code_implementation, code_review, security_scan, run_tests]
 )
 ```
