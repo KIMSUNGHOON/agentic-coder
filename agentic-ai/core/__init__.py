@@ -30,6 +30,15 @@ from core.state import (
     increment_iteration,
     validate_state,
 )
+from core.optimization import (
+    LRUCache,
+    LLMResponseCache,
+    StateOptimizer,
+    PerformanceMonitor,
+    get_llm_cache,
+    get_state_optimizer,
+    get_performance_monitor,
+)
 
 __all__ = [
     # LLM Client
@@ -60,4 +69,12 @@ __all__ = [
     "add_error",
     "increment_iteration",
     "validate_state",
+    # Optimization
+    "LRUCache",
+    "LLMResponseCache",
+    "StateOptimizer",
+    "PerformanceMonitor",
+    "get_llm_cache",
+    "get_state_optimizer",
+    "get_performance_monitor",
 ]

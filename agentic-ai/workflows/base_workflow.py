@@ -26,6 +26,7 @@ from core.state import (
 )
 from core.llm_client import DualEndpointLLMClient
 from core.tool_safety import ToolSafetyManager
+from core.optimization import get_llm_cache, get_state_optimizer, get_performance_monitor
 from tools import FileSystemTools, GitTools, ProcessTools, SearchTools
 
 logger = logging.getLogger(__name__)
@@ -245,32 +246,54 @@ class BaseWorkflow:
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int = 2000,
+        use_cache: bool = True,
     ) -> str:
-        """Call LLM with messages
+        """Call LLM with messages (with caching)
 
         Args:
             messages: List of message dicts with 'role' and 'content'
             temperature: Sampling temperature (default: 0.7)
             max_tokens: Maximum tokens (default: 2000)
+            use_cache: Use LLM response cache (default: True)
 
         Returns:
             LLM response content
         """
         try:
-            response = await self.llm_client.chat_completion(
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            # Get cache
+            cache = get_llm_cache()
 
-            return response.choices[0].message.content
+            # Define LLM function
+            async def _call():
+                monitor = get_performance_monitor()
+                monitor.increment("llm_calls")
+
+                response = await self.llm_client.chat_completion(
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content
+
+            # Use cache if enabled
+            if use_cache and temperature < 0.5:  # Only cache deterministic calls
+                response = await cache.get_or_call(
+                    messages,
+                    _call,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            else:
+                response = await _call()
+
+            return response
 
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             raise
 
     async def run(self, state: AgenticState) -> WorkflowResult:
-        """Run workflow with given state
+        """Run workflow with given state (optimized)
 
         Args:
             state: Initial workflow state
@@ -281,10 +304,18 @@ class BaseWorkflow:
         try:
             logger.info(f"🚀 Starting workflow: {state['task_description'][:100]}")
 
+            # Get optimizer and monitor
+            optimizer = get_state_optimizer()
+            monitor = get_performance_monitor()
+
             start_time = datetime.now()
 
-            # Run graph
-            final_state = await self.graph.ainvoke(state)
+            # Run graph with monitoring
+            with monitor.measure("workflow_execution"):
+                final_state = await self.graph.ainvoke(state)
+
+            # Optimize final state
+            final_state = optimizer.optimize(final_state)
 
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -298,6 +329,10 @@ class BaseWorkflow:
             logger.info(
                 f"✅ Workflow completed: {iterations} iterations, {duration:.2f}s"
             )
+
+            # Record metrics
+            monitor.record("workflow_duration", duration)
+            monitor.record("workflow_iterations", iterations)
 
             return WorkflowResult(
                 success=success,
