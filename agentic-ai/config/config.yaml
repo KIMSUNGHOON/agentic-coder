@@ -1,0 +1,167 @@
+# Agentic 2.0 Configuration
+
+# Operating mode
+mode: on-premise  # Do not change - ensures no external API calls
+
+# LLM Configuration
+llm:
+  model_name: gpt-oss-120b
+
+  # Dual endpoints for failover
+  endpoints:
+    - url: http://localhost:8001/v1
+      name: primary
+      timeout: 120
+
+    - url: http://localhost:8002/v1
+      name: secondary
+      timeout: 120
+
+  # Health check configuration
+  health_check:
+    enabled: true
+    interval_seconds: 30
+    endpoint: /health  # Optional: specific health check endpoint
+
+  # Retry configuration
+  retry:
+    max_attempts: 4
+    backoff_base: 2  # Exponential backoff: 2^attempt seconds (2s, 4s, 8s, 16s)
+    timeout_seconds: 120
+
+  # LLM parameters
+  parameters:
+    temperature: 0.7
+    top_p: 0.95
+    max_tokens: 4096
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
+
+# Workflow configuration
+workflows:
+  max_iterations: 3  # Maximum refinement iterations
+  timeout_seconds: 600  # 10 minutes max per workflow
+
+  # Sub-agent spawning
+  sub_agents:
+    enabled: true
+    complexity_threshold: 0.7  # Spawn sub-agent if complexity > 0.7
+    max_concurrent: 3  # Max parallel sub-agents
+
+# Tool configuration
+tools:
+  # Safety controls
+  safety:
+    enabled: true
+
+    # Commands allowed to execute
+    command_allowlist:
+      - python
+      - python3
+      - pytest
+      - pip
+      - git
+      - ls
+      - cat
+      - grep
+      - find
+      - mkdir
+      - cp
+      - mv
+      - rm  # Only allowed with specific files, not directories
+
+    # Dangerous commands blocked
+    command_denylist:
+      - rm -rf /
+      - rm -rf /*
+      - dd if=
+      - mkfs
+      - fdisk
+      - :(){ :|:& };:  # Fork bomb
+      - curl | bash
+      - wget | sh
+
+    # Files that cannot be modified
+    protected_files:
+      - .env
+      - .env.local
+      - .env.production
+      - secrets.yaml
+      - secrets.yml
+      - credentials.json
+      - config/production.yaml
+      - /etc/passwd
+      - /etc/shadow
+
+    # Dangerous file patterns
+    protected_patterns:
+      - "**/.env*"
+      - "**/secrets.*"
+      - "**/credentials.*"
+      - "**/private_key*"
+      - "**/*.pem"
+
+  # Network access
+  network:
+    enabled: false  # Disable by default for air-gapped environments
+    allowed_domains: []  # Whitelist domains if network enabled
+
+# Persistence configuration
+persistence:
+  backend: sqlite  # Options: sqlite, postgresql
+  database_url: sqlite:///./agentic.db
+  # For PostgreSQL: postgresql://user:pass@localhost:5432/agentic
+
+  # Checkpointing
+  checkpoint:
+    enabled: true
+    save_interval: 60  # Save state every 60 seconds
+
+  # Thread management
+  thread:
+    max_age_hours: 24  # Clean up threads older than 24 hours
+    max_count: 1000  # Keep max 1000 threads
+
+# Logging configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: jsonl  # Options: jsonl, text
+  file: logs/agentic.log
+  rotation: daily  # Options: daily, weekly, size
+  max_size_mb: 100  # If rotation=size
+
+  # What to log
+  log_agent_decisions: true
+  log_tool_calls: true
+  log_llm_requests: true
+  log_state_changes: true
+
+# Workspace configuration
+workspace:
+  default_path: ~/workspace
+  isolation: true  # Create isolated workspace per session
+  cleanup: false  # Don't auto-delete workspace after completion
+
+  # Git integration
+  git:
+    auto_init: false  # Don't auto-initialize git repos
+    safe_operations_only: true  # Block destructive git commands
+
+# Performance tuning
+performance:
+  parallel_tool_calls: true  # Allow parallel tool execution
+  max_parallel_tools: 3
+  tool_timeout_seconds: 300  # 5 minutes per tool
+
+  # Caching
+  cache:
+    enabled: true
+    ttl_seconds: 3600  # 1 hour
+    max_size_mb: 500
+
+# Development settings (disable in production)
+development:
+  debug_mode: false
+  mock_llm: false  # Use mock LLM for testing
+  save_prompts: true  # Save all prompts to file for debugging
+  prompt_dir: logs/prompts
