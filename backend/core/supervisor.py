@@ -351,6 +351,11 @@ class SupervisorAgent:
         self.use_api = use_api
         self._thinking_pattern = re.compile(r'<think>(.*?)</think>', re.DOTALL)
         self._json_pattern = re.compile(r'```json\s*(.*?)\s*```', re.DOTALL)
+
+        # Load few-shot examples for intent classification
+        self.few_shot_examples = self._load_few_shot_examples()
+        logger.info(f"📚 Loaded {sum(len(v) for v in self.few_shot_examples.values())} few-shot examples")
+
         logger.info(f"✅ Supervisor Agent initialized (API mode: {use_api}, model: {self.model_type})")
 
     def _strip_think_tags(self, text: str) -> str:
@@ -650,7 +655,7 @@ class SupervisorAgent:
         request: str,
         thinking_blocks: Optional[List[str]] = None
     ) -> Dict:
-        """Rule-based analysis fallback
+        """Rule-based analysis with few-shot assistance
 
         Args:
             request: User request
@@ -659,6 +664,14 @@ class SupervisorAgent:
         Returns:
             Analysis dict
         """
+        # Select relevant few-shot examples to guide classification
+        relevant_examples = self._select_relevant_examples(request, k=3)
+
+        if relevant_examples:
+            logger.info(f"📚 Using {len(relevant_examples)} few-shot examples for classification")
+            for inp, intent in relevant_examples:
+                logger.debug(f"   Example: \"{inp[:50]}...\" → {intent}")
+
         response_type = self._determine_response_type(request)
 
         # NEW: Determine intent and workflow requirement using rule-based logic
@@ -1931,6 +1944,161 @@ For each task, select the right tools and use them effectively."""
             return corrected
 
         return tool_name
+
+    # ==================== Few-Shot Learning Methods ====================
+
+    def _load_few_shot_examples(self) -> Dict[str, List[Dict]]:
+        """Load few-shot examples from JSON file
+
+        Returns:
+            Dict mapping intent to list of examples
+        """
+        examples_file = BACKEND_ROOT / "data" / "few_shot_examples.json"
+
+        if not examples_file.exists():
+            logger.warning(f"⚠️ Few-shot examples file not found: {examples_file}")
+            return {}
+
+        try:
+            with open(examples_file, 'r', encoding='utf-8') as f:
+                examples = json.load(f)
+
+            # Validate structure
+            for intent, items in examples.items():
+                if not isinstance(items, list):
+                    logger.warning(f"⚠️ Invalid format for intent '{intent}': expected list")
+                    continue
+
+            return examples
+
+        except Exception as e:
+            logger.error(f"❌ Failed to load few-shot examples: {e}")
+            return {}
+
+    def _select_relevant_examples(
+        self,
+        request: str,
+        k: int = 3
+    ) -> List[Tuple[str, str]]:
+        """Select k most relevant examples for the request
+
+        Uses simple keyword matching to find similar examples.
+        In future, could use embedding-based similarity.
+
+        Args:
+            request: User request
+            k: Number of examples to return
+
+        Returns:
+            List of (example_input, expected_intent) tuples
+        """
+        request_lower = request.lower()
+
+        # Determine which category is most relevant using heuristics
+        selected_examples = []
+
+        # Check capability question first (highest priority)
+        if self._is_capability_question(request_lower):
+            category = "capability_question"
+        # Check greeting/conversation
+        elif self._is_greeting(request_lower):
+            category = "simple_conversation"
+        # Check if it has code intent
+        elif self._has_code_intent(request_lower):
+            # Distinguish between coding_task and complex_task
+            if self._is_complex_task(request_lower):
+                category = "complex_task"
+            else:
+                category = "coding_task"
+        # Default to simple_question
+        else:
+            category = "simple_question"
+
+        # Get examples from selected category
+        if category in self.few_shot_examples:
+            examples = self.few_shot_examples[category][:k]
+            selected_examples = [
+                (ex['input'], ex['intent'])
+                for ex in examples
+            ]
+
+        # If not enough examples, add from other categories
+        if len(selected_examples) < k:
+            for other_category, examples in self.few_shot_examples.items():
+                if other_category == category:
+                    continue
+
+                remaining = k - len(selected_examples)
+                selected_examples.extend([
+                    (ex['input'], ex['intent'])
+                    for ex in examples[:remaining]
+                ])
+
+                if len(selected_examples) >= k:
+                    break
+
+        return selected_examples[:k]
+
+    def _is_capability_question(self, request_lower: str) -> bool:
+        """Check if request is asking about capabilities"""
+        capability_patterns = [
+            "가능합니까", "가능해", "가능한가", "할 수 있어", "할 수 있나", "할 수 있니",
+            "지원하나", "지원해", "되나요", "되는지",
+            "can you", "are you able", "do you support", "is it possible",
+            "are you capable", "do you have the ability",
+        ]
+        return any(pattern in request_lower for pattern in capability_patterns)
+
+    def _is_greeting(self, request_lower: str) -> bool:
+        """Check if request is a greeting"""
+        greeting_patterns = [
+            "안녕", "반갑", "감사", "고마워", "알겠",
+            "hello", "hi", "hey", "thanks", "thank you", "okay", "ok"
+        ]
+        return any(pattern in request_lower for pattern in greeting_patterns)
+
+    def _is_complex_task(self, request_lower: str) -> bool:
+        """Check if request is a complex/large-scale task"""
+        complex_indicators = [
+            "전체", "시스템", "플랫폼", "아키텍처", "설계", "계획",
+            "complete", "entire", "system", "platform", "architecture", "design", "plan"
+        ]
+        return any(indicator in request_lower for indicator in complex_indicators)
+
+    def _build_few_shot_prompt(
+        self,
+        request: str,
+        examples: List[Tuple[str, str]]
+    ) -> str:
+        """Build prompt with few-shot examples
+
+        Args:
+            request: User request to classify
+            examples: List of (input, intent) example tuples
+
+        Returns:
+            Formatted prompt string
+        """
+        if not examples:
+            return ""
+
+        # Format examples
+        examples_text = "\n\n".join([
+            f"Input: \"{inp}\"\nIntent: {intent}"
+            for inp, intent in examples
+        ])
+
+        few_shot_section = f"""
+## SIMILAR EXAMPLES
+
+Here are some similar examples to help you classify:
+
+{examples_text}
+
+Now classify the current request using the same reasoning:
+"""
+
+        return few_shot_section
 
 
 # Global supervisor instance (with API mode enabled by default)
