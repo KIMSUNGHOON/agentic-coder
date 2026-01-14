@@ -67,7 +67,7 @@ class ToolSafetyManager:
     DANGEROUS_PATTERNS = [
         r'\brm\s+-rf\s+/',  # rm -rf /
         r'\bdd\s+if=',  # dd if=... (disk operations)
-        r':\(\)\{.*?\}:',  # Fork bombs
+        r':\(\)\s*\{',  # Fork bombs: :(){ ... }
         r'\bmkfs\.',  # Format filesystem
         r'\b(?:sudo\s+)?chmod\s+777',  # Overly permissive permissions
         r'>\s*/dev/sd[a-z]',  # Write to block device
@@ -154,7 +154,7 @@ class ToolSafetyManager:
         # Extract base command (first token)
         base_command = command.strip().split()[0] if command.strip() else ""
 
-        # Check against denylist
+        # Check against denylist FIRST (highest priority)
         for denied in self.command_denylist:
             if denied.lower() in command.lower():
                 violation = SafetyViolation(
@@ -166,7 +166,31 @@ class ToolSafetyManager:
                 self._record_violation(violation)
                 return violation
 
-        # Check against allowlist (if configured)
+        # Check for dangerous patterns SECOND (before allowlist)
+        for regex in self.dangerous_regexes:
+            if regex.search(command):
+                violation = SafetyViolation(
+                    violation_type=ViolationType.SUSPICIOUS_OPERATION,
+                    message=f"Command contains dangerous pattern",
+                    details=f"Command: {command}",
+                    suggested_action="Review command for potential destructive operations",
+                )
+                self._record_violation(violation)
+                return violation
+
+        # Check for suspicious paths THIRD (before allowlist)
+        for suspicious_path in self.SUSPICIOUS_PATHS:
+            if suspicious_path.lower() in command.lower():
+                violation = SafetyViolation(
+                    violation_type=ViolationType.SUSPICIOUS_OPERATION,
+                    message=f"Command accesses suspicious system path: {suspicious_path}",
+                    details=f"Command: {command}",
+                    suggested_action="Avoid modifying critical system directories",
+                )
+                self._record_violation(violation)
+                return violation
+
+        # Check against allowlist LAST (only if no dangerous patterns found)
         if self.command_allowlist:
             allowed = any(
                 base_command.lower().startswith(allowed_cmd.lower())
@@ -179,30 +203,6 @@ class ToolSafetyManager:
                     message=f"Command '{base_command}' is not in allowlist",
                     details=f"Allowed commands: {', '.join(sorted(self.command_allowlist))}",
                     suggested_action="Use an allowed command or add to allowlist",
-                )
-                self._record_violation(violation)
-                return violation
-
-        # Check for dangerous patterns
-        for regex in self.dangerous_regexes:
-            if regex.search(command):
-                violation = SafetyViolation(
-                    violation_type=ViolationType.SUSPICIOUS_OPERATION,
-                    message=f"Command contains dangerous pattern",
-                    details=f"Command: {command}",
-                    suggested_action="Review command for potential destructive operations",
-                )
-                self._record_violation(violation)
-                return violation
-
-        # Check for suspicious paths
-        for suspicious_path in self.SUSPICIOUS_PATHS:
-            if suspicious_path.lower() in command.lower():
-                violation = SafetyViolation(
-                    violation_type=ViolationType.SUSPICIOUS_OPERATION,
-                    message=f"Command accesses suspicious system path: {suspicious_path}",
-                    details=f"Command: {command}",
-                    suggested_action="Avoid modifying critical system directories",
                 )
                 self._record_violation(violation)
                 return violation
@@ -229,39 +229,50 @@ class ToolSafetyManager:
 
         self.total_checks += 1
 
-        # Normalize path
+        # Normalize path (expand ~ and resolve)
+        # Detect Windows paths (e.g., C:\, D:\) to handle cross-platform checks
+        is_windows_path = re.match(r'^[a-zA-Z]:\\', file_path) is not None
+
         try:
-            normalized_path = str(Path(file_path).resolve())
+            if is_windows_path:
+                # For Windows paths, use as-is for comparison (cross-platform testing)
+                normalized_path = file_path.replace('\\', '/')  # Normalize slashes
+            else:
+                # First expand ~ to home directory
+                expanded_path = os.path.expanduser(file_path)
+                # Then resolve to absolute path
+                normalized_path = str(Path(expanded_path).resolve())
         except Exception as e:
             logger.warning(f"Could not normalize path: {file_path} - {e}")
-            normalized_path = file_path
+            # Fallback to simple expansion
+            normalized_path = os.path.expanduser(file_path)
 
         # Check for path traversal
-        if ".." in file_path or "~" in file_path:
-            # Allow ~ for home directory, but check if it resolves safely
-            if "~" in file_path:
-                try:
-                    expanded = os.path.expanduser(file_path)
-                    if ".." in expanded:
-                        violation = SafetyViolation(
-                            violation_type=ViolationType.PATH_TRAVERSAL,
-                            message="Path contains traversal after expansion",
-                            details=f"Original: {file_path}, Expanded: {expanded}",
-                            suggested_action="Use absolute paths",
-                        )
-                        self._record_violation(violation)
-                        return violation
-                except Exception:
-                    pass
+        if ".." in file_path:
+            # Check if path still contains .. after resolution
+            if ".." in normalized_path:
+                violation = SafetyViolation(
+                    violation_type=ViolationType.PATH_TRAVERSAL,
+                    message="Path contains traversal after expansion",
+                    details=f"Original: {file_path}, Expanded: {normalized_path}",
+                    suggested_action="Use absolute paths",
+                )
+                self._record_violation(violation)
+                return violation
 
         # Check protected files
         for protected in self.protected_files:
-            # Expand ~ in protected path
-            protected_expanded = os.path.expanduser(protected)
+            # Expand ~ in protected path and resolve
+            try:
+                protected_expanded = os.path.expanduser(protected)
+                protected_resolved = str(Path(protected_expanded).resolve())
+            except Exception:
+                protected_resolved = os.path.expanduser(protected)
 
+            # Check if accessing protected path or subdirectory
             if (
-                normalized_path == protected_expanded
-                or normalized_path.startswith(protected_expanded + os.sep)
+                normalized_path == protected_resolved
+                or normalized_path.startswith(protected_resolved + os.sep)
             ):
                 violation = SafetyViolation(
                     violation_type=ViolationType.PROTECTED_FILE,
@@ -288,7 +299,11 @@ class ToolSafetyManager:
 
         # Check for suspicious system paths
         for suspicious_path in self.SUSPICIOUS_PATHS:
-            if normalized_path.lower().startswith(suspicious_path.lower()):
+            # Normalize slashes for comparison (handle Windows paths)
+            suspicious_normalized = suspicious_path.replace('\\', '/')
+            normalized_for_compare = normalized_path.replace('\\', '/')
+
+            if normalized_for_compare.lower().startswith(suspicious_normalized.lower()):
                 violation = SafetyViolation(
                     violation_type=ViolationType.SUSPICIOUS_OPERATION,
                     message=f"Access to critical system path: {suspicious_path}",

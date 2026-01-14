@@ -6,7 +6,8 @@ Tests multi-domain classification accuracy across various prompts.
 import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
-from openai.types.chat import ChatCompletion, ChatCompletionMessage, Choice
+from openai.types.chat.chat_completion import ChatCompletion, Choice
+from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.completion_usage import CompletionUsage
 
 from core.router import IntentRouter, WorkflowDomain, IntentClassification, classify_intent
