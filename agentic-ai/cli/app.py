@@ -203,6 +203,7 @@ class AgenticApp(App):
             message: User input message
         """
         import uuid
+        import time
         from .backend_bridge import get_bridge, ProgressUpdate
 
         # Get UI components
@@ -222,6 +223,13 @@ class AgenticApp(App):
         # Update status (use 'healthy' not 'working')
         status.update_status("Processing...", "healthy")
         progress.start_task("Analyzing task...")
+
+        # Track file operations for summary
+        files_created = []
+        files_modified = []
+        files_deleted = []
+        files_seen = set()  # Track which files we've seen in this session
+        start_time = time.time()
 
         try:
             # Get backend bridge
@@ -293,21 +301,49 @@ class AgenticApp(App):
                     chat.add_status(f"🔧 Tool [{iteration}]: {tool}{param_str} {status_icon}")
                     log.add_log("info", f"Tool: {tool} - {'Success' if success else 'Failed'}")
 
-                    # Show file content for WRITE_FILE
+                    # Show file content for WRITE_FILE using new method
                     if tool == "WRITE_FILE" and success:
                         file_path = params.get('file_path', '')
                         content = params.get('content', '')
-                        if content:
-                            # Show content preview in chat
-                            preview_lines = content.split('\n')[:10]  # First 10 lines
-                            preview = '\n'.join(preview_lines)
-                            if len(content.split('\n')) > 10:
-                                preview += "\n..."
+                        if content and file_path:
+                            # Determine if file is new or modified
+                            # If we've seen this file before in this task, it's MODIFIED
+                            # Otherwise check if it existed before
+                            from pathlib import Path
+                            if file_path in files_seen:
+                                status_type = "MODIFIED"
+                            else:
+                                # For a better check, see if file existed before task started
+                                # Since we're writing it now, check the result metadata if available
+                                status_type = "NEW"  # Default to NEW for first write
+                                files_seen.add(file_path)
 
-                            chat.add_status(f"   📄 Created: {file_path}")
-                            chat.add_status(f"   📝 Content ({len(content)} chars):")
-                            # Show actual code content
-                            chat.add_message_smart("assistant", f"```python\n{preview}\n```")
+                            # Track file operation (avoid duplicates)
+                            if status_type == "NEW" and file_path not in files_created:
+                                files_created.append(file_path)
+                            elif status_type == "MODIFIED" and file_path not in files_modified:
+                                files_modified.append(file_path)
+
+                            # Display with new method (full content with line numbers)
+                            chat.add_file_content(
+                                file_path=file_path,
+                                content=content,
+                                status=status_type,
+                                display_mode="full",  # Show full content
+                            )
+
+                    # Show file content for READ_FILE using new method
+                    elif tool == "READ_FILE" and success:
+                        file_path = params.get('file_path', '')
+                        content = result.get("output", "")
+                        if content and file_path:
+                            # Show preview (first 20 lines) for READ_FILE
+                            chat.add_file_content(
+                                file_path=file_path,
+                                content=content,
+                                status="MODIFIED",  # Existing file
+                                display_mode="preview",  # Preview mode
+                            )
 
                     # Show detailed error if failed
                     if not success:
@@ -331,14 +367,32 @@ class AgenticApp(App):
 
                 elif update.type == "result":
                     # Display final result
+                    duration = time.time() - start_time
+                    iterations = update.data.get('iterations', 0)
+                    metadata = update.data.get('metadata', {})
+                    tool_calls_list = metadata.get('tool_calls', [])
+
                     if update.data["success"]:
                         output = update.data.get("output", "")
-                        # ✅ NEW: Use smart formatting (auto-detects markdown/code)
-                        chat.add_message_smart("assistant", str(output))
+
+                        # Show output if present
+                        if output and str(output).strip():
+                            chat.add_message_smart("assistant", str(output))
+
+                        # Show task summary with file operations
+                        chat.add_task_summary(
+                            duration=duration,
+                            files_created=files_created,
+                            files_modified=files_modified,
+                            files_deleted=files_deleted,
+                            tool_calls=len(tool_calls_list),
+                            iterations=iterations,
+                        )
+
                         progress.complete_task("✅ Task completed")
                         log.add_log(
                             "info",
-                            f"Task completed in {update.data.get('iterations', 0)} iterations"
+                            f"Task completed in {iterations} iterations ({duration:.1f}s)"
                         )
                     else:
                         error = update.data.get("error", "Unknown error")
