@@ -666,15 +666,30 @@ Example: 0.75
             ):
                 # LangGraph yields events as: {node_name: state_update}
                 for node_name, node_state in event.items():
-                    # Yield node event
+                    # Get node execution details
+                    iteration = node_state.get("iteration", 0)
+                    max_iter = node_state.get("max_iterations", state.get("max_iterations", 10))
+                    status = node_state.get("task_status", "in_progress")
+                    should_continue = node_state.get("should_continue", True)
+
+                    # Yield node event with detailed information
                     yield {
                         "type": "node_executed",
                         "data": {
                             "node": node_name,
-                            "iteration": node_state.get("iteration", 0),
-                            "status": node_state.get("task_status", "in_progress")
+                            "iteration": iteration,
+                            "max_iterations": max_iter,
+                            "status": status,
+                            "should_continue": should_continue,
+                            "task_description": node_state.get("task_description", "")[:100]
                         }
                     }
+
+                    # Log detailed debugging information
+                    logger.debug(
+                        f"Node: {node_name} | Iteration: {iteration}/{max_iter} | "
+                        f"Status: {status} | Continue: {should_continue}"
+                    )
 
                     # Track final state
                     final_state = node_state

@@ -262,20 +262,50 @@ class BackendBridge:
                 elif event_type == "node_executed":
                     node = event["data"].get("node", "unknown")
                     iteration = event["data"].get("iteration", 0)
+                    max_iter = event["data"].get("max_iterations", "?")
                     status = event["data"].get("status", "in_progress")
+                    should_continue = event["data"].get("should_continue", True)
 
-                    # Show node execution in real-time
+                    # Node descriptions for user clarity (Korean + English)
+                    node_descriptions = {
+                        "plan": "계획 수립 중 (Planning task execution strategy)",
+                        "check_complexity": "복잡도 분석 중 (Analyzing task complexity)",
+                        "spawn_sub_agents": "서브 에이전트 실행 중 (Spawning parallel sub-agents)",
+                        "execute": "작업 실행 중 (Executing tools and operations)",
+                        "reflect": "결과 검토 및 다음 단계 결정 중 (Reviewing results and deciding next steps)",
+                    }
+
+                    node_desc = node_descriptions.get(node, f"Processing {node}")
+
+                    # Show node execution in real-time with clear description
+                    progress_msg = f"{node_desc} [Iteration {iteration}/{max_iter}]"
+
+                    # Add continuation status for reflect node (helps debug infinite loops)
+                    if node == "reflect":
+                        continue_status = "will continue" if should_continue else "will complete"
+                        progress_msg += f" → {continue_status}"
+
                     yield ProgressUpdate(
                         type="status",
-                        message=f"Executing: {node} (iteration {iteration})",
-                        data={"node": node, "iteration": iteration, "status": status}
+                        message=progress_msg,
+                        data={
+                            "node": node,
+                            "iteration": iteration,
+                            "max_iterations": max_iter,
+                            "status": status,
+                            "should_continue": should_continue
+                        }
                     )
 
-                    # Log node execution
+                    # Log node execution with explanation and debug info
+                    log_msg = f"  → {node}: {node_desc} [iteration {iteration}/{max_iter}]"
+                    if node == "reflect":
+                        log_msg += f" (should_continue={should_continue})"
+
                     yield ProgressUpdate(
                         type="log",
-                        message=f"  → {node} [iteration {iteration}]",
-                        data={"level": "debug"}
+                        message=log_msg,
+                        data={"level": "info"}
                     )
 
                 elif event_type == "workflow_complete":

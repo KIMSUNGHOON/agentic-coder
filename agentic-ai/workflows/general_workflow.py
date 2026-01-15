@@ -180,6 +180,7 @@ Respond with ONLY JSON.
             ]
 
             response = await self.call_llm(messages, temperature=0.2)
+            logger.debug(f"LLM response: {response[:200]}...")
 
             # Parse and execute
             try:
@@ -189,7 +190,22 @@ Respond with ONLY JSON.
                     json_str = response.strip()
 
                 action = json.loads(json_str)
+                action_name = action.get("action", "UNKNOWN")
+
+                # Log what action we're executing
+                logger.info(f"🔧 Executing action: {action_name}")
+                if action_name == "COMPLETE":
+                    logger.info(f"✅ Task completion requested: {action.get('summary', 'N/A')[:100]}")
+                else:
+                    logger.debug(f"   Action details: {json.dumps(action, indent=2)[:200]}")
+
                 action_result = await self._execute_action(action, state)
+
+                # Log action result
+                if action_result.get("success"):
+                    logger.info(f"✅ Action {action_name} succeeded")
+                else:
+                    logger.warning(f"⚠️  Action {action_name} failed: {action_result.get('error', 'Unknown error')}")
 
                 # Store result
                 if "tool_calls" not in state:
@@ -284,18 +300,22 @@ Respond with ONLY JSON.
         logger.info(f"🤔 Reflecting on general task (iteration {state['iteration']})")
 
         try:
+            # Check if already completed
             if state.get("task_status") == TaskStatus.COMPLETED.value:
+                logger.info("✅ Task is COMPLETED, stopping workflow")
                 state["should_continue"] = False
                 return state
 
+            # Check if max iterations reached
             if state["iteration"] >= state["max_iterations"]:
+                logger.warning(f"⚠️  Max iterations ({state['max_iterations']}) reached!")
                 state["should_continue"] = False
 
                 # Check if we made progress despite hitting max iterations
                 completed_steps = state["context"].get("completed_steps", [])
                 if len(completed_steps) > 0:
                     # We made progress! Report as partial success
-                    logger.warning(f"⚠️  Max iterations reached, but made progress: {len(completed_steps)} steps completed")
+                    logger.warning(f"⚠️  Made progress: {len(completed_steps)} steps completed")
                     state["task_status"] = TaskStatus.COMPLETED.value  # Changed from FAILED
                     state["task_result"] = (
                         f"Task partially completed ({len(completed_steps)} steps). "
@@ -304,7 +324,7 @@ Respond with ONLY JSON.
                     )
                 else:
                     # No progress at all
-                    logger.warning(f"⚠️  Max iterations reached with no progress")
+                    logger.warning(f"⚠️  No progress made in {state['max_iterations']} iterations")
                     state["task_status"] = TaskStatus.FAILED.value
                     state["task_error"] = (
                         f"Max iterations ({state['max_iterations']}) reached without completing the task. "
@@ -313,11 +333,18 @@ Respond with ONLY JSON.
                     )
                 return state
 
-            # Check progress
+            # Check progress and provide detailed feedback
             completed_steps = state["context"].get("completed_steps", [])
-            if len(completed_steps) > 0:
-                logger.info(f"✅ Progress: {len(completed_steps)} steps completed")
+            total_steps = len(state["context"].get("plan", {}).get("steps", []))
 
+            if len(completed_steps) > 0:
+                logger.info(f"✅ Progress: {len(completed_steps)}/{total_steps} steps completed")
+                logger.debug(f"   Completed steps: {completed_steps}")
+            else:
+                logger.info(f"⏳ Working on task... (0/{total_steps} steps completed)")
+
+            # Continue to next iteration
+            logger.info(f"🔄 Continuing to next iteration (current: {state['iteration']}/{state['max_iterations']})")
             state["should_continue"] = True
             return state
 

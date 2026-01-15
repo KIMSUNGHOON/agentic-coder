@@ -41,7 +41,7 @@ llm:
 workflows:
   max_iterations: 50  # Maximum refinement iterations (increased 3→10→30→50 for complex tasks)
   timeout_seconds: 1200  # 20 minutes max per workflow (increased for large tasks)
-  recursion_limit: 100  # LangGraph recursion limit (default: 25, increased for complex workflows)
+  recursion_limit: 300  # LangGraph recursion limit (50 iterations × 5-6 nodes/iteration = 300, was: 100)
 
   # Sub-agent spawning
   sub_agents:
