@@ -45,6 +45,7 @@ class WorkflowOrchestrator:
         workspace: Optional[str] = None,
         max_iterations: int = 10,
         recursion_limit: int = 100,
+        sub_agent_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize WorkflowOrchestrator
 
@@ -54,12 +55,14 @@ class WorkflowOrchestrator:
             workspace: Default working directory (optional)
             max_iterations: Default max iterations per workflow (default: 10)
             recursion_limit: LangGraph recursion limit (default: 100)
+            sub_agent_config: Sub-agent configuration (Phase 5, optional)
         """
         self.llm_client = llm_client
         self.safety = safety_manager
         self.workspace = workspace
         self.max_iterations = max_iterations
         self.recursion_limit = recursion_limit
+        self.sub_agent_config = sub_agent_config or {"enabled": False}
 
         # Initialize intent router
         self.router = IntentRouter(llm_client, confidence_threshold=0.7)
@@ -74,7 +77,7 @@ class WorkflowOrchestrator:
         logger.info(
             f"🎯 WorkflowOrchestrator initialized "
             f"(workspace: {workspace or 'none'}, max_iterations: {max_iterations}, "
-            f"recursion_limit: {recursion_limit})"
+            f"recursion_limit: {recursion_limit}, sub_agents: {self.sub_agent_config.get('enabled', False)})"
         )
 
     def _get_workflow(self, domain: WorkflowDomain) -> BaseWorkflow:
@@ -218,6 +221,9 @@ class WorkflowOrchestrator:
                     "requires_sub_agents": classification.requires_sub_agents,
                     "estimated_complexity": classification.estimated_complexity,
                 }
+
+            # Add sub-agent configuration (Phase 5)
+            state["context"]["sub_agent_config"] = self.sub_agent_config
 
             # Run workflow
             logger.info(f"🔄 Running {domain.value} workflow")
@@ -367,6 +373,9 @@ class WorkflowOrchestrator:
                     "requires_sub_agents": classification.requires_sub_agents,
                     "estimated_complexity": classification.estimated_complexity,
                 }
+
+            # Add sub-agent configuration (Phase 5)
+            state["context"]["sub_agent_config"] = self.sub_agent_config
 
             # Run workflow with streaming
             logger.info(f"🔄 Running {domain.value} workflow (STREAMING)")

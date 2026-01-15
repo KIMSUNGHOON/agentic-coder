@@ -97,10 +97,12 @@ class BaseWorkflow:
     def _build_graph(self) -> StateGraph:
         """Build LangGraph StateGraph
 
-        Creates standard workflow graph:
-        START → plan → execute → reflect → should_continue?
-                                    ↓              ↓
-                                  END        → execute
+        Creates workflow graph with Phase 5 sub-agent support:
+        START → plan → check_complexity → [route based on complexity]
+                                           ├─ spawn_sub_agents → END (if complex)
+                                           └─ execute → reflect → should_continue? (if simple/moderate)
+                                                                   ↓              ↓
+                                                                 END        → execute
 
         Returns:
             Compiled StateGraph
@@ -108,8 +110,10 @@ class BaseWorkflow:
         # Create graph
         workflow = StateGraph(AgenticState)
 
-        # Add nodes
+        # Add nodes (Phase 5: Added complexity check and sub-agent spawning)
         workflow.add_node("plan", self.plan_node)
+        workflow.add_node("check_complexity", self.check_complexity_node)
+        workflow.add_node("spawn_sub_agents", self.spawn_sub_agents_node)
         workflow.add_node("execute", self.execute_node)
         workflow.add_node("reflect", self.reflect_node)
 
@@ -117,7 +121,22 @@ class BaseWorkflow:
         workflow.set_entry_point("plan")
 
         # Add edges
-        workflow.add_edge("plan", "execute")
+        workflow.add_edge("plan", "check_complexity")
+
+        # Conditional edge from check_complexity (Phase 5 routing)
+        workflow.add_conditional_edges(
+            "check_complexity",
+            self._route_based_on_complexity,
+            {
+                "spawn_sub_agents": "spawn_sub_agents",  # Complex task → sub-agents
+                "execute": "execute",                     # Simple/moderate → normal execution
+            }
+        )
+
+        # Sub-agents complete → END
+        workflow.add_edge("spawn_sub_agents", END)
+
+        # Normal execution path
         workflow.add_edge("execute", "reflect")
 
         # Conditional edge from reflect
@@ -133,8 +152,26 @@ class BaseWorkflow:
         # Compile graph
         compiled = workflow.compile()
 
-        logger.info("✅ StateGraph compiled")
+        logger.info("✅ StateGraph compiled (with Phase 5 sub-agent support)")
         return compiled
+
+    def _route_based_on_complexity(self, state: AgenticState) -> str:
+        """Route based on complexity check result
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            "spawn_sub_agents" if complex, "execute" otherwise
+        """
+        use_sub_agents = state.get("use_sub_agents", False)
+
+        if use_sub_agents:
+            logger.info("🌟 Routing to sub-agent spawning (complex task)")
+            return "spawn_sub_agents"
+        else:
+            logger.info("✅ Routing to normal execution (simple/moderate task)")
+            return "execute"
 
     # ===== Node Implementations (to be overridden) =====
 
@@ -205,6 +242,200 @@ class BaseWorkflow:
             state["should_continue"] = state["iteration"] < 2
 
         return state
+
+    async def check_complexity_node(self, state: AgenticState) -> AgenticState:
+        """Check if task requires sub-agent decomposition (Phase 5)
+
+        This node analyzes task complexity and decides whether to:
+        - Execute directly (simple/moderate tasks)
+        - Spawn sub-agents (complex tasks)
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with complexity_check_done flag
+        """
+        logger.info("📊 Checking task complexity for sub-agent spawning")
+
+        try:
+            # Check if sub-agents are enabled in config
+            sub_agent_config = state.get("context", {}).get("sub_agent_config", {})
+            enabled = sub_agent_config.get("enabled", False)
+
+            if not enabled:
+                logger.info("⏭️  Sub-agents disabled, proceeding with normal execution")
+                state["use_sub_agents"] = False
+                state["complexity_check_done"] = True
+                return state
+
+            # Get complexity threshold from config (default: 0.7)
+            complexity_threshold = sub_agent_config.get("complexity_threshold", 0.7)
+
+            # Estimate task complexity using LLM
+            complexity_score = await self._estimate_complexity(
+                state["task_description"],
+                state.get("context", {})
+            )
+
+            logger.info(f"📊 Task complexity: {complexity_score:.2f} (threshold: {complexity_threshold})")
+
+            # Decide if sub-agents should be spawned
+            if complexity_score >= complexity_threshold:
+                logger.info("🌟 Complex task detected - will spawn sub-agents")
+                state["use_sub_agents"] = True
+                state["complexity_score"] = complexity_score
+            else:
+                logger.info("✅ Task complexity acceptable - normal execution")
+                state["use_sub_agents"] = False
+                state["complexity_score"] = complexity_score
+
+            state["complexity_check_done"] = True
+            return state
+
+        except Exception as e:
+            logger.error(f"❌ Complexity check error: {e}")
+            # On error, proceed with normal execution (safe fallback)
+            state["use_sub_agents"] = False
+            state["complexity_check_done"] = True
+            return state
+
+    async def spawn_sub_agents_node(self, state: AgenticState) -> AgenticState:
+        """Spawn and execute sub-agents for complex tasks (Phase 5)
+
+        This node:
+        1. Decomposes task into subtasks
+        2. Spawns specialized sub-agents
+        3. Executes sub-agents in parallel
+        4. Aggregates results
+
+        Args:
+            state: Current workflow state
+
+        Returns:
+            Updated state with sub-agent results
+        """
+        logger.info("🌟 Spawning sub-agents for complex task")
+
+        try:
+            # Import sub-agent manager
+            from agents.sub_agent_manager import SubAgentManager
+
+            # Get max concurrent from config
+            sub_agent_config = state.get("context", {}).get("sub_agent_config", {})
+            max_concurrent = sub_agent_config.get("max_concurrent", 3)
+
+            # Create sub-agent manager
+            manager = SubAgentManager(
+                llm_client=self.llm_client,
+                safety_checker=self.safety,
+                workspace=self.workspace or "/tmp",
+                max_parallel=max_concurrent
+            )
+
+            # Execute with sub-agents
+            logger.info(f"🚀 Executing with sub-agents (max_parallel={max_concurrent})")
+
+            result = await manager.execute_with_subagents(
+                task_description=state["task_description"],
+                context=state.get("context", {}),
+                force_decompose=False
+            )
+
+            # Update state with results
+            state["task_status"] = TaskStatus.COMPLETED.value if result.success else TaskStatus.FAILED.value
+            state["task_result"] = result.combined_result
+            state["should_continue"] = False
+
+            # Add metadata
+            if "sub_agent_results" not in state["context"]:
+                state["context"]["sub_agent_results"] = {}
+
+            state["context"]["sub_agent_results"] = {
+                "success": result.success,
+                "success_count": result.success_count,
+                "failure_count": result.failure_count,
+                "total_subtasks": len(result.individual_results),
+                "duration_seconds": result.total_duration_seconds,
+                "summary": result.summary,
+                "errors": result.errors,
+            }
+
+            logger.info(
+                f"✅ Sub-agent execution complete: {result.success_count}/{len(result.individual_results)} succeeded, "
+                f"duration: {result.total_duration_seconds:.2f}s"
+            )
+
+            return state
+
+        except Exception as e:
+            logger.error(f"❌ Sub-agent execution error: {e}", exc_info=True)
+            # Fall back to normal execution
+            state["task_status"] = TaskStatus.FAILED.value
+            state["task_error"] = f"Sub-agent execution failed: {e}"
+            state["should_continue"] = False
+            return state
+
+    async def _estimate_complexity(
+        self,
+        task_description: str,
+        context: Dict[str, Any]
+    ) -> float:
+        """Estimate task complexity (0.0 - 1.0)
+
+        Uses LLM to estimate complexity based on:
+        - Number of components needed
+        - Technical scope (frontend/backend/db/tests)
+        - Lines of code estimate
+        - Number of files needed
+
+        Args:
+            task_description: Task description
+            context: Context information
+
+        Returns:
+            Complexity score between 0.0 and 1.0
+        """
+        prompt = f"""Estimate the complexity of this task on a scale of 0.0 to 1.0.
+
+Task: {task_description}
+
+Consider:
+- 0.0-0.3: Simple task (1-2 files, single component)
+- 0.4-0.6: Moderate task (3-5 files, 2-3 components)
+- 0.7-0.9: Complex task (6-10 files, 4+ components, multiple systems)
+- 0.9-1.0: Very complex task (10+ files, full stack, database, tests)
+
+Factors:
+- Number of files/components needed
+- Technical scope (frontend, backend, database, tests, docs)
+- Lines of code estimate
+- Inter-dependencies between components
+
+Respond with ONLY a single number between 0.0 and 1.0, nothing else.
+Example: 0.75
+"""
+
+        try:
+            response = await self.call_llm(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,  # Low temperature for consistent estimation
+                max_tokens=10,
+                use_cache=False
+            )
+
+            # Parse response
+            score_str = response.strip().replace(",", ".")  # Handle different decimal formats
+            score = float(score_str)
+
+            # Clamp to valid range
+            score = max(0.0, min(1.0, score))
+
+            return score
+
+        except Exception as e:
+            logger.warning(f"Complexity estimation failed: {e}, defaulting to 0.5")
+            return 0.5  # Default to moderate complexity on error
 
     def should_continue(self, state: AgenticState) -> str:
         """Conditional routing: Continue or end workflow?
@@ -407,7 +638,6 @@ class BaseWorkflow:
             logger.info(f"🚀 Starting STREAMING workflow: {state['task_description'][:100]}")
 
             # Get optimizer and monitor
-            from core.performance import get_state_optimizer, get_performance_monitor
             optimizer = get_state_optimizer()
             monitor = get_performance_monitor()
 

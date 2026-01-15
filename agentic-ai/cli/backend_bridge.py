@@ -139,12 +139,25 @@ class BackendBridge:
             # Get recursion_limit from config, default to 100 if not present
             recursion_limit = getattr(self.config.workflows, 'recursion_limit', 100)
 
+            # Get sub-agent configuration (Phase 5)
+            sub_agent_config = None
+            if hasattr(self.config.workflows, 'sub_agents'):
+                sub_agent_config = {
+                    "enabled": self.config.workflows.sub_agents.enabled,
+                    "complexity_threshold": self.config.workflows.sub_agents.complexity_threshold,
+                    "max_concurrent": self.config.workflows.sub_agents.max_concurrent,
+                }
+                logger.info(f"🌟 Sub-agent support: enabled={sub_agent_config['enabled']}, "
+                          f"threshold={sub_agent_config['complexity_threshold']}, "
+                          f"max_concurrent={sub_agent_config['max_concurrent']}")
+
             self.orchestrator = WorkflowOrchestrator(
                 llm_client=self.llm_client,
                 safety_manager=self.safety,
                 workspace=self.config.workspace.default_path,
                 max_iterations=self.config.workflows.max_iterations,
                 recursion_limit=recursion_limit,
+                sub_agent_config=sub_agent_config,
             )
 
             logger.info(f"✅ Workflow orchestrator initialized (recursion_limit: {recursion_limit})")
