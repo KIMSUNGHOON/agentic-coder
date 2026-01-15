@@ -180,26 +180,64 @@ Now analyze this task and provide your plan:"""
 
         examples = [
             {
-                "input": "Step 1: Create database models for User",
+                "input": "Step 1: Create a simple calculator file",
                 "output": """{
-  "reasoning": "Need to create User model with id, username, email, hashed_password fields",
-  "action": "write_file",
+  "reasoning": "Need to create calculator.py with basic arithmetic functions - this completes the task",
+  "action": "WRITE_FILE",
   "parameters": {
-    "file_path": "models/user.py",
-    "content": "from sqlalchemy import Column, Integer, String, DateTime\\nfrom database import Base\\n\\nclass User(Base):\\n    __tablename__ = 'users'\\n    id = Column(Integer, primary_key=True)\\n    username = Column(String, unique=True, nullable=False)\\n    email = Column(String, unique=True, nullable=False)\\n    hashed_password = Column(String, nullable=False)\\n    created_at = Column(DateTime, default=datetime.utcnow)"
+    "file_path": "calculator.py",
+    "content": "def add(a, b):\\n    return a + b\\n\\ndef subtract(a, b):\\n    return a - b\\n\\ndef multiply(a, b):\\n    return a * b\\n\\ndef divide(a, b):\\n    if b == 0:\\n        raise ValueError('Cannot divide by zero')\\n    return a / b"
   },
-  "next_step": "Implement password hashing utilities"
+  "next_step": "Use COMPLETE action"
+}"""
+            },
+            {
+                "input": "Step 2: File created, task is done",
+                "output": """{
+  "reasoning": "Calculator file created successfully with all required functions, task is finished",
+  "action": "COMPLETE",
+  "parameters": {
+    "summary": "Created calculator.py with add, subtract, multiply, and divide functions"
+  },
+  "next_step": "Task complete"
 }"""
             }
         ]
 
+        # Available actions (UPPERCASE - CRITICAL!)
+        available_actions = """
+        Available actions (use UPPERCASE):
+        - READ_FILE: Read file contents
+          Parameters: {"file_path": "path/to/file.py"}
+
+        - WRITE_FILE: Write or create file
+          Parameters: {"file_path": "path/to/file.py", "content": "file contents"}
+
+        - SEARCH_CODE: Search for pattern in code
+          Parameters: {"pattern": "search term", "file_pattern": "*.py"}
+
+        - RUN_TESTS: Run tests
+          Parameters: {"test_path": "tests/"}
+
+        - GIT_STATUS: Check git status
+          Parameters: {}
+
+        - COMPLETE: Task is finished ⚠️ USE THIS WHEN DONE!
+          Parameters: {"summary": "What was accomplished"}
+
+        🚨 CRITICAL: Use COMPLETE as soon as task is done!
+        - After creating a file → COMPLETE
+        - After making changes → COMPLETE
+        - Don't keep working unnecessarily → COMPLETE
+        """
+
         json_schema = {
             "reasoning": "string - Why you chose this action",
-            "action": "string - One of: read_file, write_file, search_code, run_command, complete",
+            "action": "string - UPPERCASE action name (READ_FILE, WRITE_FILE, SEARCH_CODE, RUN_TESTS, GIT_STATUS, or COMPLETE)",
             "parameters": {
                 "param_name": "param_value - Specific to the action"
             },
-            "next_step": "string - What to do after this action"
+            "next_step": "string - What to do after (or 'Task complete' if using COMPLETE)"
         }
 
         previous_actions_str = (
@@ -216,6 +254,8 @@ Current Step: {current_step + 1}/{len(plan.get('steps', []))}
 Step Description: {plan.get('steps', [])[current_step] if current_step < len(plan.get('steps', [])) else 'Final step'}
 {previous_actions_str}
 
+{available_actions}
+
 {PromptTemplate.format_few_shot_examples(examples)}
 
 {PromptTemplate.format_json_schema(json_schema)}
@@ -223,7 +263,8 @@ Step Description: {plan.get('steps', [])[current_step] if current_step < len(pla
 Think step-by-step:
 1. What is the current goal?
 2. What action will accomplish this goal?
-3. What are the exact parameters?
+3. Are you DONE? Then use COMPLETE action!
+4. What are the exact parameters?
 
 Now provide your next action:"""
 

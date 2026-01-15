@@ -138,6 +138,16 @@ class CodingWorkflow(BaseWorkflow):
             # Call LLM with low temperature for precise execution
             response = await self.call_llm(messages, temperature=0.2)
 
+            # Store LLM response for debugging
+            if "llm_responses" not in state["context"]:
+                state["context"]["llm_responses"] = []
+            state["context"]["llm_responses"].append({
+                "iteration": state["iteration"],
+                "node": "execute",
+                "response": response[:500],  # Preview
+                "full_response": response  # Full response for debugging
+            })
+
             # Parse action
             try:
                 # Extract JSON
@@ -153,20 +163,23 @@ class CodingWorkflow(BaseWorkflow):
                 # Execute action
                 action_result = await self._execute_action(action, state)
 
-                # Store result
+                # Store result with success flag
                 if "tool_calls" not in state:
                     state["tool_calls"] = []
 
-                state["tool_calls"].append({
+                tool_call_info = {
                     "action": action.get("action"),
-                    "parameters": action,
+                    "action_details": action,  # Full action for debugging
                     "result": action_result,
                     "iteration": state["iteration"],
-                })
+                    "success": action_result.get("success", False),
+                }
+                state["tool_calls"].append(tool_call_info)
 
-                # Update context
+                # Update context for UI display
                 state["context"]["last_action"] = action
                 state["context"]["last_result"] = action_result
+                state["context"]["last_tool_execution"] = tool_call_info
 
                 # Check if complete
                 if action.get("action") == "COMPLETE":
@@ -177,8 +190,25 @@ class CodingWorkflow(BaseWorkflow):
                     logger.info(f"✅ Task completed: {action.get('summary')}")
 
             except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse action JSON: {e}")
-                logger.warning(f"Response: {response[:200]}")
+                # ⚠️ JSON parsing failed - store error and continue
+                error_msg = f"LLM returned invalid JSON: {str(e)}"
+                logger.error(error_msg)
+                logger.error(f"Full LLM response:\n{response}")
+
+                # Store failed parsing attempt
+                from core.state import add_error
+                state = add_error(state, error_msg)
+
+                # Add to tool_calls as failed attempt for tracking
+                if "tool_calls" not in state:
+                    state["tool_calls"] = []
+                state["tool_calls"].append({
+                    "action": "JSON_PARSE_ERROR",
+                    "parameters": {"error": str(e), "response_preview": response[:200]},
+                    "result": {"success": False, "error": error_msg},
+                    "iteration": state["iteration"],
+                    "success": False
+                })
 
             # Increment iteration
             state = increment_iteration(state)

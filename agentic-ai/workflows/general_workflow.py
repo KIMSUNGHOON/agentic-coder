@@ -294,12 +294,33 @@ Iteration 5-50: Keep repeating tools (WRONG!)
                     state["should_continue"] = False
 
             except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse action: {e}")
+                # ⚠️ JSON parsing failed - store error and track
+                error_msg = f"LLM returned invalid JSON: {str(e)}"
+                logger.error(error_msg)
+                logger.error(f"Full LLM response:\n{response}")
+
+                # Add to tool_calls as failed attempt
+                if "tool_calls" not in state:
+                    state["tool_calls"] = []
+                state["tool_calls"].append({
+                    "action": "JSON_PARSE_ERROR",
+                    "parameters": {"error": str(e), "response_preview": response[:200]},
+                    "result": {"success": False, "error": error_msg},
+                    "iteration": state["iteration"],
+                    "success": False
+                })
+
+                # Store error in state
+                from core.state import add_error
+                state = add_error(state, error_msg)
+
                 # If JSON parsing fails multiple times, give up
-                if state["iteration"] >= 2:
-                    logger.error("Multiple JSON parse failures, completing task")
+                parse_errors = sum(1 for call in state["tool_calls"] if call.get("action") == "JSON_PARSE_ERROR")
+                if parse_errors >= 3:
+                    logger.error(f"Multiple JSON parse failures ({parse_errors}), completing task")
                     state["task_status"] = TaskStatus.FAILED.value
-                    state["task_error"] = "Unable to parse LLM response as JSON"
+                    state["task_error"] = "Unable to parse LLM response as JSON after multiple attempts"
+                    state["task_result"] = f"Failed: LLM returned invalid JSON {parse_errors} times"
                     state["should_continue"] = False
                     return state
 
