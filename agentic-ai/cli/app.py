@@ -292,11 +292,20 @@ class AgenticApp(App):
                 elif update.type == "tool_executed":
                     # Display tool execution details with full error information
                     tool = update.data.get("tool", "UNKNOWN")
-                    params = update.data.get("params", {})
+                    params_raw = update.data.get("params", {})
                     success = update.data.get("success", False)
                     result = update.data.get("result", {})
                     error = update.data.get("error")
                     iteration = update.data.get("iteration", 0)
+
+                    # IMPORTANT: params_raw is the full action object: {"action": "...", "parameters": {...}}
+                    # Extract actual parameters from "parameters" key
+                    params = params_raw.get("parameters", params_raw)
+
+                    # DEBUG: Log the full event data for troubleshooting
+                    log.add_log("debug", f"Tool executed event - tool: {tool}, success: {success}")
+                    log.add_log("debug", f"  params keys: {list(params.keys())}")
+                    log.add_log("debug", f"  result keys: {list(result.keys())}")
 
                     # Format parameters for display
                     param_str = ""
@@ -316,25 +325,40 @@ class AgenticApp(App):
 
                     status_icon = "✅" if success else "❌"
 
-                    # Show tool execution in Chat
+                    # Show tool execution in Chat with more detail
                     chat.add_status(f"🔧 Tool [{iteration}]: {tool}{param_str} {status_icon}")
                     log.add_log("info", f"Tool: {tool} - {'Success' if success else 'Failed'}")
+
+                    # Show result message if available (includes actual file path for WRITE_FILE)
+                    result_message = result.get("message", "")
+                    if result_message and success:
+                        log.add_log("debug", f"   Result: {result_message}")
 
                     # Show file content for WRITE_FILE using new method
                     if tool == "WRITE_FILE" and success:
                         file_path = params.get('file_path', '')
                         content = params.get('content', '')
+
+                        # Get absolute path and metadata from result
+                        # FileSystemTools.write_file returns metadata with absolute path
+                        metadata = result.get('metadata', {})
+                        absolute_path = metadata.get('path', file_path)
+                        file_bytes = metadata.get('bytes', len(content.encode('utf-8')) if content else 0)
+                        file_lines = metadata.get('lines', len(content.splitlines()) if content else 0)
+
+                        # DEBUG: Log what we found
+                        log.add_log("debug", f"  WRITE_FILE - file_path: {file_path}")
+                        log.add_log("debug", f"  absolute_path: {absolute_path}")
+                        log.add_log("debug", f"  content length: {len(content) if content else 0} chars")
+                        log.add_log("debug", f"  metadata: bytes={file_bytes}, lines={file_lines}")
+
                         if content and file_path:
                             # Determine if file is new or modified
-                            # If we've seen this file before in this task, it's MODIFIED
-                            # Otherwise check if it existed before
                             from pathlib import Path
                             if file_path in files_seen:
                                 status_type = "MODIFIED"
                             else:
-                                # For a better check, see if file existed before task started
-                                # Since we're writing it now, check the result metadata if available
-                                status_type = "NEW"  # Default to NEW for first write
+                                status_type = "NEW"
                                 files_seen.add(file_path)
 
                             # Track file operation (avoid duplicates)
@@ -343,26 +367,44 @@ class AgenticApp(App):
                             elif status_type == "MODIFIED" and file_path not in files_modified:
                                 files_modified.append(file_path)
 
+                            # Show absolute path in chat status for user clarity
+                            chat.add_status(f"   📁 Full path: {absolute_path}")
+
                             # Display with new method (full content with line numbers)
                             chat.add_file_content(
-                                file_path=file_path,
+                                file_path=file_path,  # Use relative path for cleaner display
                                 content=content,
                                 status=status_type,
                                 display_mode="full",  # Show full content
                             )
+                            log.add_log("info", f"✅ File written and displayed: {file_path}")
+                            log.add_log("info", f"   Location: {absolute_path}")
+                            log.add_log("info", f"   Size: {file_bytes} bytes ({file_lines} lines)")
+                        else:
+                            # WARNING: No content found
+                            log.add_log("warning", f"⚠️ WRITE_FILE completed but no content found")
+                            log.add_log("warning", f"   file_path={file_path}, content_length={len(content) if content else 0}")
+                            chat.add_status(f"   ⚠️ File written but content not available: {file_path}")
+                            if absolute_path:
+                                chat.add_status(f"   📁 Location: {absolute_path}")
 
                     # Show file content for READ_FILE using new method
                     elif tool == "READ_FILE" and success:
                         file_path = params.get('file_path', '')
                         content = result.get("output", "")
+
+                        log.add_log("debug", f"  READ_FILE - file_path: {file_path}")
+                        log.add_log("debug", f"  content length: {len(content) if content else 0} chars")
+
                         if content and file_path:
-                            # Show preview (first 20 lines) for READ_FILE
+                            # Show preview (first 10 lines) for READ_FILE
                             chat.add_file_content(
                                 file_path=file_path,
                                 content=content,
                                 status="MODIFIED",  # Existing file
-                                display_mode="preview",  # Preview mode
+                                display_mode="preview",  # Preview mode (first 10 lines)
                             )
+                            log.add_log("info", f"📖 File read: {file_path} ({len(content)} chars, preview shown)")
 
                     # Show detailed error if failed
                     if not success:
