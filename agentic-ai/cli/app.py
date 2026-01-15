@@ -244,8 +244,27 @@ class AgenticApp(App):
                         description=update.message
                     )
                     log.add_log("info", update.message)
-                    # ✅ NEW: Also show in chat for visibility
-                    chat.add_status(update.message)
+
+                    # Show step header for execute nodes
+                    if update.data and "node" in update.data:
+                        node = update.data.get("node")
+                        iteration = update.data.get("iteration", 0)
+                        max_iter = update.data.get("max_iterations")
+
+                        if node == "execute" and isinstance(max_iter, int) and isinstance(iteration, int):
+                            chat.add_step_header(
+                                step_num=iteration if iteration > 0 else 1,
+                                total_steps=max_iter,
+                                description="Executing tools and operations",
+                                status="in_progress",
+                            )
+                        elif node == "plan":
+                            chat.add_status("🎯 Planning execution strategy...")
+                        elif node == "reflect":
+                            chat.add_status("💭 Reviewing results...")
+                    else:
+                        # Regular status message
+                        chat.add_status(update.message)
 
                 elif update.type == "llm_response":
                     # Display LLM response with more detail
