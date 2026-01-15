@@ -456,8 +456,17 @@ git diff main..claude/fix-hardcoded-config-QyiND --stat
    - 해결: 따옴표로 문자열 감싸기
    - 상태: ✅ 수정 완료
 
+3. **LangGraph Recursion Limit 초과** (2026-01-15)
+   - 위치: `workflows/base_workflow.py`
+   - 증상: "Recursion limit of 25 reached"
+   - 해결: ainvoke() 호출 시 recursion_limit=100 설정
+   - 설정: `config/config.yaml`에 recursion_limit 추가
+   - 상태: ✅ 수정 완료
+
 ### 현재 알려진 이슈
-- 없음 (모든 테스트 통과)
+- 없음 (모든 테스트 통과, 모든 버그 수정됨)
+
+**참고**: 자세한 버그 수정 내역은 [BUG_FIX_LOG.md](BUG_FIX_LOG.md) 참조
 
 ---
 

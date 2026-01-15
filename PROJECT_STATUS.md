@@ -415,8 +415,15 @@ python -m cli.commands history --limit 20
    - 해결: `core/router.py`에 to_dict() 메서드 추가
    - 검증: Integration tests 통과
 
+3. **LangGraph Recursion Limit 초과** (2026-01-15)
+   - 문제: "Recursion limit of 25 reached without hitting a stop condition"
+   - 원인: LangGraph 기본 recursion_limit(25)이 복잡한 workflow에 부족
+   - 해결: `workflows/base_workflow.py`에서 ainvoke() 호출 시 recursion_limit=100 설정
+   - 설정: `config/config.yaml`에 recursion_limit: 100 추가
+   - 검증: Integration tests 통과
+
 ### 현재 이슈
-- 없음 (모든 테스트 통과)
+- 없음 (모든 테스트 통과, 모든 버그 수정됨)
 
 ---
 

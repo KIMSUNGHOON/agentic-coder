@@ -310,9 +310,13 @@ class BaseWorkflow:
 
             start_time = datetime.now()
 
-            # Run graph with monitoring
+            # Run graph with monitoring and increased recursion limit
+            # LangGraph default is 25, which is too low for complex workflows
             with monitor.measure("workflow_execution"):
-                final_state = await self.graph.ainvoke(state)
+                final_state = await self.graph.ainvoke(
+                    state,
+                    config={"recursion_limit": 100}  # Increase limit for complex workflows
+                )
 
             # Optimize final state
             final_state = optimizer.optimize(final_state)
