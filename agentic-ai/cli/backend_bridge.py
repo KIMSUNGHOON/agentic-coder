@@ -142,10 +142,12 @@ class BackendBridge:
             # Get sub-agent configuration (Phase 5)
             sub_agent_config = None
             if hasattr(self.config.workflows, 'sub_agents'):
+                # Fix: sub_agents is a Dict[str, Any], not an object with attributes
+                sub_agents = self.config.workflows.sub_agents
                 sub_agent_config = {
-                    "enabled": self.config.workflows.sub_agents.enabled,
-                    "complexity_threshold": self.config.workflows.sub_agents.complexity_threshold,
-                    "max_concurrent": self.config.workflows.sub_agents.max_concurrent,
+                    "enabled": sub_agents.get("enabled", False),
+                    "complexity_threshold": sub_agents.get("complexity_threshold", 0.7),
+                    "max_concurrent": sub_agents.get("max_concurrent", 3),
                 }
                 logger.info(f"🌟 Sub-agent support: enabled={sub_agent_config['enabled']}, "
                           f"threshold={sub_agent_config['complexity_threshold']}, "
