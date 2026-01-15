@@ -15,6 +15,7 @@ import json
 from typing import Dict, Any, List, Optional
 
 from core.state import AgenticState, TaskStatus, update_task_status
+from core.prompts import CodingPrompts
 from .base_workflow import BaseWorkflow
 
 logger = logging.getLogger(__name__)
@@ -56,36 +57,14 @@ class CodingWorkflow(BaseWorkflow):
         logger.info(f"📋 Planning coding task: {state['task_description'][:100]}")
 
         try:
-            # Build planning prompt
-            planning_prompt = f"""You are a senior software engineer planning a coding task.
+            # Use optimized prompt for GPT-OSS-120B
+            messages = CodingPrompts.planning_prompt(
+                task=state['task_description'],
+                workspace=state.get('workspace', 'unknown'),
+                context=state.get('context')
+            )
 
-Task: {state['task_description']}
-Workspace: {state.get('workspace', 'unknown')}
-
-Analyze this task and create a structured plan. Consider:
-1. What needs to be done?
-2. Which files might need to be modified?
-3. What's the best approach?
-4. Are there any dependencies or risks?
-5. Should we create sub-tasks?
-
-Respond in JSON format:
-{{
-    "understanding": "Brief task understanding",
-    "approach": "Implementation approach",
-    "files_to_check": ["list", "of", "files"],
-    "estimated_steps": 3,
-    "requires_sub_agents": false,
-    "risks": ["potential", "risks"]
-}}
-"""
-
-            messages = [
-                {"role": "system", "content": "You are a senior software engineer."},
-                {"role": "user", "content": planning_prompt}
-            ]
-
-            # Call LLM
+            # Call LLM with lower temperature for planning
             response = await self.call_llm(messages, temperature=0.3)
 
             # Parse response
@@ -146,46 +125,17 @@ Respond in JSON format:
         try:
             plan = state["context"].get("plan", {})
             current_step = state["context"].get("current_step", 0)
+            previous_actions = state.get('tool_calls', [])
 
-            # Build execution prompt
-            execution_prompt = f"""You are executing a coding task step by step.
+            # Use optimized prompt for GPT-OSS-120B
+            messages = CodingPrompts.execution_prompt(
+                task=state['task_description'],
+                plan=plan,
+                current_step=current_step,
+                previous_actions=previous_actions
+            )
 
-Task: {state['task_description']}
-Plan: {json.dumps(plan, indent=2)}
-Current Step: {current_step + 1}
-Iteration: {state['iteration']}
-
-Previous actions: {json.dumps(state.get('tool_calls', [])[-5:], indent=2) if state.get('tool_calls') else 'None'}
-
-What should you do next? Choose ONE action:
-
-1. READ_FILE: Read a file to understand code
-   Example: {{"action": "READ_FILE", "file_path": "src/auth/login.py"}}
-
-2. SEARCH_CODE: Search for specific code patterns
-   Example: {{"action": "SEARCH_CODE", "pattern": "def authenticate", "file_pattern": "*.py"}}
-
-3. WRITE_FILE: Write or modify a file (be careful!)
-   Example: {{"action": "WRITE_FILE", "file_path": "src/auth/login.py", "content": "..."}}
-
-4. RUN_TESTS: Run tests to verify changes
-   Example: {{"action": "RUN_TESTS", "test_path": "tests/test_auth.py"}}
-
-5. GIT_STATUS: Check git status
-   Example: {{"action": "GIT_STATUS"}}
-
-6. COMPLETE: Task is complete
-   Example: {{"action": "COMPLETE", "summary": "Successfully fixed bug"}}
-
-Respond with ONLY the JSON action, no explanation.
-"""
-
-            messages = [
-                {"role": "system", "content": "You are a senior software engineer. Respond with only JSON."},
-                {"role": "user", "content": execution_prompt}
-            ]
-
-            # Call LLM
+            # Call LLM with low temperature for precise execution
             response = await self.call_llm(messages, temperature=0.2)
 
             # Parse action
