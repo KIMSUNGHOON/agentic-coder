@@ -235,7 +235,28 @@ class AgenticApp(App):
                 self.session_workspace = base_workspace
                 log.add_log("info", f"Isolation disabled - using shared workspace")
 
-            os.makedirs(self.session_workspace, exist_ok=True)
+            # CRITICAL: Add error handling for directory creation
+            try:
+                os.makedirs(self.session_workspace, exist_ok=True)
+                log.add_log("info", f"✅ Session workspace created: {self.session_workspace}")
+            except PermissionError as e:
+                error_msg = f"❌ Permission denied creating workspace: {e}"
+                log.add_log("error", error_msg)
+                chat.add_status(f"❌ ERROR: Cannot create workspace - permission denied")
+                chat.add_status(f"   Path: {self.session_workspace}")
+                chat.add_status(f"   Please check directory permissions or run with appropriate access")
+                status.update_status("Permission Error", "error")
+                # Don't proceed - stop here
+                return
+            except OSError as e:
+                error_msg = f"❌ Failed to create workspace: {e}"
+                log.add_log("error", error_msg)
+                chat.add_status(f"❌ ERROR: Workspace creation failed")
+                chat.add_status(f"   Path: {self.session_workspace}")
+                chat.add_status(f"   Error: {str(e)}")
+                status.update_status("Workspace Error", "error")
+                # Don't proceed - stop here
+                return
 
             log.add_log("info", f"Session created: {self.session_id[:8]}")
             log.add_log("info", f"Config base workspace: {base_workspace}")
@@ -252,6 +273,7 @@ class AgenticApp(App):
         files_modified = []
         files_deleted = []
         files_seen = set()  # Track which files we've seen in this session
+        file_contents = {}  # Track file contents for diff display {file_path: content}
         start_time = time.time()
 
         try:
@@ -386,38 +408,78 @@ class AgenticApp(App):
 
                             # Determine if file is new or modified
                             from pathlib import Path
-                            if file_path in files_seen:
+                            old_content = file_contents.get(file_path)  # Get previous content if any
+
+                            if old_content is not None:
+                                # File was previously read or written - show DIFF
                                 status_type = "MODIFIED"
-                            else:
-                                status_type = "NEW"
                                 files_seen.add(file_path)
 
-                            # Track file operation (avoid duplicates)
-                            if status_type == "NEW" and file_path not in files_created:
-                                files_created.append(file_path)
-                            elif status_type == "MODIFIED" and file_path not in files_modified:
-                                files_modified.append(file_path)
+                                # Track file operation
+                                if file_path not in files_modified:
+                                    files_modified.append(file_path)
 
-                            # Show absolute path in chat status for user clarity
-                            chat.add_status(f"   📁 Full path: {absolute_path}")
+                                # Show absolute path
+                                chat.add_status(f"   📁 Full path: {absolute_path}")
 
-                            log.add_log("info", f"  🎨 Calling chat.add_file_content()...")
+                                log.add_log("info", f"  🎨 Showing DIFF (file was previously tracked)...")
 
-                            # Display with new method (full content with line numbers)
-                            try:
-                                chat.add_file_content(
-                                    file_path=file_path,  # Use relative path for cleaner display
-                                    content=content,
-                                    status=status_type,
-                                    display_mode="full",  # Show full content
-                                )
-                                log.add_log("info", f"  ✅ chat.add_file_content() completed successfully")
-                                log.add_log("info", f"  ✅ File displayed: {file_path} ({file_bytes} bytes, {file_lines} lines)")
-                            except Exception as e:
-                                import traceback
-                                log.add_log("error", f"  ❌ chat.add_file_content() failed: {e}")
-                                log.add_log("error", f"  ❌ Traceback: {traceback.format_exc()}")
-                                chat.add_status(f"   ❌ Error displaying file: {str(e)}")
+                                # Display DIFF instead of full content
+                                try:
+                                    chat.add_file_diff(
+                                        file_path=file_path,
+                                        old_content=old_content,
+                                        new_content=content,
+                                        context_lines=3,
+                                    )
+                                    log.add_log("info", f"  ✅ Diff displayed: {file_path}")
+                                except Exception as e:
+                                    import traceback
+                                    log.add_log("error", f"  ❌ Failed to display diff: {e}")
+                                    log.add_log("error", f"  ❌ Traceback: {traceback.format_exc()}")
+                                    chat.add_status(f"   ❌ Error displaying diff: {str(e)}")
+
+                                # Update stored content
+                                file_contents[file_path] = content
+
+                            else:
+                                # New file - show full content
+                                if file_path in files_seen:
+                                    status_type = "MODIFIED"
+                                else:
+                                    status_type = "NEW"
+                                    files_seen.add(file_path)
+
+                                # Track file operation (avoid duplicates)
+                                if status_type == "NEW" and file_path not in files_created:
+                                    files_created.append(file_path)
+                                elif status_type == "MODIFIED" and file_path not in files_modified:
+                                    files_modified.append(file_path)
+
+                                # Show absolute path in chat status for user clarity
+                                chat.add_status(f"   📁 Full path: {absolute_path}")
+
+                                log.add_log("info", f"  🎨 Calling chat.add_file_content()...")
+
+                                # Display with new method (full content with line numbers)
+                                try:
+                                    chat.add_file_content(
+                                        file_path=file_path,  # Use relative path for cleaner display
+                                        content=content,
+                                        status=status_type,
+                                        display_mode="full",  # Show full content
+                                    )
+                                    log.add_log("info", f"  ✅ chat.add_file_content() completed successfully")
+                                    log.add_log("info", f"  ✅ File displayed: {file_path} ({file_bytes} bytes, {file_lines} lines)")
+                                except Exception as e:
+                                    import traceback
+                                    log.add_log("error", f"  ❌ chat.add_file_content() failed: {e}")
+                                    log.add_log("error", f"  ❌ Traceback: {traceback.format_exc()}")
+                                    chat.add_status(f"   ❌ Error displaying file: {str(e)}")
+
+                                # Store content for future diff comparisons
+                                file_contents[file_path] = content
+                                log.add_log("info", f"  💾 Stored file content for future diff tracking")
                         else:
                             # WARNING: No content found
                             log.add_log("error", f"  ❌ WRITE_FILE: No content to display!")
@@ -439,13 +501,17 @@ class AgenticApp(App):
                         log.add_log("info", f"    content_length: {len(content) if content else 0} chars")
 
                         if content and file_path:
+                            # Store content for future diff comparison
+                            file_contents[file_path] = content
+                            log.add_log("info", f"  💾 Stored file content for diff tracking")
+
                             log.add_log("info", f"  🎨 Displaying file preview in chat...")
                             # Show preview (first 10 lines) for READ_FILE
                             try:
                                 chat.add_file_content(
                                     file_path=file_path,
                                     content=content,
-                                    status="MODIFIED",  # Existing file
+                                    status="EXISTING",  # Existing file being read
                                     display_mode="preview",  # Preview mode (first 10 lines)
                                 )
                                 log.add_log("info", f"  ✅ File preview displayed: {file_path}")
@@ -457,80 +523,100 @@ class AgenticApp(App):
                     # Show directory listing as file browser
                     elif tool == "LIST_DIRECTORY" and success:
                         dir_path = params.get('path', '.')
-                        output = result.get("output", "")
+                        output = result.get("output", [])  # List of dicts, not string!
 
                         log.add_log("info", f"  📂 LIST_DIRECTORY Details:")
                         log.add_log("info", f"    dir_path: {dir_path}")
-                        log.add_log("info", f"    output_length: {len(output) if output else 0} chars")
+                        log.add_log("info", f"    output_type: {type(output)}")
+                        log.add_log("info", f"    output_length: {len(output) if output else 0} entries")
 
-                        if output:
+                        if output and isinstance(output, list):
                             log.add_log("info", f"  🎨 Displaying file browser...")
                             try:
-                                # Parse directory listing
-                                lines = output.strip().split('\n')
-
                                 from rich.text import Text
                                 from rich.panel import Panel
+                                from rich.table import Table
 
-                                browser_text = Text()
-                                browser_text.append(f"📂 Directory: {dir_path}\n\n", style="bold cyan")
-
-                                # Categorize files
+                                # Categorize entries
                                 dirs = []
                                 files = []
 
-                                for line in lines:
-                                    line = line.strip()
-                                    if not line or line == dir_path:
-                                        continue
+                                for entry in output:
+                                    # entry is dict: {"name": "foo.py", "type": "file", "size": 123, "path": "foo.py"}
+                                    if isinstance(entry, dict):
+                                        name = entry.get("name", "")
+                                        entry_type = entry.get("type", "file")
+                                        size = entry.get("size")
 
-                                    # Check if it's a directory (ends with /)
-                                    if line.endswith('/'):
-                                        dirs.append(line[:-1])
-                                    else:
-                                        files.append(line)
-
-                                # Display directories first
-                                if dirs:
-                                    browser_text.append("📁 Directories:\n", style="bold yellow")
-                                    for d in sorted(dirs):
-                                        browser_text.append(f"  📁 {d}/\n", style="yellow")
-                                    browser_text.append("\n")
-
-                                # Display files
-                                if files:
-                                    browser_text.append("📄 Files:\n", style="bold green")
-                                    for f in sorted(files):
-                                        # Detect file type by extension
-                                        if f.endswith('.py'):
-                                            icon = "🐍"
-                                        elif f.endswith(('.js', '.ts', '.jsx', '.tsx')):
-                                            icon = "📜"
-                                        elif f.endswith(('.json', '.yaml', '.yml')):
-                                            icon = "⚙️"
-                                        elif f.endswith(('.md', '.txt')):
-                                            icon = "📝"
+                                        if entry_type == "directory":
+                                            dirs.append((name, size))
                                         else:
-                                            icon = "📄"
+                                            files.append((name, size))
 
-                                        browser_text.append(f"  {icon} {f}\n", style="green")
+                                # Create table for better display
+                                table = Table(
+                                    show_header=True,
+                                    header_style="bold cyan",
+                                    border_style="cyan",
+                                    show_lines=False,
+                                    pad_edge=False,
+                                )
 
-                                # Show total count
-                                browser_text.append(f"\n📊 Total: {len(dirs)} directories, {len(files)} files", style="dim")
+                                table.add_column("Type", width=6)
+                                table.add_column("Name", style="green")
+                                table.add_column("Size", justify="right", width=12)
 
-                                chat.write(Panel(
-                                    browser_text,
-                                    title="📂 File Browser",
+                                # Add directories first
+                                for name, size in sorted(dirs):
+                                    table.add_row("📁 DIR", name + "/", "")
+
+                                # Add files
+                                for name, size in sorted(files):
+                                    # Detect file type by extension
+                                    if name.endswith('.py'):
+                                        icon = "🐍"
+                                    elif name.endswith(('.js', '.ts', '.jsx', '.tsx')):
+                                        icon = "📜"
+                                    elif name.endswith(('.json', '.yaml', '.yml')):
+                                        icon = "⚙️"
+                                    elif name.endswith(('.md', '.txt')):
+                                        icon = "📝"
+                                    elif name.endswith(('.jpg', '.png', '.gif', '.svg')):
+                                        icon = "🖼️"
+                                    else:
+                                        icon = "📄"
+
+                                    # Format size
+                                    size_str = ""
+                                    if size is not None:
+                                        if size < 1024:
+                                            size_str = f"{size}B"
+                                        elif size < 1024 * 1024:
+                                            size_str = f"{size/1024:.1f}KB"
+                                        else:
+                                            size_str = f"{size/(1024*1024):.1f}MB"
+
+                                    table.add_row(f"{icon} FILE", name, size_str)
+
+                                # Show in panel
+                                browser_panel = Panel(
+                                    table,
+                                    title=f"📂 {dir_path} ({len(dirs)} dirs, {len(files)} files)",
                                     title_align="left",
                                     border_style="cyan",
-                                    padding=(1, 2),
-                                ))
+                                    padding=(0, 1),
+                                )
+
+                                chat.write(browser_panel)
 
                                 log.add_log("info", f"  ✅ File browser displayed: {len(dirs)} dirs, {len(files)} files")
                             except Exception as e:
                                 import traceback
                                 log.add_log("error", f"  ❌ Failed to display file browser: {e}")
                                 log.add_log("error", f"  ❌ Traceback: {traceback.format_exc()}")
+                                # Show what we received for debugging
+                                log.add_log("error", f"  ❌ Output type: {type(output)}")
+                                log.add_log("error", f"  ❌ Output: {output[:3] if len(output) > 3 else output}")
 
                     # Show detailed error if failed
                     if not success:
