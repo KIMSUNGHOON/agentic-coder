@@ -105,6 +105,7 @@ class AgenticApp(App):
         self.history = CommandHistory()
         self.session_active = False
         self.cot_visible = True
+        self.session_id = None  # Will be generated on first message
 
     def compose(self) -> ComposeResult:
         """Create the UI layout"""
@@ -201,6 +202,7 @@ class AgenticApp(App):
         Args:
             message: User input message
         """
+        import uuid
         from .backend_bridge import get_bridge, ProgressUpdate
 
         # Get UI components
@@ -209,6 +211,13 @@ class AgenticApp(App):
         chat = self.query_one("#chat-panel", ChatPanel)
         log = self.query_one("#log-viewer", LogViewer)
         cot_viewer = self.query_one("#cot-viewer", CoTViewer)
+
+        # Generate session ID on first message
+        if not self.session_id:
+            self.session_id = str(uuid.uuid4())
+            status.set_session(self.session_id)
+            log.add_log("info", f"Session created: {self.session_id[:8]}")
+            self.session_active = True
 
         # Update status
         status.update_status("Processing...", "working")
@@ -227,6 +236,8 @@ class AgenticApp(App):
                         description=update.message
                     )
                     log.add_log("info", update.message)
+                    # ✅ NEW: Also show in chat for visibility
+                    chat.add_status(update.message)
 
                 elif update.type == "cot":
                     # Display Chain-of-Thought
@@ -237,12 +248,16 @@ class AgenticApp(App):
                     # Display log message
                     level = update.data.get("level", "info")
                     log.add_log(level, update.message)
+                    # Show important logs in chat too
+                    if level in ["warning", "error"]:
+                        chat.add_status(f"⚠️ {update.message}")
 
                 elif update.type == "result":
                     # Display final result
                     if update.data["success"]:
                         output = update.data.get("output", "")
-                        chat.add_message("assistant", str(output))
+                        # ✅ NEW: Use smart formatting (auto-detects markdown/code)
+                        chat.add_message_smart("assistant", str(output))
                         progress.complete_task("✅ Task completed")
                         log.add_log(
                             "info",

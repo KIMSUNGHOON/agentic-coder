@@ -137,12 +137,20 @@ Respond in JSON format:
         logger.info(f"⚙️  Executing general task (iteration {state['iteration']})")
 
         try:
+            # Calculate progress
+            completed_steps = state['context'].get('completed_steps', [])
+            plan = state['context'].get('plan', {})
+            estimated_steps = plan.get('estimated_steps', len(plan.get('steps', [])))
+
             execution_prompt = f"""You are executing a general task step by step.
 
 Task: {state['task_description']}
-Plan: {json.dumps(state['context'].get('plan', {}), indent=2)}
-Iteration: {state['iteration']}
-Completed steps: {state['context'].get('completed_steps', [])}
+Plan: {json.dumps(plan, indent=2)}
+Iteration: {state['iteration']}/{state['max_iterations']}
+Progress: {len(completed_steps)}/{estimated_steps} steps completed
+Completed steps: {completed_steps}
+
+IMPORTANT: If you have completed ALL required steps for the task, you MUST use the COMPLETE action.
 
 Choose ONE action from available tools:
 
@@ -167,9 +175,16 @@ GIT:
 6. GIT_STATUS: Check git status
    Example: {{"action": "GIT_STATUS"}}
 
-COMPLETION:
-7. COMPLETE: Task is complete
-   Example: {{"action": "COMPLETE", "summary": "Task summary..."}}
+COMPLETION (USE THIS WHEN DONE):
+7. COMPLETE: Task is complete - USE THIS when you have finished all required steps
+   Example: {{"action": "COMPLETE", "summary": "Successfully completed X, Y, and Z"}}
+
+Decision Guide:
+- If completed_steps >= estimated_steps: Use COMPLETE
+- If you answered the user's question: Use COMPLETE
+- If you accomplished the task goal: Use COMPLETE
+- If you have gathered all requested information: Use COMPLETE
+- Otherwise: Choose appropriate tool action
 
 Respond with ONLY JSON.
 """
@@ -335,13 +350,31 @@ Respond with ONLY JSON.
 
             # Check progress and provide detailed feedback
             completed_steps = state["context"].get("completed_steps", [])
-            total_steps = len(state["context"].get("plan", {}).get("steps", []))
+            plan = state["context"].get("plan", {})
+            total_steps = plan.get("estimated_steps", len(plan.get("steps", [])))
 
             if len(completed_steps) > 0:
                 logger.info(f"✅ Progress: {len(completed_steps)}/{total_steps} steps completed")
                 logger.debug(f"   Completed steps: {completed_steps}")
+
+                # Auto-complete if all steps are done
+                if total_steps > 0 and len(completed_steps) >= total_steps:
+                    logger.info(f"🎯 All {total_steps} steps completed! Auto-completing task")
+                    state["task_status"] = TaskStatus.COMPLETED.value
+                    state["task_result"] = f"Task completed successfully. Completed steps: {', '.join(completed_steps)}"
+                    state["should_continue"] = False
+                    return state
+
+                # Warn if approaching max iterations without completion
+                remaining = state['max_iterations'] - state['iteration']
+                if remaining <= 5 and len(completed_steps) < total_steps:
+                    logger.warning(f"⚠️  Only {remaining} iterations left! Progress: {len(completed_steps)}/{total_steps}")
             else:
                 logger.info(f"⏳ Working on task... (0/{total_steps} steps completed)")
+
+                # If no progress after 10 iterations, something is wrong
+                if state['iteration'] >= 10:
+                    logger.warning(f"⚠️  No progress after {state['iteration']} iterations. Task may be stuck")
 
             # Continue to next iteration
             logger.info(f"🔄 Continuing to next iteration (current: {state['iteration']}/{state['max_iterations']})")
