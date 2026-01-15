@@ -1,10 +1,23 @@
 """Prompt Engineering for GPT-OSS-120B
 
-Optimized prompts for GPT-OSS-120B model:
-- Few-shot examples
-- Clear output format specifications
-- Chain-of-Thought reasoning
-- Structured system messages
+Optimized prompts for GPT-OSS-120B model with:
+- Few-shot examples (OpenAI Cookbook best practices)
+- Chain-of-Thought reasoning with <think> tags
+- Structured outputs (JSON Schema with strict=true)
+- Clear constraints and guidelines
+
+Key Features:
+- GPT-OSS-120B supports CoT with <think> tags
+- Adjustable reasoning effort (low/medium/high)
+- Structured outputs guarantee valid JSON
+- Tool integration for enhanced capabilities
+
+References:
+- OpenAI Cookbook: https://cookbook.openai.com/
+- GPT-OSS: https://github.com/openai/gpt-oss
+- Structured Outputs: https://cookbook.openai.com/examples/structured_outputs_intro
+
+Security: All prompts and responses are stored locally only.
 """
 
 from typing import List, Dict, Any
