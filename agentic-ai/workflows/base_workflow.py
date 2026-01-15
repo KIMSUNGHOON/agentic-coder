@@ -264,7 +264,8 @@ class BaseWorkflow:
             cache = get_llm_cache()
 
             # Define LLM function
-            async def _call():
+            # Note: _call accepts messages and kwargs from cache but uses closure variables
+            async def _call(msg=None, **kw):
                 monitor = get_performance_monitor()
                 monitor.increment("llm_calls")
 
