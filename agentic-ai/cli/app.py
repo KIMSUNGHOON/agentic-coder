@@ -219,12 +219,26 @@ class AgenticApp(App):
             self.session_id = str(uuid.uuid4())
             status.set_session(self.session_id)
 
-            # Create session-specific workspace directory for isolation
-            base_workspace = os.path.abspath("./Workspaces")
-            self.session_workspace = os.path.join(base_workspace, self.session_id[:8])
+            # Get backend bridge and initialize to load config
+            bridge = get_bridge()
+            await bridge.initialize()
+
+            # Get workspace path from config.yaml
+            workspace_config = bridge.config.workspace
+            base_workspace = os.path.expanduser(workspace_config.default_path)  # Expand ~ to home dir
+
+            # Create session-specific workspace directory if isolation is enabled
+            if workspace_config.isolation:
+                self.session_workspace = os.path.join(base_workspace, self.session_id[:8])
+                log.add_log("info", f"Isolation enabled - creating session directory")
+            else:
+                self.session_workspace = base_workspace
+                log.add_log("info", f"Isolation disabled - using shared workspace")
+
             os.makedirs(self.session_workspace, exist_ok=True)
 
             log.add_log("info", f"Session created: {self.session_id[:8]}")
+            log.add_log("info", f"Config base workspace: {base_workspace}")
             log.add_log("info", f"Session workspace: {self.session_workspace}")
             chat.add_status(f"📁 Session workspace: {self.session_workspace}")
             self.session_active = True
@@ -241,7 +255,7 @@ class AgenticApp(App):
         start_time = time.time()
 
         try:
-            # Get backend bridge
+            # Get backend bridge (already initialized if first message)
             bridge = get_bridge()
 
             # Execute task with progress streaming (use session workspace)
