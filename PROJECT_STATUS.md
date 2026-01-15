@@ -422,6 +422,22 @@ python -m cli.commands history --limit 20
    - 설정: `config/config.yaml`에 recursion_limit: 100 추가
    - 검증: Integration tests 통과
 
+4. **Comprehensive Workflow Termination Fix** (2026-01-15)
+   - 문제: recursion_limit을 1000으로 설정해도 "hello" 입력 시 여전히 recursion limit 에러 발생
+   - 원인:
+     * BaseWorkflow에서 recursion_limit 하드코딩(100)으로 config 값 무시
+     * "hello" 같은 간단한 입력도 복잡한 workflow trigger
+     - LLM 서버 오류/JSON 파싱 실패 시 무한 루프
+   - 해결:
+     * GeneralWorkflow에 greeting detection 추가 (즉시 완료)
+     * Conversational task type 추가
+     * JSON parse 실패 제한 (2회 후 종료)
+     * LLM 실패 시 graceful degradation
+     * Config recursion_limit를 state로 전파 (hardcoded 제거)
+     * End-to-end config propagation: config.yaml → Config → BackendBridge → Orchestrator → State → Workflow
+   - 검증: 35 tests passed, 1 skipped
+   - Commit: c627f75
+
 ### 현재 이슈
 - 없음 (모든 테스트 통과, 모든 버그 수정됨)
 
@@ -431,8 +447,13 @@ python -m cli.commands history --limit 20
 
 - **Main**: (없음, 초기 개발)
 - **Working Branch**: `claude/fix-hardcoded-config-QyiND`
-- **Latest Commit**: `3c43106` (Phase 5-1 완료 문서)
-- **Previous Commit**: `3f8f349` (Phase 5-1 구현)
+- **Latest Commit**: `c627f75` (Bug Fix #4: Comprehensive workflow termination fix)
+- **Previous Commits**:
+  - `fd5904b` (Bug Fix #3: Recursion limit configuration)
+  - `bd10774` (Documentation: Session continuation guide)
+  - `13b5c48` (Bug Fix #1: IntentClassification.to_dict())
+  - `3c43106` (Phase 5-1 완료 문서)
+  - `3f8f349` (Phase 5-1 구현)
 
 ---
 
