@@ -239,6 +239,25 @@ class AgenticApp(App):
                     # ✅ NEW: Also show in chat for visibility
                     chat.add_status(update.message)
 
+                elif update.type == "llm_response":
+                    # ✅ NEW: Display LLM response preview
+                    response_preview = update.data.get("response_preview", "")
+                    if response_preview:
+                        chat.add_status(f"🤖 AI: {response_preview[:150]}...")
+                        log.add_log("debug", f"LLM Response: {response_preview[:200]}")
+
+                    # Display thinking if available (CoT)
+                    thinking = update.data.get("thinking", "")
+                    if thinking:
+                        cot_viewer.add_thinking(thinking, update.data.get("iteration", 0))
+
+                elif update.type == "action_decided":
+                    # ✅ NEW: Display action decided by LLM
+                    action = update.data.get("action", "UNKNOWN")
+                    iteration = update.data.get("iteration", 0)
+                    chat.add_status(f"💡 Decision [{iteration}]: {action}")
+                    log.add_log("info", f"Action decided: {action}")
+
                 elif update.type == "cot":
                     # Display Chain-of-Thought
                     step = update.data.get("step", 0)

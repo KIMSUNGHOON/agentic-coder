@@ -197,6 +197,16 @@ Respond with ONLY JSON.
             response = await self.call_llm(messages, temperature=0.2)
             logger.debug(f"LLM response: {response[:200]}...")
 
+            # Store LLM response in state for UI display
+            if "llm_responses" not in state["context"]:
+                state["context"]["llm_responses"] = []
+            state["context"]["llm_responses"].append({
+                "iteration": state["iteration"],
+                "node": "execute",
+                "response": response[:500],  # First 500 chars for preview
+                "full_response": response
+            })
+
             # Parse and execute
             try:
                 if "```json" in response:
@@ -206,6 +216,13 @@ Respond with ONLY JSON.
 
                 action = json.loads(json_str)
                 action_name = action.get("action", "UNKNOWN")
+
+                # Store action decision in state for UI display
+                state["context"]["last_action"] = {
+                    "action": action_name,
+                    "iteration": state["iteration"],
+                    "details": action
+                }
 
                 # Log what action we're executing
                 logger.info(f"🔧 Executing action: {action_name}")

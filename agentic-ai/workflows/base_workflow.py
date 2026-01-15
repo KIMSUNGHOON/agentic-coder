@@ -672,6 +672,37 @@ Example: 0.75
                     status = node_state.get("task_status", "in_progress")
                     should_continue = node_state.get("should_continue", True)
 
+                    # Check for new LLM responses to display
+                    llm_responses = node_state.get("context", {}).get("llm_responses", [])
+                    if llm_responses and final_state:
+                        # Check if there's a new response since last node
+                        prev_responses = final_state.get("context", {}).get("llm_responses", [])
+                        if len(llm_responses) > len(prev_responses):
+                            # New response available
+                            new_response = llm_responses[-1]
+                            yield {
+                                "type": "llm_response",
+                                "data": {
+                                    "node": node_name,
+                                    "iteration": iteration,
+                                    "response_preview": new_response.get("response", ""),
+                                    "thinking": new_response.get("thinking", "")
+                                }
+                            }
+
+                    # Check for last action decided by LLM
+                    last_action = node_state.get("context", {}).get("last_action")
+                    if last_action:
+                        yield {
+                            "type": "action_decided",
+                            "data": {
+                                "node": node_name,
+                                "iteration": iteration,
+                                "action": last_action.get("action"),
+                                "details": last_action
+                            }
+                        }
+
                     # Yield node event with detailed information
                     yield {
                         "type": "node_executed",
