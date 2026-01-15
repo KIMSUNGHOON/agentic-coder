@@ -72,14 +72,14 @@ tools:
 
     # Dangerous commands blocked
     command_denylist:
-      - rm -rf /
-      - rm -rf /*
-      - dd if=
+      - "rm -rf /"
+      - "rm -rf /*"
+      - "dd if="
       - mkfs
       - fdisk
-      - :(){ :|:& };:  # Fork bomb
-      - curl | bash
-      - wget | sh
+      - ":(){ :|:& };:"  # Fork bomb (quoted to prevent YAML parsing as dict)
+      - "curl | bash"
+      - "wget | sh"
 
     # Files that cannot be modified
     protected_files:
