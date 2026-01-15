@@ -448,6 +448,16 @@ python -m cli.commands history --limit 20
    - 교훈: 단위 테스트만으로는 부족, 실제 통합 테스트 필요
    - Commit: 0f4376d
 
+6. **KeyError 'completed_steps' in execute_node** (2026-01-15)
+   - 문제: 실제 CLI 실행 시 "Execution failed: 'completed_steps'" KeyError
+   - 원인: completed_steps 초기화가 LLM 호출 후에만 이루어져, early return 시 초기화 누락
+   - 해결:
+     * plan_node 시작 시 context와 completed_steps 즉시 초기화
+     * execute_node에서 방어적 체크 추가
+   - 검증: 35 unit tests + 6 integration tests passed
+   - 교훈: Early return 추가 시 필수 초기화가 건너뛰어지지 않는지 확인 필요
+   - Commit: e463ca4
+
 ### 현재 이슈
 - 없음 (모든 테스트 통과, 모든 버그 수정됨)
 
@@ -457,14 +467,13 @@ python -m cli.commands history --limit 20
 
 - **Main**: (없음, 초기 개발)
 - **Working Branch**: `claude/fix-hardcoded-config-QyiND`
-- **Latest Commit**: `526dc1f` (Documentation: Bug Fix #5)
+- **Latest Commit**: `e463ca4` (Bug Fix #6: completed_steps KeyError)
 - **Previous Commits**:
+  - `9ff9815` (Documentation: Bug Fix #5)
+  - `526dc1f` (Documentation: Bug Fix #5 details)
   - `0f4376d` (Bug Fix #5: Temperature parameter error)
   - `7e79323` (Documentation: Bug Fix #4 details)
   - `c627f75` (Bug Fix #4: Comprehensive workflow termination fix)
-  - `fd5904b` (Bug Fix #3: Recursion limit configuration)
-  - `bd10774` (Documentation: Session continuation guide)
-  - `13b5c48` (Bug Fix #1: IntentClassification.to_dict())
 
 ---
 

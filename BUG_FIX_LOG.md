@@ -1,5 +1,91 @@
 # 버그 수정 로그 (Bug Fix Log)
 
+## Issue #6: KeyError 'completed_steps' in execute_node (2026-01-15)
+
+### 문제 (Problem)
+**유저 피드백**:
+```
+System: Error: Execution failed: 'completed_steps'
+```
+
+실제 CLI 실행 시 발생하는 KeyError.
+
+### 원인 (Root Cause)
+**파일**: `workflows/general_workflow.py:198`
+
+`completed_steps` 초기화가 LLM 호출 **이후**에만 이루어짐:
+
+1. **초기화 위치 문제**: Line 93에서 초기화 - LLM call과 JSON parsing이 성공한 후에만
+2. **Early return 문제**: Greeting detection (line 50-55), JSON parse 실패 (line 105-111) 시 초기화 없이 return
+3. **Execute 노드 에러**: Line 198에서 `state["context"]["completed_steps"].append()` 호출 시 KeyError
+
+**에러 발생 시나리오**:
+```python
+# plan_node에서
+if greeting_detected:
+    return state  # ❌ completed_steps 초기화 안 함
+
+# execute_node에서
+state["context"]["completed_steps"].append(...)  # ❌ KeyError!
+```
+
+### 해결 방법 (Solution)
+
+**1. plan_node 시작 시 즉시 초기화**
+```python
+async def plan_node(self, state: AgenticState) -> AgenticState:
+    try:
+        # Initialize context if needed
+        if "context" not in state:
+            state["context"] = {}
+
+        # Always initialize completed_steps at the start
+        if "completed_steps" not in state["context"]:
+            state["context"]["completed_steps"] = []
+
+        # 이제 어떤 경로로 return해도 안전
+        if greeting_detected:
+            return state  # ✅ completed_steps 이미 초기화됨
+```
+
+**2. execute_node에서 방어적 체크**
+```python
+# Track completed steps (safe access)
+if action_result.get("success"):
+    if "completed_steps" not in state["context"]:
+        state["context"]["completed_steps"] = []
+    state["context"]["completed_steps"].append(action.get("action"))
+```
+
+### 테스트 (Testing)
+```bash
+# 단위 테스트
+python -m pytest tests/ -v
+✅ 35 passed, 1 skipped
+
+# 통합 테스트
+python test_greeting_simple.py
+✅ 6/6 tests passed
+```
+
+### 영향 범위 (Impact)
+- ✅ 모든 early return 경로에서 안전
+- ✅ Greeting detection과 함께 정상 동작
+- ✅ LLM 실패 시에도 completed_steps 접근 가능
+- ✅ GeneralWorkflow만 사용 (다른 workflow 영향 없음)
+
+### 교훈 (Lessons Learned)
+- **초기화 위치**: 중요한 state 필드는 메서드 시작 시 즉시 초기화
+- **Early return**: 모든 early return 경로 고려 필요
+- **방어적 프로그래밍**: 중요 필드는 접근 전에도 체크
+
+### 상태 (Status)
+✅ **Fixed and Verified** (2026-01-15)
+
+**Commit**: e463ca4
+
+---
+
 ## Issue #5: Temperature Parameter Error in call_llm (2026-01-15)
 
 ### 문제 (Problem)
@@ -282,10 +368,21 @@ python3 test_cli_integration.py
 ---
 
 **최종 업데이트**: 2026-01-15
-**총 버그 수정**: 5개
+**총 버그 수정**: 6개
 **현재 알려진 이슈**: 0개
 
 ## 테스트 개선 사항
 이제 실제 통합 테스트를 포함:
 - `test_greeting_simple.py`: Greeting detection 직접 테스트
 - CLI 레벨 테스트 추가 예정
+
+## 패턴 분석
+**실제 CLI 테스트의 중요성**:
+- Bug #5: temperature parameter (단위 테스트 통과, CLI 실행 시 에러)
+- Bug #6: completed_steps KeyError (단위 테스트 통과, CLI 실행 시 에러)
+- 결론: 단위 테스트만으로는 실제 workflow 실행 시 발생하는 에러를 잡을 수 없음
+
+**Early Return 패턴 주의사항**:
+- Bug #4에서 greeting detection 추가 시 early return 사용
+- Bug #6에서 early return 경로가 초기화를 건너뛰는 문제 발견
+- 교훈: Early return 추가 시 필수 초기화가 건너뛰어지지 않는지 확인 필요
