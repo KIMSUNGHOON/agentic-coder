@@ -175,18 +175,29 @@ GIT:
 6. GIT_STATUS: Check git status
    Example: {{"action": "GIT_STATUS"}}
 
-COMPLETION (USE THIS WHEN DONE):
-7. COMPLETE: Task is complete - USE THIS when you have finished all required steps
-   Example: {{"action": "COMPLETE", "summary": "Successfully completed X, Y, and Z"}}
+COMPLETION (ALWAYS USE THIS WHEN DONE):
+7. COMPLETE: Task is complete - **MANDATORY** when you finish
+   Example: {{"action": "COMPLETE", "summary": "Successfully created calculator.py with basic operations"}}
 
-Decision Guide:
-- If completed_steps >= estimated_steps: Use COMPLETE
-- If you answered the user's question: Use COMPLETE
-- If you accomplished the task goal: Use COMPLETE
-- If you have gathered all requested information: Use COMPLETE
-- Otherwise: Choose appropriate tool action
+🚨 CRITICAL DECISION RULES:
+1. For file creation tasks: After WRITE_FILE → Use COMPLETE immediately
+2. For simple tasks: 2-3 tool calls is enough → Use COMPLETE
+3. For questions: After gathering info → Use COMPLETE
+4. If you wrote code successfully → Use COMPLETE
+5. DON'T keep using tools unnecessarily → Use COMPLETE when done
 
-Respond with ONLY JSON.
+✅ GOOD Example (Simple task):
+User: "Create calculator.py"
+Iteration 1: LIST_DIRECTORY (check files)
+Iteration 2: WRITE_FILE (create calculator.py)
+Iteration 3: COMPLETE ← STOP HERE!
+
+❌ BAD Example:
+Iteration 3: READ_FILE (why? already done!)
+Iteration 4: WRITE_FILE again (unnecessary!)
+Iteration 5-50: Keep repeating tools (WRONG!)
+
+**Respond with ONLY JSON. Use COMPLETE action if task is finished.**
 """
 
             messages = [
@@ -434,44 +445,69 @@ Respond with ONLY JSON.
                     logger.warning(f"⚠️  Repeated action detected ({actions[0]}). May be stuck in loop")
                     # Don't stop yet, but warn
 
-            # === Smart continue decision ===
+            # === Smart iteration-based completion ===
 
-            # Calculate if we need to continue based on actual progress
-            steps_remaining = total_steps - len(completed_steps) if total_steps > 0 else 0
+            # Determine task complexity from description
+            task_lower = state['task_description'].lower()
 
-            # Continue conditions (any of these means we should continue):
-            # 1. We have specific steps remaining to complete
-            # 2. We're in early iterations (< 3) and haven't failed yet
-            # 3. We made progress in the last iteration
+            # Simple task indicators
+            simple_indicators = ['create', 'make', 'write', 'add', 'simple', 'basic', 'hello', 'calculator']
+            is_simple_task = any(indicator in task_lower for indicator in simple_indicators)
 
-            should_continue_reasons = []
+            # Complex task indicators
+            complex_indicators = ['refactor', 'optimize', 'migrate', 'architecture', 'system', 'framework']
+            is_complex_task = any(indicator in task_lower for indicator in complex_indicators)
 
-            if steps_remaining > 0:
-                should_continue_reasons.append(f"{steps_remaining} steps remaining")
+            # Set iteration limits based on task type
+            if is_simple_task:
+                soft_limit = 5
+                hard_limit = 10
+            elif is_complex_task:
+                soft_limit = 15
+                hard_limit = 25
+            else:
+                soft_limit = 10
+                hard_limit = 20
 
-            if state['iteration'] < 3 and len(completed_steps) == 0:
-                should_continue_reasons.append("early iteration, still planning")
+            # Check tool calls for actual progress
+            tool_calls = state.get("tool_calls", [])
+            recent_tools = [call.get("action") for call in tool_calls[-5:]]
 
-            # Check if we made progress in last iteration (new step completed)
-            prev_completed = len(state.get("_prev_completed_steps", []))
-            curr_completed = len(completed_steps)
-            if curr_completed > prev_completed:
-                should_continue_reasons.append("made progress in last iteration")
-
-            # Store current completed steps for next iteration comparison
-            state["_prev_completed_steps"] = completed_steps.copy()
-
-            # Decision: Continue if we have any reason to
-            if should_continue_reasons:
-                logger.info(f"🔄 Continuing: {', '.join(should_continue_reasons)} (iteration {state['iteration']}/{state['max_iterations']})")
-                state["should_continue"] = True
+            # Force completion conditions:
+            # 1. Exceeded hard limit
+            if state['iteration'] >= hard_limit:
+                logger.warning(f"⚠️  Hard limit reached ({hard_limit} iterations)")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = (
+                    f"Task completed after {state['iteration']} iterations. "
+                    f"Executed {len(tool_calls)} tool calls. "
+                    f"Consider breaking down into smaller tasks if incomplete."
+                )
+                state["should_continue"] = False
                 return state
 
-            # No reason to continue - complete the task
-            logger.info(f"✅ Stopping: No more work needed (completed {len(completed_steps)}/{total_steps} steps)")
-            state["task_status"] = TaskStatus.COMPLETED.value
-            state["task_result"] = f"Task completed after {state['iteration']} iterations. Completed: {', '.join(completed_steps) if completed_steps else 'Planning/analysis'}"
-            state["should_continue"] = False
+            # 2. Past soft limit with no recent tool activity
+            if state['iteration'] >= soft_limit:
+                if len(recent_tools) < 2:
+                    logger.info(f"✅ Soft limit reached with minimal activity - completing task")
+                    state["task_status"] = TaskStatus.COMPLETED.value
+                    state["task_result"] = f"Task completed after {state['iteration']} iterations with {len(tool_calls)} actions"
+                    state["should_continue"] = False
+                    return state
+                else:
+                    logger.warning(f"⚠️  Soft limit exceeded ({soft_limit}), but still active. Will stop at hard limit ({hard_limit})")
+
+            # 3. Stuck in loop (same tool 4+ times in a row)
+            if len(recent_tools) >= 4 and len(set(recent_tools[-4:])) == 1:
+                logger.warning(f"⚠️  Stuck in loop with repeated {recent_tools[-1]} calls")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Task stopped: Detected loop pattern after {state['iteration']} iterations"
+                state["should_continue"] = False
+                return state
+
+            # Continue: Still within limits
+            logger.info(f"🔄 Continuing iteration {state['iteration']}/{hard_limit} (soft limit: {soft_limit})")
+            state["should_continue"] = True
             return state
 
         except Exception as e:
