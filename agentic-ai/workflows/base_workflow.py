@@ -726,13 +726,19 @@ Example: 0.75
                         result_data = last_tool.get("result", {})
                         error_msg = result_data.get("error", "Unknown error") if not last_tool.get("success") else None
 
+                        # Extract actual parameters from action_details
+                        action_details = last_tool.get("action_details", {})
+                        # action_details is {"action": "WRITE_FILE", "parameters": {"file_path": "...", "content": "..."}}
+                        actual_params = action_details.get("parameters", action_details)
+
                         yield {
                             "type": "tool_executed",
                             "data": {
                                 "node": node_name,
                                 "iteration": iteration,
                                 "tool": last_tool.get("action"),
-                                "params": last_tool.get("action_details", {}),
+                                "params": actual_params,  # Send extracted parameters directly
+                                "action_details": action_details,  # Also send full action for reference
                                 "success": last_tool.get("success", False),
                                 "result": result_data,
                                 "error": error_msg

@@ -292,20 +292,22 @@ class AgenticApp(App):
                 elif update.type == "tool_executed":
                     # Display tool execution details with full error information
                     tool = update.data.get("tool", "UNKNOWN")
-                    params_raw = update.data.get("params", {})
+                    params = update.data.get("params", {})  # Now contains actual parameters directly from workflow
                     success = update.data.get("success", False)
                     result = update.data.get("result", {})
                     error = update.data.get("error")
                     iteration = update.data.get("iteration", 0)
 
-                    # IMPORTANT: params_raw is the full action object: {"action": "...", "parameters": {...}}
-                    # Extract actual parameters from "parameters" key
-                    params = params_raw.get("parameters", params_raw)
-
                     # DEBUG: Log the full event data for troubleshooting
-                    log.add_log("debug", f"Tool executed event - tool: {tool}, success: {success}")
+                    log.add_log("debug", f"[TOOL] {tool} - success={success}, iteration={iteration}")
                     log.add_log("debug", f"  params keys: {list(params.keys())}")
                     log.add_log("debug", f"  result keys: {list(result.keys())}")
+
+                    # For WRITE_FILE, log content availability
+                    if tool == "WRITE_FILE":
+                        has_content = 'content' in params
+                        content_len = len(params.get('content', ''))
+                        log.add_log("debug", f"  WRITE_FILE has_content={has_content}, content_len={content_len}")
 
                     # Format parameters for display
                     param_str = ""
@@ -370,23 +372,30 @@ class AgenticApp(App):
                             # Show absolute path in chat status for user clarity
                             chat.add_status(f"   📁 Full path: {absolute_path}")
 
+                            log.add_log("info", f"🎨 DISPLAYING FILE CONTENT IN CHAT...")
+
                             # Display with new method (full content with line numbers)
-                            chat.add_file_content(
-                                file_path=file_path,  # Use relative path for cleaner display
-                                content=content,
-                                status=status_type,
-                                display_mode="full",  # Show full content
-                            )
-                            log.add_log("info", f"✅ File written and displayed: {file_path}")
-                            log.add_log("info", f"   Location: {absolute_path}")
-                            log.add_log("info", f"   Size: {file_bytes} bytes ({file_lines} lines)")
+                            try:
+                                chat.add_file_content(
+                                    file_path=file_path,  # Use relative path for cleaner display
+                                    content=content,
+                                    status=status_type,
+                                    display_mode="full",  # Show full content
+                                )
+                                log.add_log("info", f"✅ File content displayed in chat: {file_path}")
+                                log.add_log("info", f"   📁 Location: {absolute_path}")
+                                log.add_log("info", f"   📊 Size: {file_bytes} bytes ({file_lines} lines)")
+                            except Exception as e:
+                                log.add_log("error", f"❌ Failed to display file content: {e}")
+                                chat.add_status(f"   ❌ Error displaying file: {str(e)}")
                         else:
                             # WARNING: No content found
-                            log.add_log("warning", f"⚠️ WRITE_FILE completed but no content found")
-                            log.add_log("warning", f"   file_path={file_path}, content_length={len(content) if content else 0}")
-                            chat.add_status(f"   ⚠️ File written but content not available: {file_path}")
-                            if absolute_path:
-                                chat.add_status(f"   📁 Location: {absolute_path}")
+                            log.add_log("error", f"❌ WRITE_FILE: No content to display!")
+                            log.add_log("error", f"   file_path={file_path!r}, has_content={bool(content)}, content_len={len(content) if content else 0}")
+
+                            chat.add_status(f"   ❌ ERROR: File written but no content available for display")
+                            chat.add_status(f"   📁 Location: {absolute_path}")
+                            chat.add_status(f"   ⚠️  This is a bug - file was written but content not captured")
 
                     # Show file content for READ_FILE using new method
                     elif tool == "READ_FILE" and success:
@@ -405,6 +414,74 @@ class AgenticApp(App):
                                 display_mode="preview",  # Preview mode (first 10 lines)
                             )
                             log.add_log("info", f"📖 File read: {file_path} ({len(content)} chars, preview shown)")
+
+                    # Show directory listing as file browser
+                    elif tool == "LIST_DIRECTORY" and success:
+                        dir_path = params.get('path', '.')
+                        output = result.get("output", "")
+
+                        if output:
+                            # Parse directory listing
+                            lines = output.strip().split('\n')
+
+                            from rich.text import Text
+                            from rich.panel import Panel
+
+                            browser_text = Text()
+                            browser_text.append(f"📂 Directory: {dir_path}\n\n", style="bold cyan")
+
+                            # Categorize files
+                            dirs = []
+                            files = []
+
+                            for line in lines:
+                                line = line.strip()
+                                if not line or line == dir_path:
+                                    continue
+
+                                # Check if it's a directory (ends with /)
+                                if line.endswith('/'):
+                                    dirs.append(line[:-1])
+                                else:
+                                    files.append(line)
+
+                            # Display directories first
+                            if dirs:
+                                browser_text.append("📁 Directories:\n", style="bold yellow")
+                                for d in sorted(dirs):
+                                    browser_text.append(f"  📁 {d}/\n", style="yellow")
+                                browser_text.append("\n")
+
+                            # Display files
+                            if files:
+                                browser_text.append("📄 Files:\n", style="bold green")
+                                for f in sorted(files):
+                                    # Detect file type by extension
+                                    if f.endswith('.py'):
+                                        icon = "🐍"
+                                    elif f.endswith(('.js', '.ts', '.jsx', '.tsx')):
+                                        icon = "📜"
+                                    elif f.endswith(('.json', '.yaml', '.yml')):
+                                        icon = "⚙️"
+                                    elif f.endswith(('.md', '.txt')):
+                                        icon = "📝"
+                                    else:
+                                        icon = "📄"
+
+                                    browser_text.append(f"  {icon} {f}\n", style="green")
+
+                            # Show total count
+                            browser_text.append(f"\n📊 Total: {len(dirs)} directories, {len(files)} files", style="dim")
+
+                            chat.write(Panel(
+                                browser_text,
+                                title="📂 File Browser",
+                                title_align="left",
+                                border_style="cyan",
+                                padding=(1, 2),
+                            ))
+
+                            log.add_log("info", f"📂 Directory listing shown: {dir_path} ({len(dirs)} dirs, {len(files)} files)")
 
                     # Show detailed error if failed
                     if not success:
