@@ -239,15 +239,21 @@ Respond with ONLY JSON.
                 else:
                     logger.warning(f"⚠️  Action {action_name} failed: {action_result.get('error', 'Unknown error')}")
 
-                # Store result
+                # Store result with detailed info for UI display
                 if "tool_calls" not in state:
                     state["tool_calls"] = []
 
-                state["tool_calls"].append({
+                tool_call_info = {
                     "action": action.get("action"),
+                    "action_details": action,  # Include parameters
                     "result": action_result,
                     "iteration": state["iteration"],
-                })
+                    "success": action_result.get("success", False),
+                }
+                state["tool_calls"].append(tool_call_info)
+
+                # Store last tool execution for UI streaming
+                state["context"]["last_tool_execution"] = tool_call_info
 
                 # Track completed steps (safe access)
                 if action_result.get("success"):
@@ -428,18 +434,43 @@ Respond with ONLY JSON.
                     logger.warning(f"⚠️  Repeated action detected ({actions[0]}). May be stuck in loop")
                     # Don't stop yet, but warn
 
-            # === Continue decision ===
+            # === Smart continue decision ===
 
-            # If we've made some progress and haven't hit limits, continue
-            if len(completed_steps) > 0 or state['iteration'] < 3:
-                logger.info(f"🔄 Continuing to next iteration (current: {state['iteration']}/{state['max_iterations']})")
+            # Calculate if we need to continue based on actual progress
+            steps_remaining = total_steps - len(completed_steps) if total_steps > 0 else 0
+
+            # Continue conditions (any of these means we should continue):
+            # 1. We have specific steps remaining to complete
+            # 2. We're in early iterations (< 3) and haven't failed yet
+            # 3. We made progress in the last iteration
+
+            should_continue_reasons = []
+
+            if steps_remaining > 0:
+                should_continue_reasons.append(f"{steps_remaining} steps remaining")
+
+            if state['iteration'] < 3 and len(completed_steps) == 0:
+                should_continue_reasons.append("early iteration, still planning")
+
+            # Check if we made progress in last iteration (new step completed)
+            prev_completed = len(state.get("_prev_completed_steps", []))
+            curr_completed = len(completed_steps)
+            if curr_completed > prev_completed:
+                should_continue_reasons.append("made progress in last iteration")
+
+            # Store current completed steps for next iteration comparison
+            state["_prev_completed_steps"] = completed_steps.copy()
+
+            # Decision: Continue if we have any reason to
+            if should_continue_reasons:
+                logger.info(f"🔄 Continuing: {', '.join(should_continue_reasons)} (iteration {state['iteration']}/{state['max_iterations']})")
                 state["should_continue"] = True
                 return state
 
-            # Otherwise, stop to avoid wasting iterations
-            logger.warning(f"⚠️  Stopping after {state['iteration']} iterations with minimal progress")
+            # No reason to continue - complete the task
+            logger.info(f"✅ Stopping: No more work needed (completed {len(completed_steps)}/{total_steps} steps)")
             state["task_status"] = TaskStatus.COMPLETED.value
-            state["task_result"] = f"Task completed after {state['iteration']} iterations. Progress: {len(completed_steps)}/{total_steps} steps"
+            state["task_result"] = f"Task completed after {state['iteration']} iterations. Completed: {', '.join(completed_steps) if completed_steps else 'Planning/analysis'}"
             state["should_continue"] = False
             return state
 

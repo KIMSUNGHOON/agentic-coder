@@ -219,8 +219,8 @@ class AgenticApp(App):
             log.add_log("info", f"Session created: {self.session_id[:8]}")
             self.session_active = True
 
-        # Update status
-        status.update_status("Processing...", "working")
+        # Update status (use 'healthy' not 'working')
+        status.update_status("Processing...", "healthy")
         progress.start_task("Analyzing task...")
 
         try:
@@ -257,6 +257,36 @@ class AgenticApp(App):
                     iteration = update.data.get("iteration", 0)
                     chat.add_status(f"💡 Decision [{iteration}]: {action}")
                     log.add_log("info", f"Action decided: {action}")
+
+                elif update.type == "tool_executed":
+                    # ✅ NEW: Display tool execution details
+                    tool = update.data.get("tool", "UNKNOWN")
+                    params = update.data.get("params", {})
+                    success = update.data.get("success", False)
+                    result = update.data.get("result", {})
+                    iteration = update.data.get("iteration", 0)
+
+                    # Format parameters for display
+                    param_str = ""
+                    if tool == "READ_FILE":
+                        param_str = f"({params.get('file_path', 'N/A')})"
+                    elif tool == "WRITE_FILE":
+                        param_str = f"({params.get('file_path', 'N/A')})"
+                    elif tool == "RUN_COMMAND":
+                        param_str = f"('{params.get('command', 'N/A')}')"
+                    elif tool == "LIST_DIRECTORY":
+                        param_str = f"({params.get('path', '.')})"
+                    elif tool == "SEARCH_FILES":
+                        param_str = f"(pattern: '{params.get('pattern', '*')}')"
+
+                    status_icon = "✅" if success else "❌"
+                    chat.add_status(f"🔧 Executing [{iteration}]: {tool}{param_str} {status_icon}")
+                    log.add_log("info", f"Tool executed: {tool} - {'Success' if success else 'Failed'}")
+
+                    # Show error if failed
+                    if not success and result.get("error"):
+                        error_msg = result.get("error", "Unknown error")[:100]
+                        chat.add_status(f"   ⚠️ Error: {error_msg}")
 
                 elif update.type == "cot":
                     # Display Chain-of-Thought
