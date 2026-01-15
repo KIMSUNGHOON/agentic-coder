@@ -285,6 +285,59 @@ agentic status
 - Chat panel in sidebar
 - Command palette integration
 
+## Bug Fixes (2026-01-15)
+
+### Issue #1: Missing to_dict() Method
+**Problem**: `AttributeError: 'IntentClassification' object has no attribute 'to_dict'`
+
+**Location**: `workflows/orchestrator.py:231`
+```python
+# Line 231 was calling:
+"classification": classification.to_dict() if classification else None,
+```
+
+**Root Cause**: `IntentClassification` dataclass in `core/router.py` was missing the `to_dict()` method.
+
+**Solution**: Added `to_dict()` method to `IntentClassification` class:
+```python
+@dataclass
+class IntentClassification:
+    domain: WorkflowDomain
+    confidence: float
+    reasoning: str
+    requires_sub_agents: bool = False
+    estimated_complexity: str = "medium"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "domain": self.domain.value,
+            "confidence": self.confidence,
+            "reasoning": self.reasoning,
+            "requires_sub_agents": self.requires_sub_agents,
+            "estimated_complexity": self.estimated_complexity,
+        }
+```
+
+**Testing**:
+```bash
+python3 -c "from core.router import IntentClassification, WorkflowDomain; ..."
+✅ to_dict method works!
+```
+
+**Status**: ✅ Fixed and verified
+
+### Issue #2: YAML Config Parsing Error (Already Fixed)
+**Problem**: Fork bomb pattern `:(){ :|:& };:` was parsed as dictionary
+
+**Solution**: Quoted the string in `config/config.yaml`:
+```yaml
+command_denylist:
+  - ":(){ :|:& };:"  # Fork bomb (quoted to prevent YAML parsing as dict)
+```
+
+**Status**: ✅ Fixed
+
 ## Verification Checklist
 
 - ✅ All components implemented
@@ -293,6 +346,7 @@ agentic status
 - ✅ CoT parsing validated
 - ✅ Security enforced
 - ✅ Tests passing (2/2)
+- ✅ Bug fixes verified (to_dict, YAML parsing)
 - ✅ Documentation complete
 - ✅ Code committed
 - ✅ Changes pushed to remote

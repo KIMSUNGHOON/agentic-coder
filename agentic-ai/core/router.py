@@ -38,6 +38,20 @@ class IntentClassification:
     requires_sub_agents: bool = False
     estimated_complexity: str = "medium"  # low, medium, high
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization
+
+        Returns:
+            Dictionary representation
+        """
+        return {
+            "domain": self.domain.value,
+            "confidence": self.confidence,
+            "reasoning": self.reasoning,
+            "requires_sub_agents": self.requires_sub_agents,
+            "estimated_complexity": self.estimated_complexity,
+        }
+
 
 class IntentRouter:
     """Multi-domain intent classifier and router
