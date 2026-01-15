@@ -352,7 +352,11 @@ Respond with ONLY JSON.
             completed_steps = state["context"].get("completed_steps", [])
             plan = state["context"].get("plan", {})
             total_steps = plan.get("estimated_steps", len(plan.get("steps", [])))
+            task_type = plan.get("task_type", "unknown")
 
+            # === Early completion checks ===
+
+            # 1. Check if all steps are done
             if len(completed_steps) > 0:
                 logger.info(f"✅ Progress: {len(completed_steps)}/{total_steps} steps completed")
                 logger.debug(f"   Completed steps: {completed_steps}")
@@ -369,16 +373,57 @@ Respond with ONLY JSON.
                 remaining = state['max_iterations'] - state['iteration']
                 if remaining <= 5 and len(completed_steps) < total_steps:
                     logger.warning(f"⚠️  Only {remaining} iterations left! Progress: {len(completed_steps)}/{total_steps}")
-            else:
-                logger.info(f"⏳ Working on task... (0/{total_steps} steps completed)")
 
-                # If no progress after 10 iterations, something is wrong
-                if state['iteration'] >= 10:
-                    logger.warning(f"⚠️  No progress after {state['iteration']} iterations. Task may be stuck")
+            # 2. Conversational/simple tasks: Complete after 1-3 iterations
+            if task_type == "conversational" and state['iteration'] >= 1:
+                logger.info(f"💬 Conversational task completed after {state['iteration']} iteration(s)")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "Conversational task completed"
+                state["should_continue"] = False
+                return state
 
-            # Continue to next iteration
-            logger.info(f"🔄 Continuing to next iteration (current: {state['iteration']}/{state['max_iterations']})")
-            state["should_continue"] = True
+            # 3. If no progress after 5 iterations, likely stuck or task is too vague
+            if len(completed_steps) == 0 and state['iteration'] >= 5:
+                logger.warning(f"⚠️  No progress after {state['iteration']} iterations. Completing with partial results")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = (
+                    f"Task completed with limited progress after {state['iteration']} iterations. "
+                    "This may indicate the task needs to be more specific or broken down into smaller parts."
+                )
+                state["should_continue"] = False
+                return state
+
+            # 4. Check for repeated failures
+            recent_tool_calls = state.get("tool_calls", [])[-5:]  # Last 5 calls
+            if len(recent_tool_calls) >= 5:
+                failed_count = sum(1 for call in recent_tool_calls if not call.get("result", {}).get("success"))
+                if failed_count >= 4:  # 4 out of 5 failed
+                    logger.warning(f"⚠️  Multiple tool failures detected. Stopping to avoid infinite loop")
+                    state["task_status"] = TaskStatus.FAILED.value
+                    state["task_error"] = "Task stopped due to repeated tool failures"
+                    state["should_continue"] = False
+                    return state
+
+            # 5. Detect repeated actions (stuck in loop)
+            if len(recent_tool_calls) >= 3:
+                actions = [call.get("action") for call in recent_tool_calls[-3:]]
+                if len(set(actions)) == 1:  # Same action 3 times in a row
+                    logger.warning(f"⚠️  Repeated action detected ({actions[0]}). May be stuck in loop")
+                    # Don't stop yet, but warn
+
+            # === Continue decision ===
+
+            # If we've made some progress and haven't hit limits, continue
+            if len(completed_steps) > 0 or state['iteration'] < 3:
+                logger.info(f"🔄 Continuing to next iteration (current: {state['iteration']}/{state['max_iterations']})")
+                state["should_continue"] = True
+                return state
+
+            # Otherwise, stop to avoid wasting iterations
+            logger.warning(f"⚠️  Stopping after {state['iteration']} iterations with minimal progress")
+            state["task_status"] = TaskStatus.COMPLETED.value
+            state["task_result"] = f"Task completed after {state['iteration']} iterations. Progress: {len(completed_steps)}/{total_steps} steps"
+            state["should_continue"] = False
             return state
 
         except Exception as e:
