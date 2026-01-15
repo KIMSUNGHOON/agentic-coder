@@ -440,10 +440,21 @@ Iteration 5-50: Keep repeating tools (WRONG!)
                 recent_5 = tool_calls[-5:]
                 failed = sum(1 for call in recent_5 if not call.get("success", False))
                 if failed >= 4:
+                    # Collect detailed failure information
+                    failed_tools = []
+                    for call in recent_5:
+                        if not call.get("success", False):
+                            tool_name = call.get("action", "UNKNOWN")
+                            error = call.get("result", {}).get("error", "No error message")
+                            failed_tools.append(f"{tool_name}: {error}")
+
+                    failure_details = "\n".join(failed_tools)
                     logger.warning(f"❌ Multiple failures: {failed}/5")
+                    logger.warning(f"Failed tools:\n{failure_details}")
+
                     state["task_status"] = TaskStatus.FAILED.value
                     state["task_error"] = f"Task failed: {failed} out of 5 recent tool calls failed"
-                    state["task_result"] = f"Task failed after {state['iteration']} iterations due to repeated failures"
+                    state["task_result"] = f"Task failed after {state['iteration']} iterations due to repeated failures:\n\n{failure_details}"
                     state["should_continue"] = False
                     return state
 

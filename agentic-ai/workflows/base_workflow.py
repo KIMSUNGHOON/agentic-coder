@@ -705,22 +705,23 @@ Example: 0.75
 
                     # Check for last tool execution to display
                     last_tool = node_state.get("context", {}).get("last_tool_execution")
-                    if last_tool and final_state:
-                        # Check if this is a new tool execution (not already shown)
-                        prev_tools = final_state.get("tool_calls", [])
-                        curr_tools = node_state.get("tool_calls", [])
-                        if len(curr_tools) > len(prev_tools):
-                            yield {
-                                "type": "tool_executed",
-                                "data": {
-                                    "node": node_name,
-                                    "iteration": iteration,
-                                    "tool": last_tool.get("action"),
-                                    "params": last_tool.get("action_details", {}),
-                                    "success": last_tool.get("success", False),
-                                    "result": last_tool.get("result", {})
-                                }
+                    if last_tool:
+                        # Always show tool execution immediately
+                        result_data = last_tool.get("result", {})
+                        error_msg = result_data.get("error", "Unknown error") if not last_tool.get("success") else None
+
+                        yield {
+                            "type": "tool_executed",
+                            "data": {
+                                "node": node_name,
+                                "iteration": iteration,
+                                "tool": last_tool.get("action"),
+                                "params": last_tool.get("action_details", {}),
+                                "success": last_tool.get("success", False),
+                                "result": result_data,
+                                "error": error_msg
                             }
+                        }
 
                     # Yield node event with detailed information
                     yield {

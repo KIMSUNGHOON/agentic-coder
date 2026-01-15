@@ -240,11 +240,15 @@ class AgenticApp(App):
                     chat.add_status(update.message)
 
                 elif update.type == "llm_response":
-                    # ✅ NEW: Display LLM response preview
+                    # Display LLM response with more detail
                     response_preview = update.data.get("response_preview", "")
                     if response_preview:
-                        chat.add_status(f"🤖 AI: {response_preview[:150]}...")
-                        log.add_log("debug", f"LLM Response: {response_preview[:200]}")
+                        # Show more of the response (300 chars instead of 150)
+                        preview_text = response_preview[:300]
+                        if len(response_preview) > 300:
+                            preview_text += "..."
+                        chat.add_status(f"🤖 AI Response: {preview_text}")
+                        log.add_log("debug", f"LLM Full Response: {response_preview}")
 
                     # Display thinking if available (CoT)
                     thinking = update.data.get("thinking", "")
@@ -259,11 +263,12 @@ class AgenticApp(App):
                     log.add_log("info", f"Action decided: {action}")
 
                 elif update.type == "tool_executed":
-                    # ✅ NEW: Display tool execution details
+                    # Display tool execution details with full error information
                     tool = update.data.get("tool", "UNKNOWN")
                     params = update.data.get("params", {})
                     success = update.data.get("success", False)
                     result = update.data.get("result", {})
+                    error = update.data.get("error")
                     iteration = update.data.get("iteration", 0)
 
                     # Format parameters for display
@@ -278,15 +283,21 @@ class AgenticApp(App):
                         param_str = f"({params.get('path', '.')})"
                     elif tool == "SEARCH_FILES":
                         param_str = f"(pattern: '{params.get('pattern', '*')}')"
+                    elif tool == "GIT_STATUS":
+                        param_str = ""
 
                     status_icon = "✅" if success else "❌"
-                    chat.add_status(f"🔧 Executing [{iteration}]: {tool}{param_str} {status_icon}")
-                    log.add_log("info", f"Tool executed: {tool} - {'Success' if success else 'Failed'}")
 
-                    # Show error if failed
-                    if not success and result.get("error"):
-                        error_msg = result.get("error", "Unknown error")[:100]
-                        chat.add_status(f"   ⚠️ Error: {error_msg}")
+                    # Show tool execution in Chat
+                    chat.add_status(f"🔧 Tool [{iteration}]: {tool}{param_str} {status_icon}")
+                    log.add_log("info", f"Tool: {tool} - {'Success' if success else 'Failed'}")
+
+                    # Show detailed error if failed
+                    if not success:
+                        error_detail = error or result.get("error", "Unknown error")
+                        # Show full error in Chat for debugging
+                        chat.add_status(f"   ❌ ERROR: {error_detail}")
+                        log.add_log("error", f"Tool failure detail: {error_detail}")
 
                 elif update.type == "cot":
                     # Display Chain-of-Thought
