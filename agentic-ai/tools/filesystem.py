@@ -197,7 +197,20 @@ class FileSystemTools:
 
             # Create parent directories
             if create_dirs:
-                file_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                except PermissionError:
+                    return ToolResult(
+                        success=False,
+                        output=None,
+                        error=f"Permission denied creating directory: {file_path.parent}"
+                    )
+                except OSError as e:
+                    return ToolResult(
+                        success=False,
+                        output=None,
+                        error=f"Failed to create directory: {file_path.parent} - {str(e)}"
+                    )
             elif not file_path.parent.exists():
                 return ToolResult(
                     success=False,
@@ -206,8 +219,21 @@ class FileSystemTools:
                 )
 
             # Write file
-            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
-                await f.write(content)
+            try:
+                async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                    await f.write(content)
+            except PermissionError:
+                return ToolResult(
+                    success=False,
+                    output=None,
+                    error=f"Permission denied writing file: {path}"
+                )
+            except OSError as e:
+                return ToolResult(
+                    success=False,
+                    output=None,
+                    error=f"Failed to write file: {path} - {str(e)}"
+                )
 
             size_bytes = len(content.encode('utf-8'))
             size_kb = size_bytes / 1024
@@ -225,15 +251,10 @@ class FileSystemTools:
                 }
             )
 
-        except PermissionError:
-            return ToolResult(
-                success=False,
-                output=None,
-                error=f"Permission denied: {path}"
-            )
         except Exception as e:
-            logger.error(f"Error writing file {path}: {e}")
-            return ToolResult(success=False, output=None, error=str(e))
+            # Catch any remaining exceptions (should be rare after specific handling above)
+            logger.error(f"Unexpected error writing file {path}: {e}")
+            return ToolResult(success=False, output=None, error=f"Unexpected error: {str(e)}")
 
     async def list_directory(
         self,

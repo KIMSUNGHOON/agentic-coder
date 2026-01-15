@@ -243,7 +243,13 @@ class CodingWorkflow(BaseWorkflow):
                 if not file_path:
                     return {"success": False, "error": "Missing file_path parameter"}
                 result = await self.fs_tools.read_file(file_path)
-                return {"success": result.success, "content": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "output": result.output,  # File content
+                    "content": result.output,  # Alias for backward compatibility
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') else {}
+                }
 
             elif action_type == "SEARCH_CODE":
                 pattern = params.get("pattern")
@@ -251,7 +257,13 @@ class CodingWorkflow(BaseWorkflow):
                     return {"success": False, "error": "Missing pattern parameter"}
                 file_pattern = params.get("file_pattern", "*.py")
                 result = await self.search_tools.grep(pattern, file_pattern)
-                return {"success": result.success, "matches": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "matches": result.output,
+                    "output": result.output,  # Alias
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') else {}
+                }
 
             elif action_type == "WRITE_FILE":
                 file_path = params.get("file_path")
@@ -267,20 +279,58 @@ class CodingWorkflow(BaseWorkflow):
                 # Log result clearly
                 if result.success:
                     logger.info(f"✅ File written successfully: {file_path}")
+                    logger.info(f"   Metadata: {result.metadata}")
                 else:
                     logger.error(f"❌ Failed to write file: {result.error}")
 
-                return {"success": result.success, "message": result.output, "error": result.error}
+                # CRITICAL: Include metadata for UI display (absolute path, file size, etc.)
+                return {
+                    "success": result.success,
+                    "message": result.output,
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') else {}
+                }
+
+            elif action_type == "LIST_DIRECTORY":
+                # CRITICAL: This was missing - file browser didn't work!
+                dir_path = params.get("path", ".")
+                recursive = params.get("recursive", False)
+
+                logger.info(f"📂 Listing directory: {dir_path} (recursive={recursive})")
+                result = await self.fs_tools.list_directory(dir_path, recursive=recursive)
+
+                if result.success:
+                    logger.info(f"✅ Listed {len(result.output) if result.output else 0} entries")
+                else:
+                    logger.error(f"❌ Failed to list directory: {result.error}")
+
+                return {
+                    "success": result.success,
+                    "output": result.output,  # List of entries
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') else {}
+                }
 
             elif action_type == "RUN_TESTS":
                 test_path = params.get("test_path", "tests/")
                 command = f"pytest {test_path} -v"
                 result = await self.process_tools.execute_command(command, timeout=120)
-                return {"success": result.success, "output": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "output": result.output,
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') else {}
+                }
 
             elif action_type == "GIT_STATUS":
                 result = await self.git_tools.status()
-                return {"success": result.success, "status": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "status": result.output,
+                    "output": result.output,  # Alias
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') else {}
+                }
 
             elif action_type == "COMPLETE":
                 summary = params.get("summary", "Task completed")
