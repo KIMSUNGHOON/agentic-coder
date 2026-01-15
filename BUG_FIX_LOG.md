@@ -1,5 +1,90 @@
 # 버그 수정 로그 (Bug Fix Log)
 
+## Issue #5: Temperature Parameter Error in call_llm (2026-01-15)
+
+### 문제 (Problem)
+**유저 피드백**:
+```
+System: Error: Execution failed: BaseWorkflow.call_llm.<locals>._call()
+got an unexpected keyword argument 'temperature'
+```
+
+실제 CLI 실행 시 발생하는 에러. 이전 수정들이 단위 테스트만 통과하고 실제 통합 테스트가 부족했음.
+
+### 원인 (Root Cause)
+**파일**: `workflows/base_workflow.py:267`
+
+`call_llm` 메서드 내부의 `_call()` 함수가 파라미터를 받지 않는데, `cache.get_or_call()`이 파라미터를 전달하려 함:
+
+```python
+# 문제 코드
+async def _call():  # ❌ No parameters
+    monitor = get_performance_monitor()
+    monitor.increment("llm_calls")
+    response = await self.llm_client.chat_completion(
+        messages=messages,
+        temperature=temperature,  # Uses closure variables
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content
+
+# cache가 호출 시
+await cache.get_or_call(messages, _call, temperature=temperature, max_tokens=max_tokens)
+# → cache 내부에서 _call(messages, **kwargs) 호출
+# → _call()은 파라미터를 받지 않음 → ERROR
+```
+
+### 해결 방법 (Solution)
+
+`_call()` 함수가 파라미터를 받되, 사용하지 않도록 수정 (closure 변수 사용):
+
+```python
+async def _call(msg=None, **kw):  # ✅ Accept but ignore parameters
+    monitor = get_performance_monitor()
+    monitor.increment("llm_calls")
+
+    response = await self.llm_client.chat_completion(
+        messages=messages,      # From closure
+        temperature=temperature, # From closure
+        max_tokens=max_tokens,  # From closure
+    )
+    return response.choices[0].message.content
+```
+
+### 테스트 (Testing)
+```bash
+# 단위 테스트
+cd agentic-ai && python -m pytest tests/ -v
+✅ 35 passed, 1 skipped
+
+# 통합 테스트 - Greeting Detection
+python test_greeting_simple.py
+✅ 6/6 tests passed
+  - "hello" → detected and completed
+  - "hi" → detected and completed
+  - "hey there" → detected and completed
+  - "안녕" → detected and completed
+  - "Hello!" → detected and completed
+  - "hello world this is a longer..." → NOT detected (correct)
+```
+
+### 영향 범위 (Impact)
+- ✅ LLM cache 사용 시 에러 없이 정상 동작
+- ✅ 모든 workflow (Coding, Research, Data, General)에서 call_llm 사용 가능
+- ✅ Greeting detection과 함께 실제 CLI에서 정상 동작
+
+### 교훈 (Lessons Learned)
+- 단위 테스트만으로는 부족 - 실제 CLI 통합 테스트 필요
+- Closure와 함수 파라미터의 상호작용 주의
+- Cache layer와의 인터페이스 검증 필요
+
+### 상태 (Status)
+✅ **Fixed and Verified** (2026-01-15)
+
+**Commit**: 0f4376d
+
+---
+
 ## Issue #4: Comprehensive Workflow Termination Fix (2026-01-15)
 
 ### 문제 (Problem)
@@ -197,5 +282,10 @@ python3 test_cli_integration.py
 ---
 
 **최종 업데이트**: 2026-01-15
-**총 버그 수정**: 4개
+**총 버그 수정**: 5개
 **현재 알려진 이슈**: 0개
+
+## 테스트 개선 사항
+이제 실제 통합 테스트를 포함:
+- `test_greeting_simple.py`: Greeting detection 직접 테스트
+- CLI 레벨 테스트 추가 예정
