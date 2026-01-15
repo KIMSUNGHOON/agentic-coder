@@ -276,7 +276,8 @@ class AgenticApp(App):
                     if tool == "READ_FILE":
                         param_str = f"({params.get('file_path', 'N/A')})"
                     elif tool == "WRITE_FILE":
-                        param_str = f"({params.get('file_path', 'N/A')})"
+                        file_path = params.get('file_path', 'N/A')
+                        param_str = f"({file_path})"
                     elif tool == "RUN_COMMAND":
                         param_str = f"('{params.get('command', 'N/A')}')"
                     elif tool == "LIST_DIRECTORY":
@@ -291,6 +292,22 @@ class AgenticApp(App):
                     # Show tool execution in Chat
                     chat.add_status(f"🔧 Tool [{iteration}]: {tool}{param_str} {status_icon}")
                     log.add_log("info", f"Tool: {tool} - {'Success' if success else 'Failed'}")
+
+                    # Show file content for WRITE_FILE
+                    if tool == "WRITE_FILE" and success:
+                        file_path = params.get('file_path', '')
+                        content = params.get('content', '')
+                        if content:
+                            # Show content preview in chat
+                            preview_lines = content.split('\n')[:10]  # First 10 lines
+                            preview = '\n'.join(preview_lines)
+                            if len(content.split('\n')) > 10:
+                                preview += "\n..."
+
+                            chat.add_status(f"   📄 Created: {file_path}")
+                            chat.add_status(f"   📝 Content ({len(content)} chars):")
+                            # Show actual code content
+                            chat.add_message_smart("assistant", f"```python\n{preview}\n```")
 
                     # Show detailed error if failed
                     if not success:

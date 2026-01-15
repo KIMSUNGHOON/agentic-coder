@@ -354,29 +354,48 @@ Iteration 5-50: Keep repeating tools (WRONG!)
         action_type = action.get("action")
 
         try:
+            # Extract parameters from action (LLM returns {"action": "X", "parameters": {...}})
+            params = action.get("parameters", {})
+
             if action_type == "LIST_DIRECTORY":
-                path = action.get("path", ".")
+                path = params.get("path", ".")
                 result = await self.fs_tools.list_directory(path)
                 return {"success": result.success, "entries": result.output, "error": result.error}
 
             elif action_type == "SEARCH_FILES":
-                pattern = action.get("pattern", "*")
+                pattern = params.get("pattern", "*")
                 result = await self.fs_tools.search_files(pattern)
                 return {"success": result.success, "files": result.output, "error": result.error}
 
             elif action_type == "READ_FILE":
-                file_path = action.get("file_path")
+                file_path = params.get("file_path")
+                if not file_path:
+                    return {"success": False, "error": "Missing file_path parameter"}
                 result = await self.fs_tools.read_file(file_path)
                 return {"success": result.success, "content": result.output, "error": result.error}
 
             elif action_type == "WRITE_FILE":
-                file_path = action.get("file_path")
-                content = action.get("content")
+                file_path = params.get("file_path")
+                content = params.get("content")
+                if not file_path:
+                    return {"success": False, "error": "Missing file_path parameter"}
+                if content is None:
+                    return {"success": False, "error": "Missing content parameter"}
+
+                logger.info(f"📝 Writing file: {file_path} ({len(content)} chars)")
                 result = await self.fs_tools.write_file(file_path, content)
+
+                if result.success:
+                    logger.info(f"✅ File written successfully: {file_path}")
+                else:
+                    logger.error(f"❌ Failed to write file: {result.error}")
+
                 return {"success": result.success, "message": result.output, "error": result.error}
 
             elif action_type == "RUN_COMMAND":
-                command = action.get("command")
+                command = params.get("command")
+                if not command:
+                    return {"success": False, "error": "Missing command parameter"}
                 result = await self.process_tools.execute_command(command)
                 return {"success": result.success, "output": result.output, "error": result.error}
 
@@ -385,12 +404,15 @@ Iteration 5-50: Keep repeating tools (WRONG!)
                 return {"success": result.success, "status": result.output, "error": result.error}
 
             elif action_type == "COMPLETE":
-                return {"success": True, "message": "Task complete"}
+                summary = params.get("summary", "Task complete")
+                logger.info(f"✅ Task marked COMPLETE: {summary}")
+                return {"success": True, "message": summary}
 
             else:
                 return {"success": False, "error": f"Unknown action: {action_type}"}
 
         except Exception as e:
+            logger.error(f"❌ Action execution error: {e}")
             return {"success": False, "error": str(e)}
 
     async def reflect_node(self, state: AgenticState) -> AgenticState:

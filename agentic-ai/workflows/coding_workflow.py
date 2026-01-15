@@ -235,25 +235,45 @@ class CodingWorkflow(BaseWorkflow):
         action_type = action.get("action")
 
         try:
+            # Extract parameters from action (LLM returns {"action": "X", "parameters": {...}})
+            params = action.get("parameters", {})
+
             if action_type == "READ_FILE":
-                file_path = action.get("file_path")
+                file_path = params.get("file_path")
+                if not file_path:
+                    return {"success": False, "error": "Missing file_path parameter"}
                 result = await self.fs_tools.read_file(file_path)
                 return {"success": result.success, "content": result.output, "error": result.error}
 
             elif action_type == "SEARCH_CODE":
-                pattern = action.get("pattern")
-                file_pattern = action.get("file_pattern", "*.py")
+                pattern = params.get("pattern")
+                if not pattern:
+                    return {"success": False, "error": "Missing pattern parameter"}
+                file_pattern = params.get("file_pattern", "*.py")
                 result = await self.search_tools.grep(pattern, file_pattern)
                 return {"success": result.success, "matches": result.output, "error": result.error}
 
             elif action_type == "WRITE_FILE":
-                file_path = action.get("file_path")
-                content = action.get("content")
+                file_path = params.get("file_path")
+                content = params.get("content")
+                if not file_path:
+                    return {"success": False, "error": "Missing file_path parameter"}
+                if content is None:  # Allow empty string
+                    return {"success": False, "error": "Missing content parameter"}
+
+                logger.info(f"📝 Writing file: {file_path} ({len(content)} chars)")
                 result = await self.fs_tools.write_file(file_path, content)
+
+                # Log result clearly
+                if result.success:
+                    logger.info(f"✅ File written successfully: {file_path}")
+                else:
+                    logger.error(f"❌ Failed to write file: {result.error}")
+
                 return {"success": result.success, "message": result.output, "error": result.error}
 
             elif action_type == "RUN_TESTS":
-                test_path = action.get("test_path", "tests/")
+                test_path = params.get("test_path", "tests/")
                 command = f"pytest {test_path} -v"
                 result = await self.process_tools.execute_command(command, timeout=120)
                 return {"success": result.success, "output": result.output, "error": result.error}
@@ -263,7 +283,9 @@ class CodingWorkflow(BaseWorkflow):
                 return {"success": result.success, "status": result.output, "error": result.error}
 
             elif action_type == "COMPLETE":
-                return {"success": True, "message": "Task marked complete"}
+                summary = params.get("summary", "Task completed")
+                logger.info(f"✅ Task marked COMPLETE: {summary}")
+                return {"success": True, "message": summary}
 
             else:
                 return {"success": False, "error": f"Unknown action: {action_type}"}
