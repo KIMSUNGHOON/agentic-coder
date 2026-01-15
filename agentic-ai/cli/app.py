@@ -371,6 +371,14 @@ class AgenticApp(App):
                         chat.add_status(f"   ❌ ERROR: {error_detail}")
                         log.add_log("error", f"Tool failure detail: {error_detail}")
 
+                elif update.type == "plan_created":
+                    # Display plan summary
+                    plan = update.data.get("plan", {})
+                    complexity = update.data.get("complexity", "medium")
+                    if plan:
+                        chat.add_plan_summary(plan=plan, task_complexity=complexity)
+                    log.add_log("info", f"Plan created: {complexity} complexity")
+
                 elif update.type == "cot":
                     # Display Chain-of-Thought
                     step = update.data.get("step", 0)

@@ -303,6 +303,18 @@ class BackendBridge:
                         data={"level": "info"}
                     )
 
+                elif event_type == "plan_created":
+                    plan = event["data"].get("plan", {})
+                    complexity = event["data"].get("complexity", "medium")
+                    yield ProgressUpdate(
+                        type="plan_created",
+                        message=f"📋 Plan created (complexity: {complexity})",
+                        data={
+                            "plan": plan,
+                            "complexity": complexity
+                        }
+                    )
+
                 elif event_type == "workflow_complete":
                     # Store final result data
                     final_event_data = event["data"]

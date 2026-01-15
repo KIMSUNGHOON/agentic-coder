@@ -690,6 +690,22 @@ Example: 0.75
                                 }
                             }
 
+                    # Check for plan creation (after plan_node)
+                    if node_name == "plan":
+                        plan = node_state.get("context", {}).get("plan")
+                        if plan and plan != final_state.get("context", {}).get("plan") if final_state else True:
+                            # New plan created
+                            complexity = node_state.get("context", {}).get("classification", {}).get("estimated_complexity", "medium")
+                            yield {
+                                "type": "plan_created",
+                                "data": {
+                                    "node": node_name,
+                                    "iteration": iteration,
+                                    "plan": plan,
+                                    "complexity": complexity
+                                }
+                            }
+
                     # Check for last action decided by LLM
                     last_action = node_state.get("context", {}).get("last_action")
                     if last_action:
