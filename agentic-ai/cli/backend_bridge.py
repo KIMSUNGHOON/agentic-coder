@@ -280,10 +280,8 @@ class BackendBridge:
                     # Show node execution in real-time with clear description
                     progress_msg = f"{node_desc} [Iteration {iteration}/{max_iter}]"
 
-                    # Add continuation status for reflect node (helps debug infinite loops)
-                    if node == "reflect":
-                        continue_status = "will continue" if should_continue else "will complete"
-                        progress_msg += f" → {continue_status}"
+                    # Don't show internal state to users anymore
+                    # (should_continue is internal workflow state, not user-relevant info)
 
                     yield ProgressUpdate(
                         type="status",
@@ -292,15 +290,12 @@ class BackendBridge:
                             "node": node,
                             "iteration": iteration,
                             "max_iterations": max_iter,
-                            "status": status,
-                            "should_continue": should_continue
+                            "status": status
                         }
                     )
 
-                    # Log node execution with explanation and debug info
+                    # Log node execution (no should_continue in user logs)
                     log_msg = f"  → {node}: {node_desc} [iteration {iteration}/{max_iter}]"
-                    if node == "reflect":
-                        log_msg += f" (should_continue={should_continue})"
 
                     yield ProgressUpdate(
                         type="log",

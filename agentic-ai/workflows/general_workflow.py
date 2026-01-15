@@ -124,12 +124,27 @@ Respond in JSON format:
             return state
 
         except Exception as e:
-            logger.error(f"Planning error: {e}")
-            # If planning fails (e.g., LLM server not available), fail gracefully
+            logger.error(f"❌ Planning error: {e}")
+
+            # Provide clear error message based on error type
+            error_msg = str(e)
+            if "Connection" in error_msg or "refused" in error_msg or "timeout" in error_msg.lower():
+                user_msg = (
+                    "🚨 LLM 서버에 연결할 수 없습니다!\n\n"
+                    "해결 방법:\n"
+                    "1. vLLM 서버가 실행 중인지 확인하세요\n"
+                    "2. config.yaml에서 LLM endpoint 설정을 확인하세요\n"
+                    "3. 서버 포트가 열려있는지 확인하세요\n\n"
+                    f"기술 상세: {error_msg}"
+                )
+            else:
+                user_msg = f"Planning 실패: {error_msg}"
+
             state["task_status"] = TaskStatus.FAILED.value
-            state["task_error"] = f"Planning failed: {e}. Is the LLM server running?"
+            state["task_error"] = user_msg
+            state["task_result"] = user_msg  # Also set result so it shows in UI
             state["should_continue"] = False
-            state = add_error(state, f"Planning failed: {e}")
+            state = add_error(state, user_msg)
             return state
 
     async def execute_node(self, state: AgenticState) -> AgenticState:
@@ -292,11 +307,24 @@ Iteration 5-50: Keep repeating tools (WRONG!)
             return state
 
         except Exception as e:
-            logger.error(f"Execution error: {e}")
-            # If execution fails (e.g., LLM call fails), mark as failed
+            logger.error(f"❌ Execution error: {e}")
+
+            # Provide clear error message
+            error_msg = str(e)
+            if "Connection" in error_msg or "refused" in error_msg or "timeout" in error_msg.lower():
+                user_msg = (
+                    "🚨 LLM 서버 연결 실패!\n\n"
+                    "작업 실행 중 LLM 서버와의 연결이 끊어졌습니다.\n"
+                    "vLLM 서버 상태를 확인하세요.\n\n"
+                    f"기술 상세: {error_msg}"
+                )
+            else:
+                user_msg = f"작업 실행 실패: {error_msg}"
+
             state["task_status"] = TaskStatus.FAILED.value
-            state["task_error"] = f"Execution failed: {e}"
-            state = add_error(state, f"Execution failed: {e}")
+            state["task_error"] = user_msg
+            state["task_result"] = user_msg
+            state = add_error(state, user_msg)
             state["should_continue"] = False
             return state
 
