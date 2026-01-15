@@ -43,6 +43,14 @@ class GeneralWorkflow(BaseWorkflow):
         logger.info(f"📋 Planning general task: {state['task_description'][:100]}")
 
         try:
+            # Initialize context if needed
+            if "context" not in state:
+                state["context"] = {}
+
+            # Always initialize completed_steps at the start
+            if "completed_steps" not in state["context"]:
+                state["context"]["completed_steps"] = []
+
             task_lower = state['task_description'].lower().strip()
 
             # Handle simple greetings and conversational inputs
@@ -90,7 +98,7 @@ Respond in JSON format:
 
                 plan = json.loads(json_str)
                 state["context"]["plan"] = plan
-                state["context"]["completed_steps"] = []
+                # completed_steps already initialized at start of method
 
                 logger.info(f"✅ Plan created: {plan.get('task_type', 'unknown')} task")
 
@@ -193,8 +201,10 @@ Respond with ONLY JSON.
                     "iteration": state["iteration"],
                 })
 
-                # Track completed steps
+                # Track completed steps (safe access)
                 if action_result.get("success"):
+                    if "completed_steps" not in state["context"]:
+                        state["context"]["completed_steps"] = []
                     state["context"]["completed_steps"].append(action.get("action"))
 
                 # Check completion
