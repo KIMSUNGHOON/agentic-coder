@@ -43,6 +43,17 @@ class GeneralWorkflow(BaseWorkflow):
         logger.info(f"📋 Planning general task: {state['task_description'][:100]}")
 
         try:
+            task_lower = state['task_description'].lower().strip()
+
+            # Handle simple greetings and conversational inputs
+            greeting_keywords = ['hello', 'hi', 'hey', 'greetings', '안녕', '하이']
+            if any(keyword in task_lower for keyword in greeting_keywords) and len(task_lower) < 20:
+                logger.info("👋 Detected simple greeting, completing immediately")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Hello! I'm Agentic 2.0. How can I help you today?"
+                state["should_continue"] = False
+                return state
+
             planning_prompt = f"""You are planning a general task.
 
 Task: {state['task_description']}
@@ -56,7 +67,7 @@ Analyze this task and create a plan. Consider:
 
 Respond in JSON format:
 {{
-    "task_type": "file_organization|system_admin|task_management|mixed",
+    "task_type": "file_organization|system_admin|task_management|mixed|conversational",
     "steps": ["step1", "step2", "step3"],
     "estimated_steps": 3,
     "tools_needed": ["filesystem", "process", "git"]
@@ -83,8 +94,21 @@ Respond in JSON format:
 
                 logger.info(f"✅ Plan created: {plan.get('task_type', 'unknown')} task")
 
-            except json.JSONDecodeError:
-                state["context"]["plan"] = {"raw": response}
+                # If plan indicates conversational task, complete immediately
+                if plan.get('task_type') == 'conversational':
+                    logger.info("💬 Conversational task detected, completing")
+                    state["task_status"] = TaskStatus.COMPLETED.value
+                    state["task_result"] = "I'm ready to assist you. Please let me know what specific task you'd like help with."
+                    state["should_continue"] = False
+                    return state
+
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM plan response: {e}")
+                # If we can't parse the plan, treat as conversational and complete
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "I'm ready to help. Please provide more specific details about what you'd like me to do."
+                state["should_continue"] = False
+                return state
 
             state["iteration"] = 0
             state["task_status"] = TaskStatus.IN_PROGRESS.value
@@ -93,6 +117,10 @@ Respond in JSON format:
 
         except Exception as e:
             logger.error(f"Planning error: {e}")
+            # If planning fails (e.g., LLM server not available), fail gracefully
+            state["task_status"] = TaskStatus.FAILED.value
+            state["task_error"] = f"Planning failed: {e}. Is the LLM server running?"
+            state["should_continue"] = False
             state = add_error(state, f"Planning failed: {e}")
             return state
 
@@ -177,12 +205,22 @@ Respond with ONLY JSON.
 
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse action: {e}")
+                # If JSON parsing fails multiple times, give up
+                if state["iteration"] >= 2:
+                    logger.error("Multiple JSON parse failures, completing task")
+                    state["task_status"] = TaskStatus.FAILED.value
+                    state["task_error"] = "Unable to parse LLM response as JSON"
+                    state["should_continue"] = False
+                    return state
 
             state = increment_iteration(state)
             return state
 
         except Exception as e:
             logger.error(f"Execution error: {e}")
+            # If execution fails (e.g., LLM call fails), mark as failed
+            state["task_status"] = TaskStatus.FAILED.value
+            state["task_error"] = f"Execution failed: {e}"
             state = add_error(state, f"Execution failed: {e}")
             state["should_continue"] = False
             return state

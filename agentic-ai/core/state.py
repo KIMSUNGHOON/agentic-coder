@@ -143,6 +143,7 @@ class AgenticState(TypedDict, total=False):
     workflow_type: str  # Workflow execution strategy
     iteration: int  # Current iteration number
     max_iterations: int  # Maximum iterations allowed
+    recursion_limit: int  # LangGraph recursion limit (default: 100)
     start_time: str  # ISO format timestamp
     end_time: Optional[str]  # ISO format timestamp when completed
 
@@ -206,6 +207,7 @@ def create_initial_state(
     workflow_domain: WorkflowDomain,
     workspace: Optional[str] = None,
     max_iterations: int = 10,
+    recursion_limit: int = 100,
 ) -> AgenticState:
     """Create initial state for a new workflow
 
@@ -215,6 +217,7 @@ def create_initial_state(
         workflow_domain: Workflow domain (coding, research, data, general)
         workspace: Working directory path (optional)
         max_iterations: Maximum iterations (default: 10)
+        recursion_limit: LangGraph recursion limit (default: 100)
 
     Returns:
         Initialized AgenticState
@@ -236,6 +239,7 @@ def create_initial_state(
         workflow_type="adaptive",
         iteration=0,
         max_iterations=max_iterations,
+        recursion_limit=recursion_limit,
         start_time=datetime.now().isoformat(),
         end_time=None,
 

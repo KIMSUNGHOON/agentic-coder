@@ -44,6 +44,7 @@ class WorkflowOrchestrator:
         safety_manager: ToolSafetyManager,
         workspace: Optional[str] = None,
         max_iterations: int = 10,
+        recursion_limit: int = 100,
     ):
         """Initialize WorkflowOrchestrator
 
@@ -52,11 +53,13 @@ class WorkflowOrchestrator:
             safety_manager: Safety manager for tool validation
             workspace: Default working directory (optional)
             max_iterations: Default max iterations per workflow (default: 10)
+            recursion_limit: LangGraph recursion limit (default: 100)
         """
         self.llm_client = llm_client
         self.safety = safety_manager
         self.workspace = workspace
         self.max_iterations = max_iterations
+        self.recursion_limit = recursion_limit
 
         # Initialize intent router
         self.router = IntentRouter(llm_client, confidence_threshold=0.7)
@@ -70,7 +73,8 @@ class WorkflowOrchestrator:
 
         logger.info(
             f"🎯 WorkflowOrchestrator initialized "
-            f"(workspace: {workspace or 'none'}, max_iterations: {max_iterations})"
+            f"(workspace: {workspace or 'none'}, max_iterations: {max_iterations}, "
+            f"recursion_limit: {recursion_limit})"
         )
 
     def _get_workflow(self, domain: WorkflowDomain) -> BaseWorkflow:
@@ -202,6 +206,7 @@ class WorkflowOrchestrator:
                 workflow_domain=domain,
                 workspace=workspace,
                 max_iterations=max_iterations,
+                recursion_limit=self.recursion_limit,
             )
 
             # Add classification metadata

@@ -37,6 +37,7 @@ class WorkflowConfig:
 
     max_iterations: int
     timeout_seconds: int
+    recursion_limit: int
     sub_agents: Dict[str, Any]
 
 
@@ -168,6 +169,7 @@ class Config:
         workflows_config = WorkflowConfig(
             max_iterations=workflow_data["max_iterations"],
             timeout_seconds=workflow_data["timeout_seconds"],
+            recursion_limit=workflow_data.get("recursion_limit", 100),
             sub_agents=workflow_data["sub_agents"],
         )
 
@@ -265,6 +267,7 @@ class Config:
             "workflows": {
                 "max_iterations": self.workflows.max_iterations,
                 "timeout_seconds": self.workflows.timeout_seconds,
+                "recursion_limit": self.workflows.recursion_limit,
                 "sub_agents": self.workflows.sub_agents,
             },
             "tools": {

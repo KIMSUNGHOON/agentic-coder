@@ -136,14 +136,18 @@ class BackendBridge:
             logger.info("✅ Tool safety manager initialized")
 
             # Initialize orchestrator
+            # Get recursion_limit from config, default to 100 if not present
+            recursion_limit = getattr(self.config.workflows, 'recursion_limit', 100)
+
             self.orchestrator = WorkflowOrchestrator(
                 llm_client=self.llm_client,
                 safety_manager=self.safety,
                 workspace=self.config.workspace.default_path,
                 max_iterations=self.config.workflows.max_iterations,
+                recursion_limit=recursion_limit,
             )
 
-            logger.info("✅ Workflow orchestrator initialized")
+            logger.info(f"✅ Workflow orchestrator initialized (recursion_limit: {recursion_limit})")
 
             self._initialized = True
             logger.info("🎉 Backend bridge ready")
