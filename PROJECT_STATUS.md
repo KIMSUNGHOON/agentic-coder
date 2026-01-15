@@ -438,6 +438,16 @@ python -m cli.commands history --limit 20
    - 검증: 35 tests passed, 1 skipped
    - Commit: c627f75
 
+5. **Temperature Parameter Error in call_llm** (2026-01-15)
+   - 문제: 실제 CLI 실행 시 "got an unexpected keyword argument 'temperature'" 에러
+   - 원인: BaseWorkflow.call_llm의 내부 _call() 함수가 cache에서 전달하는 파라미터를 받지 못함
+   - 해결: _call(msg=None, **kw) 시그니처로 변경 (파라미터 받되 closure 변수 사용)
+   - 검증:
+     * 35 unit tests passed
+     * 6/6 greeting detection integration tests passed
+   - 교훈: 단위 테스트만으로는 부족, 실제 통합 테스트 필요
+   - Commit: 0f4376d
+
 ### 현재 이슈
 - 없음 (모든 테스트 통과, 모든 버그 수정됨)
 
@@ -447,13 +457,14 @@ python -m cli.commands history --limit 20
 
 - **Main**: (없음, 초기 개발)
 - **Working Branch**: `claude/fix-hardcoded-config-QyiND`
-- **Latest Commit**: `c627f75` (Bug Fix #4: Comprehensive workflow termination fix)
+- **Latest Commit**: `526dc1f` (Documentation: Bug Fix #5)
 - **Previous Commits**:
+  - `0f4376d` (Bug Fix #5: Temperature parameter error)
+  - `7e79323` (Documentation: Bug Fix #4 details)
+  - `c627f75` (Bug Fix #4: Comprehensive workflow termination fix)
   - `fd5904b` (Bug Fix #3: Recursion limit configuration)
   - `bd10774` (Documentation: Session continuation guide)
   - `13b5c48` (Bug Fix #1: IntentClassification.to_dict())
-  - `3c43106` (Phase 5-1 완료 문서)
-  - `3f8f349` (Phase 5-1 구현)
 
 ---
 
