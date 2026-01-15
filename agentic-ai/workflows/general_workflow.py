@@ -373,168 +373,91 @@ Iteration 5-50: Keep repeating tools (WRONG!)
             return {"success": False, "error": str(e)}
 
     async def reflect_node(self, state: AgenticState) -> AgenticState:
-        """Reflect on general task progress"""
-        logger.info(f"🤔 Reflecting on general task (iteration {state['iteration']})")
+        """Reflect on general task progress with aggressive early completion"""
+        logger.info(f"🤔 Reflecting (iteration {state['iteration']})")
 
         try:
             # Check if already completed
             if state.get("task_status") == TaskStatus.COMPLETED.value:
-                logger.info("✅ Task is COMPLETED, stopping workflow")
+                logger.info("✅ Task already COMPLETED")
                 state["should_continue"] = False
                 return state
 
-            # Check if max iterations reached
-            if state["iteration"] >= state["max_iterations"]:
-                logger.warning(f"⚠️  Max iterations ({state['max_iterations']}) reached!")
-                state["should_continue"] = False
-
-                # Check if we made progress despite hitting max iterations
-                completed_steps = state["context"].get("completed_steps", [])
-                if len(completed_steps) > 0:
-                    # We made progress! Report as partial success
-                    logger.warning(f"⚠️  Made progress: {len(completed_steps)} steps completed")
-                    state["task_status"] = TaskStatus.COMPLETED.value  # Changed from FAILED
-                    state["task_result"] = (
-                        f"Task partially completed ({len(completed_steps)} steps). "
-                        f"You may need to continue or adjust the task. "
-                        f"Completed: {', '.join(completed_steps[:5])}"
-                    )
-                else:
-                    # No progress at all
-                    logger.warning(f"⚠️  No progress made in {state['max_iterations']} iterations")
-                    state["task_status"] = TaskStatus.FAILED.value
-                    state["task_error"] = (
-                        f"Max iterations ({state['max_iterations']}) reached without completing the task. "
-                        f"This may indicate: (1) Task is too complex, (2) LLM not available, "
-                        f"or (3) Task needs to be broken down into smaller steps."
-                    )
-                return state
-
-            # Check progress and provide detailed feedback
-            completed_steps = state["context"].get("completed_steps", [])
-            plan = state["context"].get("plan", {})
-            total_steps = plan.get("estimated_steps", len(plan.get("steps", [])))
-            task_type = plan.get("task_type", "unknown")
-
-            # === Early completion checks ===
-
-            # 1. Check if all steps are done
-            if len(completed_steps) > 0:
-                logger.info(f"✅ Progress: {len(completed_steps)}/{total_steps} steps completed")
-                logger.debug(f"   Completed steps: {completed_steps}")
-
-                # Auto-complete if all steps are done
-                if total_steps > 0 and len(completed_steps) >= total_steps:
-                    logger.info(f"🎯 All {total_steps} steps completed! Auto-completing task")
-                    state["task_status"] = TaskStatus.COMPLETED.value
-                    state["task_result"] = f"Task completed successfully. Completed steps: {', '.join(completed_steps)}"
-                    state["should_continue"] = False
-                    return state
-
-                # Warn if approaching max iterations without completion
-                remaining = state['max_iterations'] - state['iteration']
-                if remaining <= 5 and len(completed_steps) < total_steps:
-                    logger.warning(f"⚠️  Only {remaining} iterations left! Progress: {len(completed_steps)}/{total_steps}")
-
-            # 2. Conversational/simple tasks: Complete after 1-3 iterations
-            if task_type == "conversational" and state['iteration'] >= 1:
-                logger.info(f"💬 Conversational task completed after {state['iteration']} iteration(s)")
-                state["task_status"] = TaskStatus.COMPLETED.value
-                state["task_result"] = "Conversational task completed"
-                state["should_continue"] = False
-                return state
-
-            # 3. If no progress after 5 iterations, likely stuck or task is too vague
-            if len(completed_steps) == 0 and state['iteration'] >= 5:
-                logger.warning(f"⚠️  No progress after {state['iteration']} iterations. Completing with partial results")
-                state["task_status"] = TaskStatus.COMPLETED.value
-                state["task_result"] = (
-                    f"Task completed with limited progress after {state['iteration']} iterations. "
-                    "This may indicate the task needs to be more specific or broken down into smaller parts."
-                )
-                state["should_continue"] = False
-                return state
-
-            # 4. Check for repeated failures
-            recent_tool_calls = state.get("tool_calls", [])[-5:]  # Last 5 calls
-            if len(recent_tool_calls) >= 5:
-                failed_count = sum(1 for call in recent_tool_calls if not call.get("result", {}).get("success"))
-                if failed_count >= 4:  # 4 out of 5 failed
-                    logger.warning(f"⚠️  Multiple tool failures detected. Stopping to avoid infinite loop")
-                    state["task_status"] = TaskStatus.FAILED.value
-                    state["task_error"] = "Task stopped due to repeated tool failures"
-                    state["should_continue"] = False
-                    return state
-
-            # 5. Detect repeated actions (stuck in loop)
-            if len(recent_tool_calls) >= 3:
-                actions = [call.get("action") for call in recent_tool_calls[-3:]]
-                if len(set(actions)) == 1:  # Same action 3 times in a row
-                    logger.warning(f"⚠️  Repeated action detected ({actions[0]}). May be stuck in loop")
-                    # Don't stop yet, but warn
-
-            # === Smart iteration-based completion ===
-
+            # === AGGRESSIVE ITERATION LIMITS ===
             # Determine task complexity from description
             task_lower = state['task_description'].lower()
 
             # Simple task indicators
-            simple_indicators = ['create', 'make', 'write', 'add', 'simple', 'basic', 'hello', 'calculator']
+            simple_indicators = ['create', 'make', 'write', 'add', 'simple', 'basic', 'hello', 'calculator', 'file']
             is_simple_task = any(indicator in task_lower for indicator in simple_indicators)
 
             # Complex task indicators
-            complex_indicators = ['refactor', 'optimize', 'migrate', 'architecture', 'system', 'framework']
+            complex_indicators = ['refactor', 'optimize', 'migrate', 'architecture', 'system', 'framework', 'restructure']
             is_complex_task = any(indicator in task_lower for indicator in complex_indicators)
 
-            # Set iteration limits based on task type
+            # Set STRICT iteration limits
             if is_simple_task:
-                soft_limit = 5
-                hard_limit = 10
+                hard_limit = 8   # 간단한 작업: 최대 8회
             elif is_complex_task:
-                soft_limit = 15
-                hard_limit = 25
+                hard_limit = 20  # 복잡한 작업: 최대 20회
             else:
-                soft_limit = 10
-                hard_limit = 20
+                hard_limit = 12  # 일반 작업: 최대 12회
 
-            # Check tool calls for actual progress
+            # Check tool calls
             tool_calls = state.get("tool_calls", [])
             recent_tools = [call.get("action") for call in tool_calls[-5:]]
 
-            # Force completion conditions:
-            # 1. Exceeded hard limit
+            logger.info(f"📊 Iteration {state['iteration']}/{hard_limit} | Tool calls: {len(tool_calls)} | Recent: {recent_tools[-3:] if recent_tools else []}")
+
+            # === FORCE COMPLETION CONDITIONS ===
+
+            # 1. HARD LIMIT - 절대 넘지 않음
             if state['iteration'] >= hard_limit:
-                logger.warning(f"⚠️  Hard limit reached ({hard_limit} iterations)")
+                logger.warning(f"🛑 HARD LIMIT reached ({hard_limit})")
                 state["task_status"] = TaskStatus.COMPLETED.value
-                state["task_result"] = (
-                    f"Task completed after {state['iteration']} iterations. "
-                    f"Executed {len(tool_calls)} tool calls. "
-                    f"Consider breaking down into smaller tasks if incomplete."
-                )
+                state["task_result"] = f"Task completed after {state['iteration']} iterations (limit: {hard_limit}). Executed {len(tool_calls)} tool calls."
                 state["should_continue"] = False
                 return state
 
-            # 2. Past soft limit with no recent tool activity
-            if state['iteration'] >= soft_limit:
-                if len(recent_tools) < 2:
-                    logger.info(f"✅ Soft limit reached with minimal activity - completing task")
-                    state["task_status"] = TaskStatus.COMPLETED.value
-                    state["task_result"] = f"Task completed after {state['iteration']} iterations with {len(tool_calls)} actions"
+            # 2. STUCK IN LOOP - 같은 도구 3번 반복
+            if len(recent_tools) >= 3 and len(set(recent_tools[-3:])) == 1:
+                logger.warning(f"🔁 LOOP detected: {recent_tools[-1]} repeated 3 times")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Task stopped after {state['iteration']} iterations (loop detected)"
+                state["should_continue"] = False
+                return state
+
+            # 3. NO PROGRESS - iteration 5+ with no tools
+            if state['iteration'] >= 5 and len(tool_calls) == 0:
+                logger.warning(f"⚠️  No tool activity after {state['iteration']} iterations")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Task completed with no tool executions after {state['iteration']} iterations"
+                state["should_continue"] = False
+                return state
+
+            # 4. REPEATED FAILURES - 최근 5개 중 4개 실패
+            if len(tool_calls) >= 5:
+                recent_5 = tool_calls[-5:]
+                failed = sum(1 for call in recent_5 if not call.get("success", False))
+                if failed >= 4:
+                    logger.warning(f"❌ Multiple failures: {failed}/5")
+                    state["task_status"] = TaskStatus.FAILED.value
+                    state["task_error"] = f"Task failed: {failed} out of 5 recent tool calls failed"
+                    state["task_result"] = f"Task failed after {state['iteration']} iterations due to repeated failures"
                     state["should_continue"] = False
                     return state
-                else:
-                    logger.warning(f"⚠️  Soft limit exceeded ({soft_limit}), but still active. Will stop at hard limit ({hard_limit})")
 
-            # 3. Stuck in loop (same tool 4+ times in a row)
-            if len(recent_tools) >= 4 and len(set(recent_tools[-4:])) == 1:
-                logger.warning(f"⚠️  Stuck in loop with repeated {recent_tools[-1]} calls")
-                state["task_status"] = TaskStatus.COMPLETED.value
-                state["task_result"] = f"Task stopped: Detected loop pattern after {state['iteration']} iterations"
-                state["should_continue"] = False
-                return state
+            # 5. SOFT CHECK - 간단한 작업은 5회 후 도구 활동 체크
+            if is_simple_task and state['iteration'] >= 5:
+                if len(recent_tools) < 2:
+                    logger.info(f"✅ Simple task with minimal recent activity - completing")
+                    state["task_status"] = TaskStatus.COMPLETED.value
+                    state["task_result"] = f"Task completed after {state['iteration']} iterations"
+                    state["should_continue"] = False
+                    return state
 
-            # Continue: Still within limits
-            logger.info(f"🔄 Continuing iteration {state['iteration']}/{hard_limit} (soft limit: {soft_limit})")
+            # Continue to next iteration
+            logger.info(f"🔄 Continue → iteration {state['iteration'] + 1}/{hard_limit}")
             state["should_continue"] = True
             return state
 
