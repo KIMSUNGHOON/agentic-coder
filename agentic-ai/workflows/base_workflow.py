@@ -344,15 +344,31 @@ class BaseWorkflow:
             monitor.record("workflow_duration", duration)
             monitor.record("workflow_iterations", iterations)
 
+            # Create detailed metadata for debugging (Bug Fix #7)
+            metadata = {
+                "duration_seconds": duration,
+                "workflow_domain": final_state.get("workflow_domain", "unknown"),
+                "workflow_type": final_state.get("workflow_type", "unknown"),
+                "tool_calls": final_state.get("tool_calls", []),
+                "errors": final_state.get("errors", []),
+                "context": {
+                    "plan": final_state.get("context", {}).get("plan", {}),
+                    "completed_steps": final_state.get("context", {}).get("completed_steps", []),
+                },
+            }
+
+            logger.info(
+                f"📊 Workflow stats: tool_calls={len(metadata['tool_calls'])}, "
+                f"errors={len(metadata['errors'])}, "
+                f"completed_steps={len(metadata['context']['completed_steps'])}"
+            )
+
             return WorkflowResult(
                 success=success,
                 output=output,
                 error=error,
                 iterations=iterations,
-                metadata={
-                    "duration_seconds": duration,
-                    "final_state": final_state,
-                }
+                metadata=metadata,
             )
 
         except Exception as e:

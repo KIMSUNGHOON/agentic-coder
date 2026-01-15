@@ -205,11 +205,63 @@ class BackendBridge:
             # Execute task
             # Note: For now, we execute directly. In the future, we can add
             # streaming support to the orchestrator to yield intermediate updates.
+
+            # Log workflow start
+            yield ProgressUpdate(
+                type="log",
+                message="🚀 Starting workflow execution...",
+                data={"level": "info"}
+            )
+
             result = await self.orchestrator.execute_task(
                 task_description=task_description,
                 workspace=workspace,
                 domain_override=domain_override,
             )
+
+            # Log execution details from metadata
+            if result.metadata:
+                # Log workflow domain
+                domain = result.metadata.get("workflow_domain", "unknown")
+                yield ProgressUpdate(
+                    type="log",
+                    message=f"📋 Workflow: {domain}",
+                    data={"level": "info"}
+                )
+
+                # Log iterations
+                iterations = result.iterations
+                yield ProgressUpdate(
+                    type="log",
+                    message=f"🔄 Completed {iterations} iterations",
+                    data={"level": "info"}
+                )
+
+                # Log tool calls if present
+                tool_calls = result.metadata.get("tool_calls", [])
+                if tool_calls:
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"🔧 Executed {len(tool_calls)} tool calls",
+                        data={"level": "info"}
+                    )
+                    for i, call in enumerate(tool_calls[:5], 1):  # Show first 5
+                        action = call.get("action", "unknown")
+                        yield ProgressUpdate(
+                            type="log",
+                            message=f"  {i}. {action}",
+                            data={"level": "debug"}
+                        )
+
+                # Log errors if present
+                errors = result.metadata.get("errors", [])
+                if errors:
+                    for error in errors[:3]:  # Show first 3 errors
+                        yield ProgressUpdate(
+                            type="log",
+                            message=f"⚠️  Error: {error}",
+                            data={"level": "warning"}
+                        )
 
             # Parse result and extract CoT if present
             cot_blocks = self._extract_cot_blocks(result)
