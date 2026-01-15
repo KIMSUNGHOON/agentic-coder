@@ -202,100 +202,169 @@ class BackendBridge:
                 data={"status": "classifying"}
             )
 
-            # Execute task
-            # Note: For now, we execute directly. In the future, we can add
-            # streaming support to the orchestrator to yield intermediate updates.
+            # Execute task with STREAMING support
+            # This enables real-time feedback during execution
+            logger.info("🚀 Starting STREAMING workflow execution...")
 
-            # Log workflow start
-            yield ProgressUpdate(
-                type="log",
-                message="🚀 Starting workflow execution...",
-                data={"level": "info"}
-            )
+            # Track final result data
+            final_event_data = None
 
-            result = await self.orchestrator.execute_task(
+            # Stream events from orchestrator
+            async for event in self.orchestrator.execute_task_stream(
                 task_description=task_description,
                 workspace=workspace,
                 domain_override=domain_override,
-            )
+            ):
+                event_type = event.get("type")
 
-            # Log execution details from metadata
-            if result.metadata:
-                # Log workflow domain
-                domain = result.metadata.get("workflow_domain", "unknown")
-                yield ProgressUpdate(
-                    type="log",
-                    message=f"📋 Workflow: {domain}",
-                    data={"level": "info"}
-                )
+                # Classification events
+                if event_type == "classification_start":
+                    yield ProgressUpdate(
+                        type="status",
+                        message="Classifying task intent...",
+                        data={"status": "classifying"}
+                    )
 
-                # Log iterations
-                iterations = result.iterations
-                yield ProgressUpdate(
-                    type="log",
-                    message=f"🔄 Completed {iterations} iterations",
-                    data={"level": "info"}
-                )
-
-                # Log tool calls if present
-                tool_calls = result.metadata.get("tool_calls", [])
-                if tool_calls:
+                elif event_type == "classification":
+                    domain = event["data"].get("domain", "unknown")
+                    confidence = event["data"].get("confidence", 0.0)
                     yield ProgressUpdate(
                         type="log",
-                        message=f"🔧 Executed {len(tool_calls)} tool calls",
+                        message=f"📋 Domain: {domain} (confidence: {confidence:.0%})",
                         data={"level": "info"}
                     )
-                    for i, call in enumerate(tool_calls[:5], 1):  # Show first 5
-                        action = call.get("action", "unknown")
-                        yield ProgressUpdate(
-                            type="log",
-                            message=f"  {i}. {action}",
-                            data={"level": "debug"}
-                        )
 
-                # Log errors if present
-                errors = result.metadata.get("errors", [])
-                if errors:
-                    for error in errors[:3]:  # Show first 3 errors
-                        yield ProgressUpdate(
-                            type="log",
-                            message=f"⚠️  Error: {error}",
-                            data={"level": "warning"}
-                        )
+                # Workflow events
+                elif event_type == "workflow_start":
+                    task = event["data"].get("task", "")[:100]
+                    max_iter = event["data"].get("max_iterations", "?")
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"🚀 Starting workflow (max {max_iter} iterations)",
+                        data={"level": "info"}
+                    )
 
-            # Parse result and extract CoT if present
-            cot_blocks = self._extract_cot_blocks(result)
+                elif event_type == "node_executed":
+                    node = event["data"].get("node", "unknown")
+                    iteration = event["data"].get("iteration", 0)
+                    status = event["data"].get("status", "in_progress")
 
-            # Yield CoT blocks if found
-            for cot in cot_blocks:
-                yield ProgressUpdate(
-                    type="cot",
-                    message=cot.content,
-                    data={"step": cot.step, "timestamp": cot.timestamp}
-                )
+                    # Show node execution in real-time
+                    yield ProgressUpdate(
+                        type="status",
+                        message=f"Executing: {node} (iteration {iteration})",
+                        data={"node": node, "iteration": iteration, "status": status}
+                    )
 
-            # Yield final result
-            if result.success:
-                yield ProgressUpdate(
-                    type="result",
-                    message="Task completed successfully",
-                    data={
-                        "success": True,
-                        "output": result.output,
-                        "iterations": result.iterations,
-                        "metadata": result.metadata,
-                    }
-                )
+                    # Log node execution
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"  → {node} [iteration {iteration}]",
+                        data={"level": "debug"}
+                    )
+
+                elif event_type == "workflow_complete":
+                    # Store final result data
+                    final_event_data = event["data"]
+
+                    success = final_event_data.get("success", False)
+                    iterations = final_event_data.get("iterations", 0)
+                    metadata = final_event_data.get("metadata", {})
+
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"✅ Workflow completed ({iterations} iterations)",
+                        data={"level": "info"}
+                    )
+
+                    # Log execution details from metadata
+                    if metadata:
+                        # Log tool calls if present
+                        tool_calls = metadata.get("tool_calls", [])
+                        if tool_calls:
+                            yield ProgressUpdate(
+                                type="log",
+                                message=f"🔧 Executed {len(tool_calls)} tool calls",
+                                data={"level": "info"}
+                            )
+                            for i, call in enumerate(tool_calls[:5], 1):  # Show first 5
+                                action = call.get("action", "unknown")
+                                yield ProgressUpdate(
+                                    type="log",
+                                    message=f"  {i}. {action}",
+                                    data={"level": "debug"}
+                                )
+
+                        # Log errors if present
+                        errors = metadata.get("errors", [])
+                        if errors:
+                            for error in errors[:3]:  # Show first 3 errors
+                                yield ProgressUpdate(
+                                    type="log",
+                                    message=f"⚠️  Error: {error}",
+                                    data={"level": "warning"}
+                                )
+
+                elif event_type == "workflow_error":
+                    error = event["data"].get("error", "Unknown error")
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"❌ Workflow error: {error}",
+                        data={"level": "error"}
+                    )
+
+                elif event_type == "task_complete":
+                    duration = event["data"].get("total_duration", 0)
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"⏱️  Total duration: {duration:.2f}s",
+                        data={"level": "info"}
+                    )
+
+                elif event_type == "task_error":
+                    error = event["data"].get("error", "Unknown error")
+                    yield ProgressUpdate(
+                        type="log",
+                        message=f"❌ Task error: {error}",
+                        data={"level": "error"}
+                    )
+
+            # Yield final result (if we have one)
+            if final_event_data:
+                success = final_event_data.get("success", False)
+                output = final_event_data.get("output")
+                error = final_event_data.get("error")
+                iterations = final_event_data.get("iterations", 0)
+                metadata = final_event_data.get("metadata", {})
+
+                if success:
+                    yield ProgressUpdate(
+                        type="result",
+                        message="Task completed successfully",
+                        data={
+                            "success": True,
+                            "output": output,
+                            "iterations": iterations,
+                            "metadata": metadata,
+                        }
+                    )
+                else:
+                    yield ProgressUpdate(
+                        type="result",
+                        message=f"Task failed: {error}",
+                        data={
+                            "success": False,
+                            "error": error,
+                            "iterations": iterations,
+                            "metadata": metadata,
+                        }
+                    )
             else:
+                # No final result received - something went wrong
                 yield ProgressUpdate(
                     type="result",
-                    message=f"Task failed: {result.error}",
-                    data={
-                        "success": False,
-                        "error": result.error,
-                        "iterations": result.iterations,
-                        "metadata": result.metadata,
-                    }
+                    message="Task execution ended without result",
+                    data={"success": False, "error": "No final result received"}
                 )
 
         except Exception as e:

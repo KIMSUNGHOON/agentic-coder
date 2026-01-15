@@ -298,6 +298,114 @@ class DualEndpointLLMClient:
         logger.error(error_msg)
         raise Exception(error_msg)
 
+    async def chat_completion_stream(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        top_p: float = 0.95,
+        max_tokens: int = 4096,
+        **kwargs,
+    ):
+        """Make streaming chat completion request with automatic failover
+
+        Yields:
+            str: Chunks of generated text as they arrive
+
+        This method enables real-time streaming of LLM responses, which is critical for:
+        1. User experience: See output as it's generated
+        2. vLLM optimization: Continuous batching works better with streaming
+        3. Debugging: Understand what LLM is doing in real-time
+
+        Example:
+            >>> async for chunk in client.chat_completion_stream(messages):
+            ...     print(chunk, end="", flush=True)
+        """
+        request_id = f"req_{int(time.time() * 1000)}"
+        logger.info(f"📤 Starting STREAMING chat completion [{request_id}]")
+        logger.debug(f"   Messages: {len(messages)}, Temp: {temperature}")
+
+        last_exception = None
+
+        for attempt in range(self.max_retries):
+            endpoint = await self._get_next_healthy_endpoint()
+
+            if not endpoint:
+                backoff = self.backoff_base**attempt
+                logger.warning(
+                    f"⚠️  No healthy endpoints available (attempt {attempt + 1}/{self.max_retries}). "
+                    f"Retrying in {backoff}s..."
+                )
+                await asyncio.sleep(backoff)
+                continue
+
+            try:
+                logger.info(
+                    f"🎯 [{request_id}] Streaming from {endpoint.name} "
+                    f"(attempt {attempt + 1}/{self.max_retries})"
+                )
+
+                start_time = time.time()
+
+                # Make STREAMING request
+                client = self.clients[endpoint.name]
+                stream = await client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    stream=True,  # Enable streaming!
+                    **kwargs,
+                )
+
+                # Stream chunks
+                full_response = ""
+                async for chunk in stream:
+                    if chunk.choices and len(chunk.choices) > 0:
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            full_response += delta.content
+                            yield delta.content  # Yield each chunk as it arrives
+
+                # Log completion
+                elapsed = time.time() - start_time
+                logger.info(
+                    f"✅ [{request_id}] Streaming completed in {elapsed:.2f}s "
+                    f"({len(full_response)} chars)"
+                )
+                self.health[endpoint.name].record_success()
+
+                return  # Success! Exit the retry loop
+
+            except asyncio.TimeoutError:
+                last_exception = Exception(f"Timeout after {endpoint.timeout}s")
+                logger.error(
+                    f"⏱️  [{request_id}] Timeout on {endpoint.name} after {endpoint.timeout}s"
+                )
+                self.health[endpoint.name].record_failure()
+
+            except Exception as e:
+                last_exception = e
+                logger.error(
+                    f"❌ [{request_id}] Stream error on {endpoint.name}: {e}",
+                    exc_info=True
+                )
+                self.health[endpoint.name].record_failure()
+
+            # Exponential backoff before retry
+            if attempt < self.max_retries - 1:
+                backoff = self.backoff_base**attempt
+                logger.info(f"⏳ Backing off for {backoff}s before retry...")
+                await asyncio.sleep(backoff)
+
+        # All attempts failed
+        error_msg = (
+            f"❌ All {self.max_retries} streaming attempts failed on all endpoints. "
+            f"Last error: {last_exception}"
+        )
+        logger.error(error_msg)
+        raise Exception(error_msg)
+
     async def _get_next_healthy_endpoint(self) -> Optional[EndpointConfig]:
         """Get next healthy endpoint using round-robin
 

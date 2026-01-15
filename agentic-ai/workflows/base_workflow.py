@@ -381,6 +381,132 @@ class BaseWorkflow:
                 iterations=state.get("iteration", 0),
             )
 
+    async def run_stream(self, state: AgenticState):
+        """Run workflow with streaming support (yields intermediate events)
+
+        This method enables real-time streaming of workflow execution:
+        - Node transitions (plan → execute → reflect)
+        - LLM call events
+        - Tool execution events
+        - Error events
+
+        Args:
+            state: Initial workflow state
+
+        Yields:
+            Dict with event type and data:
+            - type: "node_start", "node_end", "llm_start", "llm_chunk", "llm_end", "tool_start", "tool_end", "error"
+            - data: Event-specific data
+
+        Example:
+            >>> async for event in workflow.run_stream(state):
+            ...     if event["type"] == "llm_chunk":
+            ...         print(event["data"]["content"], end="")
+        """
+        try:
+            logger.info(f"🚀 Starting STREAMING workflow: {state['task_description'][:100]}")
+
+            # Get optimizer and monitor
+            from core.performance import get_state_optimizer, get_performance_monitor
+            optimizer = get_state_optimizer()
+            monitor = get_performance_monitor()
+
+            start_time = datetime.now()
+
+            # Determine recursion_limit from state or use default
+            recursion_limit = state.get("recursion_limit", 100)
+
+            logger.info(f"🔧 Using recursion_limit: {recursion_limit}, max_iterations: {state.get('max_iterations', 10)}")
+
+            # Yield initial event
+            yield {
+                "type": "workflow_start",
+                "data": {
+                    "task": state["task_description"],
+                    "domain": state.get("workflow_domain", "unknown"),
+                    "max_iterations": state.get("max_iterations", 10)
+                }
+            }
+
+            # Stream graph execution using LangGraph's astream API
+            final_state = None
+            async for event in self.graph.astream(
+                state,
+                config={"recursion_limit": recursion_limit}
+            ):
+                # LangGraph yields events as: {node_name: state_update}
+                for node_name, node_state in event.items():
+                    # Yield node event
+                    yield {
+                        "type": "node_executed",
+                        "data": {
+                            "node": node_name,
+                            "iteration": node_state.get("iteration", 0),
+                            "status": node_state.get("task_status", "in_progress")
+                        }
+                    }
+
+                    # Track final state
+                    final_state = node_state
+
+            # Optimize final state
+            if final_state:
+                final_state = optimizer.optimize(final_state)
+            else:
+                final_state = state  # Fallback
+
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+
+            # Extract results
+            success = final_state.get("task_status") == TaskStatus.COMPLETED.value
+            output = final_state.get("task_result")
+            error = final_state.get("task_error")
+            iterations = final_state.get("iteration", 0)
+
+            logger.info(
+                f"✅ STREAMING workflow completed: {iterations} iterations, {duration:.2f}s"
+            )
+
+            # Record metrics
+            monitor.record("workflow_duration", duration)
+            monitor.record("workflow_iterations", iterations)
+
+            # Create detailed metadata
+            metadata = {
+                "duration_seconds": duration,
+                "workflow_domain": final_state.get("workflow_domain", "unknown"),
+                "workflow_type": final_state.get("workflow_type", "unknown"),
+                "tool_calls": final_state.get("tool_calls", []),
+                "errors": final_state.get("errors", []),
+                "context": {
+                    "plan": final_state.get("context", {}).get("plan", {}),
+                    "completed_steps": final_state.get("context", {}).get("completed_steps", []),
+                },
+            }
+
+            # Yield final result event
+            yield {
+                "type": "workflow_complete",
+                "data": {
+                    "success": success,
+                    "output": output,
+                    "error": error,
+                    "iterations": iterations,
+                    "metadata": metadata
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"❌ STREAMING workflow error: {e}", exc_info=True)
+            yield {
+                "type": "workflow_error",
+                "data": {
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+            }
+
     async def run_with_task(
         self,
         task_description: str,

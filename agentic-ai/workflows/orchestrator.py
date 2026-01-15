@@ -259,6 +259,146 @@ class WorkflowOrchestrator:
                 }
             )
 
+    async def execute_task_stream(
+        self,
+        task_description: str,
+        task_id: Optional[str] = None,
+        workspace: Optional[str] = None,
+        max_iterations: Optional[int] = None,
+        domain_override: Optional[WorkflowDomain] = None,
+    ):
+        """Execute task with streaming support (yields intermediate events)
+
+        This enables real-time feedback during task execution:
+        - Classification events
+        - Workflow node transitions
+        - LLM streaming chunks
+        - Tool execution events
+        - Final results
+
+        Args:
+            task_description: User's task description
+            task_id: Optional task ID (auto-generated if not provided)
+            workspace: Optional workspace override
+            max_iterations: Optional max iterations override
+            domain_override: Optional domain override (skip classification)
+
+        Yields:
+            Dict with event type and data:
+            - type: "classification", "workflow_start", "node_executed", "workflow_complete", etc.
+            - data: Event-specific data
+
+        Example:
+            >>> async for event in orchestrator.execute_task_stream("Fix auth bug"):
+            ...     if event["type"] == "node_executed":
+            ...         print(f"Node: {event['data']['node']}")
+        """
+        # Generate task ID if not provided
+        if task_id is None:
+            task_id = f"task_{uuid.uuid4().hex[:8]}"
+
+        # Use defaults if not overridden
+        workspace = workspace or self.workspace
+        max_iterations = max_iterations or self.max_iterations
+
+        try:
+            logger.info(f"🚀 Executing task (STREAMING): {task_id}")
+            logger.info(f"📝 Description: {task_description}")
+
+            start_time = datetime.now()
+
+            # Classify and route (unless domain override)
+            if domain_override:
+                domain = domain_override
+                classification = None
+                logger.info(f"⚡ Using domain override: {domain.value}")
+
+                # Yield domain event
+                yield {
+                    "type": "classification",
+                    "data": {
+                        "domain": domain.value,
+                        "override": True
+                    }
+                }
+            else:
+                # Yield classification start
+                yield {
+                    "type": "classification_start",
+                    "data": {"task": task_description}
+                }
+
+                domain, classification = await self.classify_and_route(task_description)
+
+                # Yield classification result
+                yield {
+                    "type": "classification",
+                    "data": {
+                        "domain": domain.value,
+                        "confidence": classification.confidence,
+                        "reasoning": classification.reasoning[:200] if classification.reasoning else None,
+                        "override": False
+                    }
+                }
+
+            # Update statistics
+            self.total_tasks += 1
+            self.tasks_by_domain[domain] += 1
+
+            # Get workflow
+            workflow = self._get_workflow(domain)
+
+            # Create initial state
+            state = create_initial_state(
+                task_description=task_description,
+                task_id=task_id,
+                workflow_domain=domain,
+                workspace=workspace,
+                max_iterations=max_iterations,
+                recursion_limit=self.recursion_limit,
+            )
+
+            # Add classification metadata
+            if classification:
+                state["context"]["classification"] = {
+                    "domain": classification.domain.value,
+                    "confidence": classification.confidence,
+                    "reasoning": classification.reasoning,
+                    "requires_sub_agents": classification.requires_sub_agents,
+                    "estimated_complexity": classification.estimated_complexity,
+                }
+
+            # Run workflow with streaming
+            logger.info(f"🔄 Running {domain.value} workflow (STREAMING)")
+
+            async for event in workflow.run_stream(state):
+                # Propagate workflow events
+                yield event
+
+            end_time = datetime.now()
+            total_duration = (end_time - start_time).total_seconds()
+
+            # Yield task complete event
+            yield {
+                "type": "task_complete",
+                "data": {
+                    "task_id": task_id,
+                    "domain": domain.value,
+                    "total_duration": total_duration
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Task failed (STREAMING): {task_id} - {e}", exc_info=True)
+            yield {
+                "type": "task_error",
+                "data": {
+                    "task_id": task_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+            }
+
     async def execute_with_domain(
         self,
         task_description: str,

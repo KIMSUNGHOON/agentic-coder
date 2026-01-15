@@ -39,15 +39,15 @@ llm:
 
 # Workflow configuration
 workflows:
-  max_iterations: 30  # Maximum refinement iterations (increased 3→10→30 - Bug Fix #7.1)
-  timeout_seconds: 600  # 10 minutes max per workflow
+  max_iterations: 50  # Maximum refinement iterations (increased 3→10→30→50 for complex tasks)
+  timeout_seconds: 1200  # 20 minutes max per workflow (increased for large tasks)
   recursion_limit: 100  # LangGraph recursion limit (default: 25, increased for complex workflows)
 
   # Sub-agent spawning
   sub_agents:
     enabled: true
     complexity_threshold: 0.7  # Spawn sub-agent if complexity > 0.7
-    max_concurrent: 3  # Max parallel sub-agents
+    max_concurrent: 4  # Max parallel sub-agents (matches vLLM optimal batch size)
 
 # Tool configuration
 tools:
