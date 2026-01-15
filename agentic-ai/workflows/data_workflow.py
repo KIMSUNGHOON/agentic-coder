@@ -213,20 +213,66 @@ Respond with ONLY JSON.
             return {"success": False, "error": str(e)}
 
     async def reflect_node(self, state: AgenticState) -> AgenticState:
-        """Reflect on data task progress"""
-        logger.info(f"🤔 Reflecting on data task (iteration {state['iteration']})")
+        """Reflect on data task progress with aggressive early completion"""
+        logger.info(f"🤔 Reflecting (iteration {state['iteration']})")
 
         try:
             if state.get("task_status") == TaskStatus.COMPLETED.value:
+                logger.info("✅ Task already COMPLETED")
                 state["should_continue"] = False
                 return state
 
-            if state["iteration"] >= state["max_iterations"]:
+            # === AGGRESSIVE ITERATION LIMITS FOR DATA ===
+            task_lower = state['task_description'].lower()
+
+            # Data task complexity indicators
+            simple_indicators = ['read', 'load', 'save', 'convert', 'export']
+            is_simple_task = any(indicator in task_lower for indicator in simple_indicators)
+
+            complex_indicators = ['analyze', 'process', 'transform', 'aggregate', 'pipeline']
+            is_complex_task = any(indicator in task_lower for indicator in complex_indicators)
+
+            # STRICT iteration limits for data tasks
+            if is_simple_task:
+                hard_limit = 8   # 간단한 데이터 작업: 최대 8회
+            elif is_complex_task:
+                hard_limit = 20  # 복잡한 데이터 분석: 최대 20회
+            else:
+                hard_limit = 12  # 일반 데이터 작업: 최대 12회
+
+            tool_calls = state.get("tool_calls", [])
+            recent_tools = [call.get("action") for call in tool_calls[-5:]]
+
+            logger.info(f"📊 Iteration {state['iteration']}/{hard_limit} | Tool calls: {len(tool_calls)}")
+
+            # === FORCE COMPLETION CONDITIONS ===
+
+            # 1. HARD LIMIT
+            if state['iteration'] >= hard_limit:
+                logger.warning(f"🛑 HARD LIMIT reached ({hard_limit})")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Data task completed after {state['iteration']} iterations"
                 state["should_continue"] = False
-                state["task_status"] = TaskStatus.FAILED.value
-                state["task_error"] = "Max iterations reached"
                 return state
 
+            # 2. LOOP DETECTION
+            if len(recent_tools) >= 3 and len(set(recent_tools[-3:])) == 1:
+                logger.warning(f"🔁 LOOP detected: {recent_tools[-1]} repeated")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "Task stopped (loop detected)"
+                state["should_continue"] = False
+                return state
+
+            # 3. NO PROGRESS
+            if state['iteration'] >= 5 and len(tool_calls) == 0:
+                logger.warning(f"⚠️  No tool activity after {state['iteration']} iterations")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "Task completed with no tool executions"
+                state["should_continue"] = False
+                return state
+
+            # Continue
+            logger.info(f"🔄 Continue → iteration {state['iteration'] + 1}/{hard_limit}")
             state["should_continue"] = True
             return state
 

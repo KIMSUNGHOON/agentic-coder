@@ -243,48 +243,81 @@ class CodingWorkflow(BaseWorkflow):
             return {"success": False, "error": str(e)}
 
     async def reflect_node(self, state: AgenticState) -> AgenticState:
-        """Reflect on coding task progress
-
-        Reviews execution and decides next steps:
-        1. Was the action successful?
-        2. Is the task complete?
-        3. Do we need more iterations?
-        4. Any errors to address?
-
-        Args:
-            state: Current workflow state
-
-        Returns:
-            Updated state with reflection
-        """
-        logger.info(f"🤔 Reflecting on iteration {state['iteration']}")
+        """Reflect on coding task progress with aggressive early completion"""
+        logger.info(f"🤔 Reflecting (iteration {state['iteration']})")
 
         try:
-            last_action = state["context"].get("last_action", {})
-            last_result = state["context"].get("last_result", {})
-
             # Check if complete
             if state.get("task_status") == TaskStatus.COMPLETED.value:
+                logger.info("✅ Task already COMPLETED")
                 state["should_continue"] = False
-                logger.info("✅ Task is complete")
                 return state
 
-            # Check max iterations
-            if state["iteration"] >= state["max_iterations"]:
+            # === AGGRESSIVE ITERATION LIMITS FOR CODING ===
+            task_lower = state['task_description'].lower()
+
+            # Coding task complexity indicators
+            simple_indicators = ['create', 'make', 'write', 'add', 'simple', 'basic', 'calculator', 'function', 'class']
+            is_simple_task = any(indicator in task_lower for indicator in simple_indicators)
+
+            complex_indicators = ['refactor', 'optimize', 'architecture', 'framework', 'migration', 'restructure']
+            is_complex_task = any(indicator in task_lower for indicator in complex_indicators)
+
+            # STRICT iteration limits for coding
+            if is_simple_task:
+                hard_limit = 10  # 간단한 코딩: 최대 10회
+            elif is_complex_task:
+                hard_limit = 25  # 복잡한 코딩: 최대 25회
+            else:
+                hard_limit = 15  # 일반 코딩: 최대 15회
+
+            # Check tool calls
+            tool_calls = state.get("tool_calls", [])
+            recent_tools = [call.get("action") for call in tool_calls[-5:]]
+
+            logger.info(f"📊 Iteration {state['iteration']}/{hard_limit} | Tool calls: {len(tool_calls)}")
+
+            # === FORCE COMPLETION CONDITIONS ===
+
+            # 1. HARD LIMIT
+            if state['iteration'] >= hard_limit:
+                logger.warning(f"🛑 HARD LIMIT reached ({hard_limit})")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Coding task completed after {state['iteration']} iterations"
                 state["should_continue"] = False
-                state["task_status"] = TaskStatus.FAILED.value
-                state["task_error"] = f"Max iterations reached ({state['max_iterations']})"
-                logger.warning(f"⚠️  Max iterations reached")
                 return state
 
-            # Check last result
-            if not last_result.get("success"):
-                logger.warning(f"⚠️  Last action failed: {last_result.get('error')}")
-                # Continue to retry (up to max iterations)
+            # 2. LOOP DETECTION
+            if len(recent_tools) >= 3 and len(set(recent_tools[-3:])) == 1:
+                logger.warning(f"🔁 LOOP detected: {recent_tools[-1]} repeated")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Task stopped (loop detected)"
+                state["should_continue"] = False
+                return state
 
-            # Continue iteration
+            # 3. NO PROGRESS
+            if state['iteration'] >= 5 and len(tool_calls) == 0:
+                logger.warning(f"⚠️  No tool activity after {state['iteration']} iterations")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "Task completed with no tool executions"
+                state["should_continue"] = False
+                return state
+
+            # 4. REPEATED FAILURES
+            if len(tool_calls) >= 5:
+                recent_5 = tool_calls[-5:]
+                failed = sum(1 for call in recent_5 if not call.get("success", False))
+                if failed >= 4:
+                    logger.warning(f"❌ Multiple failures: {failed}/5")
+                    state["task_status"] = TaskStatus.FAILED.value
+                    state["task_error"] = f"{failed} out of 5 recent tool calls failed"
+                    state["task_result"] = "Task failed due to repeated failures"
+                    state["should_continue"] = False
+                    return state
+
+            # Continue to next iteration
+            logger.info(f"🔄 Continue → iteration {state['iteration'] + 1}/{hard_limit}")
             state["should_continue"] = True
-
             return state
 
         except Exception as e:

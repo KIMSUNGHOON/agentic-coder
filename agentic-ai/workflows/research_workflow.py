@@ -215,28 +215,67 @@ Respond with ONLY JSON.
             return {"success": False, "error": str(e)}
 
     async def reflect_node(self, state: AgenticState) -> AgenticState:
-        """Reflect on research progress"""
-        logger.info(f"🤔 Reflecting on research (iteration {state['iteration']})")
+        """Reflect on research progress with aggressive early completion"""
+        logger.info(f"🤔 Reflecting (iteration {state['iteration']})")
 
         try:
             # Check completion
             if state.get("task_status") == TaskStatus.COMPLETED.value:
+                logger.info("✅ Task already COMPLETED")
                 state["should_continue"] = False
                 return state
 
-            # Check max iterations
-            if state["iteration"] >= state["max_iterations"]:
-                state["should_continue"] = False
-                state["task_status"] = TaskStatus.FAILED.value
-                state["task_error"] = "Max iterations reached"
-                return state
+            # === AGGRESSIVE ITERATION LIMITS FOR RESEARCH ===
+            task_lower = state['task_description'].lower()
 
-            # Check if we have enough findings
+            # Research complexity indicators
+            simple_indicators = ['find', 'search', 'what', 'where', 'list', 'show']
+            is_simple_task = any(indicator in task_lower for indicator in simple_indicators)
+
+            complex_indicators = ['analyze', 'compare', 'evaluate', 'comprehensive', 'detailed']
+            is_complex_task = any(indicator in task_lower for indicator in complex_indicators)
+
+            # STRICT iteration limits for research
+            if is_simple_task:
+                hard_limit = 8   # 간단한 검색: 최대 8회
+            elif is_complex_task:
+                hard_limit = 20  # 복잡한 분석: 최대 20회
+            else:
+                hard_limit = 12  # 일반 조사: 최대 12회
+
+            tool_calls = state.get("tool_calls", [])
             findings_count = len(state["context"].get("findings", []))
-            if findings_count >= 5:  # Enough information gathered
-                logger.info(f"✅ Sufficient findings collected: {findings_count}")
-                # Could trigger analysis/completion in next iteration
 
+            logger.info(f"📊 Iteration {state['iteration']}/{hard_limit} | Findings: {findings_count}")
+
+            # === FORCE COMPLETION CONDITIONS ===
+
+            # 1. HARD LIMIT
+            if state['iteration'] >= hard_limit:
+                logger.warning(f"🛑 HARD LIMIT reached ({hard_limit})")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Research completed after {state['iteration']} iterations. Findings: {findings_count}"
+                state["should_continue"] = False
+                return state
+
+            # 2. SUFFICIENT FINDINGS
+            if findings_count >= 5:
+                logger.info(f"✅ Sufficient findings: {findings_count}")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = f"Research completed with {findings_count} findings"
+                state["should_continue"] = False
+                return state
+
+            # 3. NO PROGRESS
+            if state['iteration'] >= 5 and findings_count == 0:
+                logger.warning(f"⚠️  No findings after {state['iteration']} iterations")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "Research completed with no findings"
+                state["should_continue"] = False
+                return state
+
+            # Continue
+            logger.info(f"🔄 Continue → iteration {state['iteration'] + 1}/{hard_limit}")
             state["should_continue"] = True
             return state
 
