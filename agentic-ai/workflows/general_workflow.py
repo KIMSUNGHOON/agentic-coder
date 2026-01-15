@@ -290,8 +290,27 @@ Respond with ONLY JSON.
 
             if state["iteration"] >= state["max_iterations"]:
                 state["should_continue"] = False
-                state["task_status"] = TaskStatus.FAILED.value
-                state["task_error"] = "Max iterations reached"
+
+                # Check if we made progress despite hitting max iterations
+                completed_steps = state["context"].get("completed_steps", [])
+                if len(completed_steps) > 0:
+                    # We made progress! Report as partial success
+                    logger.warning(f"⚠️  Max iterations reached, but made progress: {len(completed_steps)} steps completed")
+                    state["task_status"] = TaskStatus.COMPLETED.value  # Changed from FAILED
+                    state["task_result"] = (
+                        f"Task partially completed ({len(completed_steps)} steps). "
+                        f"You may need to continue or adjust the task. "
+                        f"Completed: {', '.join(completed_steps[:5])}"
+                    )
+                else:
+                    # No progress at all
+                    logger.warning(f"⚠️  Max iterations reached with no progress")
+                    state["task_status"] = TaskStatus.FAILED.value
+                    state["task_error"] = (
+                        f"Max iterations ({state['max_iterations']}) reached without completing the task. "
+                        f"This may indicate: (1) Task is too complex, (2) LLM not available, "
+                        f"or (3) Task needs to be broken down into smaller steps."
+                    )
                 return state
 
             # Check progress
