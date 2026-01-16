@@ -256,7 +256,21 @@ Domain:"""
         Returns:
             IntentClassification based on rules
         """
-        prompt_lower = user_prompt.lower()
+        prompt_lower = user_prompt.lower().strip()
+
+        # CRITICAL: Check for greetings FIRST!
+        greeting_keywords = ['hello', 'hi', 'hey', 'greetings', '안녕', '하이', 'good morning', 'good afternoon', 'good evening']
+        is_greeting = any(prompt_lower.startswith(kw) or prompt_lower == kw for kw in greeting_keywords)
+
+        if is_greeting and len(user_prompt) < 30:
+            logger.info(f"👋 Detected greeting in fallback: '{user_prompt}'")
+            return IntentClassification(
+                domain=WorkflowDomain.GENERAL,
+                confidence=0.95,
+                reasoning="Simple greeting detected (rule-based)",
+                requires_sub_agents=False,
+                estimated_complexity="low",
+            )
 
         # Coding keywords
         coding_keywords = [

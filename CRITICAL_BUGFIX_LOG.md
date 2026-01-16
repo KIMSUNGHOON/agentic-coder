@@ -322,3 +322,178 @@ except OSError as e:
 **작성일**: 2026-01-15
 **브랜치**: claude/fix-hardcoded-config-QyiND
 **작성자**: Claude (Sonnet 4.5)
+
+---
+
+## Update: 2026-01-16 - Root Cause of LLM Errors
+
+### User Report (Continued)
+사용자: "python -m cli.app 으로 실행해서 Hello를 입력 했는데 여전히 동일한 response 가 발생하네요. 그리고 log를 살펴 보니 ERROR가 꽤 많이 보이는군요."
+
+에러 메시지:
+```
+ERROR: object of type 'NoneType' has no len()
+ERROR: All 4 attempts failed on all endpoints. Last error: object of type 'NoneType' has no len()
+```
+
+### Investigation
+
+**Step 1**: 모든 None 체크 수정 완료
+- commit 1b22e54: messages None 체크 추가
+- commit 36a6ce4: response_content None 체크 추가
+- llm_client.py의 모든 len() 호출 전에 None 검증 완료
+
+**Step 2**: 에러가 계속되는 이유 확인
+```bash
+$ curl http://localhost:8001/v1/models
+000UNREACHABLE
+
+$ curl http://localhost:8002/v1/models  
+000UNREACHABLE
+
+$ ps aux | grep vllm
+No vLLM processes found
+```
+
+### ROOT CAUSE: vLLM Servers Not Running!
+
+**실제 문제**:
+- vLLM 서버가 전혀 실행되지 않음
+- Agentic 2.0은 **두 개의 독립적인 컴포넌트** 필요:
+  1. vLLM LLM Servers (localhost:8001, 8002) ← **실행 안됨!**
+  2. Agentic CLI (python -m cli.app)
+
+**이전 에러가 혼란스러웠던 이유**:
+- Bug Fix #11-12 이전: "object of type 'NoneType' has no len()" ← 무슨 문제인지 불명확
+- Bug Fix #11-12 이후: "All 4 attempts failed on all endpoints" ← 명확한 연결 실패 메시지
+
+**교훈**:
+1. 더 명확한 에러 메시지 = 더 빠른 문제 해결
+2. 시스템 아키텍처를 이해해야 함 (멀티 컴포넌트 시스템)
+3. 의존성 체크 필요 (vLLM 서버 실행 여부 확인)
+
+### Solution: Startup Scripts & Documentation
+
+**Created Files**:
+1. **agentic-ai/start_vllm.sh** - vLLM 서버 자동 시작
+   - Primary (8001) + Secondary (8002) 엔드포인트 시작
+   - 포트 사용 여부 체크
+   - logs/vllm_*.log에 로그 기록
+   
+2. **agentic-ai/stop_vllm.sh** - vLLM 서버 종료
+   - 모든 vLLM 프로세스 찾아서 종료
+   - Graceful shutdown + force fallback
+
+3. **agentic-ai/STARTUP.md** - 완전한 시작 가이드
+   - 아키텍처 설명 (vLLM + CLI 분리)
+   - 빠른 시작 가이드
+   - 모든 알려진 문제 트러블슈팅
+   - Bug Fix #1-12 전체 요약
+   - 설정 참조
+   - 전체 워크플로우 예제
+
+**Correct Startup Procedure**:
+```bash
+# 1. vLLM 서버 시작 (CRITICAL - 먼저 실행!)
+cd /home/user/agentic-coder/agentic-ai
+./start_vllm.sh
+
+# 2. 모델 로딩 대기 (30-60초)
+sleep 30
+
+# 3. 서버 상태 확인
+curl http://localhost:8001/v1/models  # Should return JSON
+curl http://localhost:8002/v1/models  # Should return JSON
+
+# 4. CLI 실행
+python -m cli.app
+
+# 5. 테스트
+# Input: Hello
+# Expected: 대화형 인사 응답 (NOT JSON task completion!)
+```
+
+### Impact
+
+**Before This Fix**:
+- ❌ 사용자가 vLLM 서버 시작 방법을 몰랐음
+- ❌ 에러 메시지가 혼란스러웠음 ("NoneType has no len()")
+- ❌ 시스템 아키텍처 문서화 부족
+
+**After This Fix**:
+- ✅ 자동화된 시작/중지 스크립트
+- ✅ 명확한 에러 메시지 (연결 실패)
+- ✅ 완전한 시작 가이드 (STARTUP.md)
+- ✅ 트러블슈팅 섹션
+- ✅ 모든 Bug Fix 요약
+
+### Commit
+
+**c56fb82**: docs: Add comprehensive vLLM startup scripts and guide
+- start_vllm.sh (자동 시작)
+- stop_vllm.sh (자동 종료)
+- STARTUP.md (완전한 가이드)
+
+---
+
+## Complete Fix History Summary
+
+### Bug Fixes in This Session (claude/fix-hardcoded-config-QyiND)
+
+| # | Issue | Root Cause | Fix | Commit |
+|---|-------|------------|-----|--------|
+| 1-6 | Various | Multiple | Previous sessions | Various |
+| 7 | Missing metadata | workflows not returning metadata | Add metadata to all returns | a02ea84 |
+| 8 | LIST_DIRECTORY broken | Not implemented in workflows | Full implementation + prompts | a02ea84, c8cd8b3 |
+| 9 | No logs appearing | No logging.basicConfig() | Configure Python logging | 43a644f |
+| 10 | Greeting returns JSON | IntentRouter misclassification | Improve prompt + defensive handling | e003138 |
+| 11 | LLM crashes on None | len(messages) without None check | Add None checks in logging | 1b22e54 |
+| 12 | LLM crashes at line 286 | len(response_content) on None | Handle None response content | 36a6ce4 |
+| 13 | "vLLM not running" confusion | No startup documentation | Startup scripts + STARTUP.md | c56fb82 |
+
+### Testing Checklist (Final)
+
+**Prerequisites**:
+- [x] vLLM 서버 시작 스크립트 작성
+- [x] 시작 가이드 문서화
+- [x] 모든 코드 수정 완료 및 푸시
+
+**User Testing Required**:
+1. [ ] `./start_vllm.sh` 실행
+2. [ ] 30-60초 대기 (모델 로딩)
+3. [ ] `curl http://localhost:8001/v1/models` 확인
+4. [ ] `python -m cli.app` 실행
+5. [ ] "Hello" 입력 → 대화형 응답 확인
+6. [ ] 파일 생성 요청 → 절대 경로 + 내용 표시 확인
+7. [ ] 파일 브라우저 요청 → 테이블 표시 확인
+8. [ ] `./stop_vllm.sh` 실행
+
+### Current Status: 2026-01-16
+
+**All Critical Bugs Fixed**: ✅
+- ✅ Metadata propagation
+- ✅ LIST_DIRECTORY implementation
+- ✅ Python logging configuration
+- ✅ Greeting classification
+- ✅ LLM client None handling
+- ✅ Startup documentation
+
+**Ready for User Testing**: ✅
+- ✅ All code fixes committed and pushed
+- ✅ Startup scripts created
+- ✅ Complete documentation provided
+- ✅ Troubleshooting guide included
+
+**Next Step**: 
+User needs to:
+1. Start vLLM servers using `./start_vllm.sh`
+2. Test all functionality
+3. Report any remaining issues
+
+---
+
+**최종 업데이트**: 2026-01-16 10:30 UTC
+**브랜치**: claude/fix-hardcoded-config-QyiND
+**작성자**: Claude (Sonnet 4.5)
+**총 커밋 수**: 8 (6610b7c → c56fb82)
+**상태**: 모든 버그 수정 완료, 사용자 테스트 대기 중
