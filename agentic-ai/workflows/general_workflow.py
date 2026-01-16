@@ -445,18 +445,35 @@ Iteration 5-50: Keep repeating tools (WRONG!)
             elif action_type == "WRITE_FILE":
                 file_path = params.get("file_path")
                 content = params.get("content")
+
+                # CRITICAL: Detailed logging for debugging
+                logger.info(f"📝 WRITE_FILE request:")
+                logger.info(f"   file_path: {file_path}")
+                logger.info(f"   content type: {type(content)}")
+                logger.info(f"   content length: {len(content) if content is not None else 'None'}")
+                logger.info(f"   content preview: {repr(content[:100]) if content else 'None'}")
+
                 if not file_path:
+                    logger.error("❌ WRITE_FILE failed: Missing file_path parameter")
                     return {"success": False, "error": "Missing file_path parameter"}
                 if content is None:
+                    logger.error("❌ WRITE_FILE failed: Missing content parameter (content is None)")
+                    logger.error(f"   params received: {params}")
                     return {"success": False, "error": "Missing content parameter"}
 
                 logger.info(f"📝 Writing file: {file_path} ({len(content)} chars)")
                 result = await self.fs_tools.write_file(file_path, content)
 
                 if result.success:
-                    logger.info(f"✅ File written successfully: {file_path}")
+                    abs_path = result.metadata.get('path', file_path) if result.metadata else file_path
+                    logger.info(f"✅ File written successfully!")
+                    logger.info(f"   Requested path: {file_path}")
+                    logger.info(f"   Absolute path: {abs_path}")
+                    logger.info(f"   Size: {result.metadata.get('bytes', 0)} bytes")
+                    logger.info(f"   Lines: {result.metadata.get('lines', 0)}")
                 else:
                     logger.error(f"❌ Failed to write file: {result.error}")
+                    logger.error(f"   Requested path: {file_path}")
 
                 return {
                     "success": result.success,
