@@ -51,17 +51,6 @@ class GeneralWorkflow(BaseWorkflow):
             if "completed_steps" not in state["context"]:
                 state["context"]["completed_steps"] = []
 
-            task_lower = state['task_description'].lower().strip()
-
-            # Handle simple greetings and conversational inputs
-            greeting_keywords = ['hello', 'hi', 'hey', 'greetings', '안녕', '하이']
-            if any(keyword in task_lower for keyword in greeting_keywords) and len(task_lower) < 20:
-                logger.info("👋 Detected simple greeting, completing immediately")
-                state["task_status"] = TaskStatus.COMPLETED.value
-                state["task_result"] = f"Hello! I'm Agentic 2.0. How can I help you today?"
-                state["should_continue"] = False
-                return state
-
             planning_prompt = f"""You are planning a general task.
 
 Task: {state['task_description']}
@@ -102,11 +91,38 @@ Respond in JSON format:
 
                 logger.info(f"✅ Plan created: {plan.get('task_type', 'unknown')} task")
 
-                # If plan indicates conversational task, complete immediately
+                # If plan indicates conversational task, generate appropriate response
                 if plan.get('task_type') == 'conversational':
-                    logger.info("💬 Conversational task detected, completing")
+                    logger.info("💬 Conversational task detected, generating LLM response")
+
+                    # Use LLM to generate contextual conversational response
+                    conversation_prompt = f"""The user said: "{state['task_description']}"
+
+This is a conversational input (not a task requiring tools). Generate a friendly, helpful response.
+
+Guidelines:
+- If it's a greeting: Respond warmly and briefly introduce yourself as Agentic 2.0
+- If it's a question: Answer concisely
+- If it's unclear: Ask for clarification politely
+- Keep response natural and under 3 sentences
+
+Response:"""
+
+                    conv_messages = [
+                        {"role": "system", "content": "You are Agentic 2.0, a helpful AI assistant specialized in software development."},
+                        {"role": "user", "content": conversation_prompt}
+                    ]
+
+                    try:
+                        response = await self.call_llm(conv_messages, temperature=0.7, max_tokens=200)
+                        state["task_result"] = response.strip()
+                        logger.info(f"✅ Generated conversational response: {response[:100]}...")
+                    except Exception as e:
+                        logger.warning(f"⚠️  Failed to generate conversational response: {e}")
+                        # Fallback response only if LLM fails
+                        state["task_result"] = "Hello! I'm Agentic 2.0, your AI assistant. How can I help you today?"
+
                     state["task_status"] = TaskStatus.COMPLETED.value
-                    state["task_result"] = "I'm ready to assist you. Please let me know what specific task you'd like help with."
                     state["should_continue"] = False
                     return state
 
