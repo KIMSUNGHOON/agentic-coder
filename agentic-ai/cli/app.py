@@ -261,7 +261,15 @@ class AgenticApp(App):
             log.add_log("info", f"Session created: {self.session_id[:8]}")
             log.add_log("info", f"Config base workspace: {base_workspace}")
             log.add_log("info", f"Session workspace: {self.session_workspace}")
-            chat.add_status(f"📁 Session workspace: {self.session_workspace}")
+
+            # Display workspace info prominently in chat
+            chat.add_status("=" * 60)
+            chat.add_status(f"📁 SESSION WORKSPACE INITIALIZED")
+            chat.add_status(f"   Session ID: {self.session_id[:8]}")
+            chat.add_status(f"   Workspace: {self.session_workspace}")
+            chat.add_status(f"   Isolation: {'Enabled' if workspace_config.isolation else 'Disabled'}")
+            chat.add_status("=" * 60)
+
             self.session_active = True
 
         # Update status (use 'healthy' not 'working')

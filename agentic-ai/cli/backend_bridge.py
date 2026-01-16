@@ -96,11 +96,43 @@ class BackendBridge:
             return
 
         try:
+            # CRITICAL: Configure Python logging FIRST before any logger calls
+            # Load config to get logging settings
+            from core.config_loader import load_config
+            temp_config = load_config(self.config_path)
+
+            # Setup Python logging based on config
+            log_level = getattr(logging, temp_config.logging.level, logging.INFO)
+            log_format = (
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                if temp_config.logging.format == 'text'
+                else '{"timestamp": "%(asctime)s", "logger": "%(name)s", "level": "%(levelname)s", "message": "%(message)s"}'
+            )
+
+            # Create logs directory if needed
+            log_file_path = Path(temp_config.logging.file)
+            log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Configure root logger
+            logging.basicConfig(
+                level=log_level,
+                format=log_format,
+                handlers=[
+                    logging.FileHandler(temp_config.logging.file, encoding='utf-8'),
+                    logging.StreamHandler()  # Also output to console
+                ],
+                force=True  # Override any existing configuration
+            )
+
+            logger.info("=" * 80)
             logger.info("🚀 Initializing backend bridge")
+            logger.info(f"📋 Log level: {temp_config.logging.level}")
+            logger.info(f"📄 Log file: {temp_config.logging.file}")
+            logger.info(f"🔍 LLM request logging: {temp_config.logging.log_llm_requests}")
 
             # Load configuration
             logger.info(f"📋 Loading config from {self.config_path}")
-            self.config = load_config(self.config_path)
+            self.config = temp_config
 
             # Initialize LLM client
             endpoints = [
