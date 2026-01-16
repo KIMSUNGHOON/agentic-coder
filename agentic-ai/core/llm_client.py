@@ -215,14 +215,33 @@ class DualEndpointLLMClient:
         """
         request_id = f"req_{int(time.time() * 1000)}"
         logger.info(f"📤 Starting chat completion request [{request_id}]")
+
+        # CRITICAL: Check if messages is valid before logging
+        if messages is None:
+            logger.error(f"❌ [{request_id}] messages is None!")
+            raise ValueError("messages parameter cannot be None")
+
+        if not isinstance(messages, list):
+            logger.error(f"❌ [{request_id}] messages is not a list: {type(messages)}")
+            raise ValueError(f"messages must be a list, got {type(messages)}")
+
         logger.info(f"   Messages: {len(messages)}, Temp: {temperature}")
 
         # Log full request (CRITICAL for debugging)
-        for i, msg in enumerate(messages):
-            role = msg.get('role', 'unknown')
-            content = msg.get('content', '')
-            content_preview = content[:500] + "..." if len(content) > 500 else content
-            logger.info(f"   [{i+1}] {role}: {content_preview}")
+        try:
+            for i, msg in enumerate(messages):
+                if not isinstance(msg, dict):
+                    logger.warning(f"   [{i+1}] Invalid message type: {type(msg)}")
+                    continue
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')
+                if content is None:
+                    content = ''
+                content_preview = content[:500] + "..." if len(content) > 500 else content
+                logger.info(f"   [{i+1}] {role}: {content_preview}")
+        except Exception as e:
+            logger.warning(f"Failed to log messages: {e}")
+            # Continue anyway - logging failure shouldn't stop LLM call
 
         last_exception = None
 
@@ -334,14 +353,33 @@ class DualEndpointLLMClient:
         """
         request_id = f"req_{int(time.time() * 1000)}"
         logger.info(f"📤 Starting STREAMING chat completion [{request_id}]")
+
+        # CRITICAL: Check if messages is valid before logging
+        if messages is None:
+            logger.error(f"❌ [{request_id}] messages is None!")
+            raise ValueError("messages parameter cannot be None")
+
+        if not isinstance(messages, list):
+            logger.error(f"❌ [{request_id}] messages is not a list: {type(messages)}")
+            raise ValueError(f"messages must be a list, got {type(messages)}")
+
         logger.info(f"   Messages: {len(messages)}, Temp: {temperature}")
 
         # Log full request (CRITICAL for debugging)
-        for i, msg in enumerate(messages):
-            role = msg.get('role', 'unknown')
-            content = msg.get('content', '')
-            content_preview = content[:500] + "..." if len(content) > 500 else content
-            logger.info(f"   [{i+1}] {role}: {content_preview}")
+        try:
+            for i, msg in enumerate(messages):
+                if not isinstance(msg, dict):
+                    logger.warning(f"   [{i+1}] Invalid message type: {type(msg)}")
+                    continue
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')
+                if content is None:
+                    content = ''
+                content_preview = content[:500] + "..." if len(content) > 500 else content
+                logger.info(f"   [{i+1}] {role}: {content_preview}")
+        except Exception as e:
+            logger.warning(f"Failed to log messages: {e}")
+            # Continue anyway - logging failure shouldn't stop LLM call
 
         last_exception = None
 
