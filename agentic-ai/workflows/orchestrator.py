@@ -67,8 +67,8 @@ class WorkflowOrchestrator:
         # Initialize intent router
         self.router = IntentRouter(llm_client, confidence_threshold=0.7)
 
-        # Workflow registry (lazy loaded)
-        self._workflows: Dict[WorkflowDomain, BaseWorkflow] = {}
+        # Note: Workflows are NOT cached anymore (for session workspace isolation)
+        # Each task creates a new workflow instance with the correct workspace
 
         # Statistics
         self.total_tasks = 0
@@ -80,47 +80,48 @@ class WorkflowOrchestrator:
             f"recursion_limit: {recursion_limit}, sub_agents: {self.sub_agent_config.get('enabled', False)})"
         )
 
-    def _get_workflow(self, domain: WorkflowDomain) -> BaseWorkflow:
-        """Get workflow for domain (lazy loading)
+    def _get_workflow(self, domain: WorkflowDomain, workspace: Optional[str] = None) -> BaseWorkflow:
+        """Get workflow for domain
 
         Args:
             domain: Workflow domain
+            workspace: Workspace path (uses self.workspace if not provided)
 
         Returns:
-            Workflow instance
+            Workflow instance (creates new instance each time for workspace isolation)
 
         Raises:
             ValueError: If domain is not supported
-        """
-        # Check cache
-        if domain in self._workflows:
-            return self._workflows[domain]
 
-        # Lazy import and instantiate
+        Note:
+            Workflows are NOT cached to ensure each task gets correct workspace.
+            This is critical for session isolation where each session has its own workspace.
+        """
+        # Use provided workspace or default
+        effective_workspace = workspace or self.workspace
+
+        # Create new workflow instance (NO CACHING for workspace isolation!)
         try:
             if domain == WorkflowDomain.CODING:
                 from .coding_workflow import CodingWorkflow
-                workflow = CodingWorkflow(self.llm_client, self.safety, self.workspace)
+                workflow = CodingWorkflow(self.llm_client, self.safety, effective_workspace)
 
             elif domain == WorkflowDomain.RESEARCH:
                 from .research_workflow import ResearchWorkflow
-                workflow = ResearchWorkflow(self.llm_client, self.safety, self.workspace)
+                workflow = ResearchWorkflow(self.llm_client, self.safety, effective_workspace)
 
             elif domain == WorkflowDomain.DATA:
                 from .data_workflow import DataWorkflow
-                workflow = DataWorkflow(self.llm_client, self.safety, self.workspace)
+                workflow = DataWorkflow(self.llm_client, self.safety, effective_workspace)
 
             elif domain == WorkflowDomain.GENERAL:
                 from .general_workflow import GeneralWorkflow
-                workflow = GeneralWorkflow(self.llm_client, self.safety, self.workspace)
+                workflow = GeneralWorkflow(self.llm_client, self.safety, effective_workspace)
 
             else:
                 raise ValueError(f"Unsupported domain: {domain}")
 
-            # Cache workflow
-            self._workflows[domain] = workflow
-
-            logger.info(f"✅ Loaded workflow: {domain.value}")
+            logger.info(f"✅ Created workflow: {domain.value} (workspace: {effective_workspace})")
             return workflow
 
         except ImportError as e:
@@ -199,8 +200,8 @@ class WorkflowOrchestrator:
             self.total_tasks += 1
             self.tasks_by_domain[domain] += 1
 
-            # Get workflow
-            workflow = self._get_workflow(domain)
+            # Get workflow with correct workspace
+            workflow = self._get_workflow(domain, workspace=workspace)
 
             # Create initial state
             state = create_initial_state(
@@ -351,8 +352,8 @@ class WorkflowOrchestrator:
             self.total_tasks += 1
             self.tasks_by_domain[domain] += 1
 
-            # Get workflow
-            workflow = self._get_workflow(domain)
+            # Get workflow with correct workspace
+            workflow = self._get_workflow(domain, workspace=workspace)
 
             # Create initial state
             state = create_initial_state(
@@ -451,9 +452,7 @@ class WorkflowOrchestrator:
                 for domain, count in self.tasks_by_domain.items()
             },
             "router_stats": self.router.get_stats(),
-            "loaded_workflows": [
-                domain.value for domain in self._workflows.keys()
-            ],
+            # Note: Workflows are not cached anymore (for workspace isolation)
         }
 
     async def close(self):
