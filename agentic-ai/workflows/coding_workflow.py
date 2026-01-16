@@ -71,15 +71,28 @@ class CodingWorkflow(BaseWorkflow):
             # Call LLM with lower temperature for planning
             response = await self.call_llm(messages, temperature=0.3)
 
-            # Parse response
+            # Parse response with defensive checks
             try:
-                # Extract JSON from response
+                # CRITICAL: Handle None or empty response
+                if not response:
+                    raise ValueError("LLM returned empty response")
+
+                # Extract JSON from response - SAFE split handling
+                json_str = None
                 if "```json" in response:
-                    json_str = response.split("```json")[1].split("```")[0].strip()
+                    parts = response.split("```json")
+                    if len(parts) > 1:
+                        json_str = parts[1].split("```")[0].strip()
                 elif "```" in response:
-                    json_str = response.split("```")[1].split("```")[0].strip()
+                    parts = response.split("```")
+                    if len(parts) > 1:
+                        json_str = parts[1].split("```")[0].strip()
                 else:
                     json_str = response.strip()
+
+                # Check if we extracted valid JSON string
+                if not json_str:
+                    raise ValueError("Could not extract JSON from LLM response")
 
                 plan = json.loads(json_str)
 
@@ -92,8 +105,13 @@ class CodingWorkflow(BaseWorkflow):
 
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse plan JSON: {e}")
+                logger.warning(f"Response preview: {response[:200] if response else 'None'}")
                 # Fallback: store raw response
-                state["context"]["plan"] = {"raw": response}
+                state["context"]["plan"] = {"raw": response if response else ""}
+
+            except ValueError as e:
+                logger.error(f"Invalid LLM response: {e}")
+                state["context"]["plan"] = {"error": str(e)}
 
             # Initialize iteration
             state["iteration"] = 0
@@ -142,25 +160,41 @@ class CodingWorkflow(BaseWorkflow):
             # Call LLM with low temperature for precise execution
             response = await self.call_llm(messages, temperature=0.2)
 
+            # CRITICAL: Handle None response
+            if not response:
+                logger.error("LLM returned None/empty response")
+                state = add_error(state, "LLM returned empty response")
+                state["should_continue"] = False
+                return state
+
             # Store LLM response for debugging
             if "llm_responses" not in state["context"]:
                 state["context"]["llm_responses"] = []
             state["context"]["llm_responses"].append({
                 "iteration": state["iteration"],
                 "node": "execute",
-                "response": response[:500],  # Preview
+                "response": response[:500] if response else "None",  # Preview
                 "full_response": response  # Full response for debugging
             })
 
-            # Parse action
+            # Parse action with defensive checks
             try:
-                # Extract JSON
+                # Extract JSON - SAFE split handling
+                json_str = None
                 if "```json" in response:
-                    json_str = response.split("```json")[1].split("```")[0].strip()
+                    parts = response.split("```json")
+                    if len(parts) > 1:
+                        json_str = parts[1].split("```")[0].strip()
                 elif "```" in response:
-                    json_str = response.split("```")[1].split("```")[0].strip()
+                    parts = response.split("```")
+                    if len(parts) > 1:
+                        json_str = parts[1].split("```")[0].strip()
                 else:
                     json_str = response.strip()
+
+                # Check if we extracted valid JSON string
+                if not json_str:
+                    raise ValueError("Could not extract JSON from LLM response")
 
                 action = json.loads(json_str)
 
@@ -193,11 +227,11 @@ class CodingWorkflow(BaseWorkflow):
 
                     logger.info(f"✅ Task completed: {action.get('summary')}")
 
-            except json.JSONDecodeError as e:
-                # ⚠️ JSON parsing failed - store error and continue
+            except (json.JSONDecodeError, ValueError) as e:
+                # ⚠️ JSON parsing failed or invalid response - store error and continue
                 error_msg = f"LLM returned invalid JSON: {str(e)}"
                 logger.error(error_msg)
-                logger.error(f"Full LLM response:\n{response}")
+                logger.error(f"Full LLM response:\n{response[:500] if response else 'None'}")
 
                 # Store failed parsing attempt
                 from core.state import add_error
@@ -236,11 +270,19 @@ class CodingWorkflow(BaseWorkflow):
         Returns:
             Action result
         """
+        # CRITICAL: Handle None action
+        if not action or not isinstance(action, dict):
+            logger.error(f"Invalid action: {action}")
+            return {"success": False, "error": f"Invalid action type: {type(action)}"}
+
         action_type = action.get("action")
 
         try:
             # Extract parameters from action (LLM returns {"action": "X", "parameters": {...}})
+            # CRITICAL: Handle None parameters
             params = action.get("parameters", {})
+            if params is None:
+                params = {}
 
             if action_type == "READ_FILE":
                 file_path = params.get("file_path")

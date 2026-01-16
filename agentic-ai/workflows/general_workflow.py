@@ -78,12 +78,24 @@ Respond in JSON format:
 
             response = await self.call_llm(messages, temperature=0.3)
 
-            # Parse plan
+            # Parse plan with defensive checks
             try:
+                # CRITICAL: Handle None or empty response
+                if not response:
+                    raise ValueError("LLM returned empty response")
+
+                # Extract JSON - SAFE split handling
+                json_str = None
                 if "```json" in response:
-                    json_str = response.split("```json")[1].split("```")[0].strip()
+                    parts = response.split("```json")
+                    if len(parts) > 1:
+                        json_str = parts[1].split("```")[0].strip()
                 else:
                     json_str = response.strip()
+
+                # Check if we extracted valid JSON string
+                if not json_str:
+                    raise ValueError("Could not extract JSON from LLM response")
 
                 plan = json.loads(json_str)
                 state["context"]["plan"] = plan
@@ -237,6 +249,14 @@ Iteration 5-50: Keep repeating tools (WRONG!)
             ]
 
             response = await self.call_llm(messages, temperature=0.2)
+
+            # CRITICAL: Handle None response
+            if not response:
+                logger.error("LLM returned None/empty response")
+                state = add_error(state, "LLM returned empty response")
+                state["should_continue"] = False
+                return state
+
             logger.debug(f"LLM response: {response[:200]}...")
 
             # Store LLM response in state for UI display
@@ -245,16 +265,24 @@ Iteration 5-50: Keep repeating tools (WRONG!)
             state["context"]["llm_responses"].append({
                 "iteration": state["iteration"],
                 "node": "execute",
-                "response": response[:500],  # First 500 chars for preview
+                "response": response[:500] if response else "None",  # First 500 chars for preview
                 "full_response": response
             })
 
-            # Parse and execute
+            # Parse and execute with defensive checks
             try:
+                # Extract JSON - SAFE split handling
+                json_str = None
                 if "```json" in response:
-                    json_str = response.split("```json")[1].split("```")[0].strip()
+                    parts = response.split("```json")
+                    if len(parts) > 1:
+                        json_str = parts[1].split("```")[0].strip()
                 else:
                     json_str = response.strip()
+
+                # Check if we extracted valid JSON string
+                if not json_str:
+                    raise ValueError("Could not extract JSON from LLM response")
 
                 action = json.loads(json_str)
                 action_name = action.get("action", "UNKNOWN")
@@ -309,11 +337,11 @@ Iteration 5-50: Keep repeating tools (WRONG!)
                     state["task_result"] = action.get("summary", "Task completed")
                     state["should_continue"] = False
 
-            except json.JSONDecodeError as e:
-                # ⚠️ JSON parsing failed - store error and track
+            except (json.JSONDecodeError, ValueError) as e:
+                # ⚠️ JSON parsing failed or invalid response - store error and track
                 error_msg = f"LLM returned invalid JSON: {str(e)}"
                 logger.error(error_msg)
-                logger.error(f"Full LLM response:\n{response}")
+                logger.error(f"Full LLM response:\n{response[:500] if response else 'None'}")
 
                 # Add to tool_calls as failed attempt
                 if "tool_calls" not in state:
@@ -367,11 +395,19 @@ Iteration 5-50: Keep repeating tools (WRONG!)
 
     async def _execute_action(self, action: Dict[str, Any], state: AgenticState) -> Dict[str, Any]:
         """Execute general action"""
+        # CRITICAL: Handle None action
+        if not action or not isinstance(action, dict):
+            logger.error(f"Invalid action: {action}")
+            return {"success": False, "error": f"Invalid action type: {type(action)}"}
+
         action_type = action.get("action")
 
         try:
             # Extract parameters from action (LLM returns {"action": "X", "parameters": {...}})
+            # CRITICAL: Handle None parameters
             params = action.get("parameters", {})
+            if params is None:
+                params = {}
 
             if action_type == "LIST_DIRECTORY":
                 path = params.get("path", ".")
