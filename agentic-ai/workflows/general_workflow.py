@@ -354,8 +354,7 @@ Iteration 5-50: Keep repeating tools (WRONG!)
                     "success": False
                 })
 
-                # Store error in state
-                from core.state import add_error
+                # Store error in state (add_error already imported at top)
                 state = add_error(state, error_msg)
 
                 # If JSON parsing fails multiple times, give up

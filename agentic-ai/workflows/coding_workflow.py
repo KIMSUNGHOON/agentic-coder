@@ -14,7 +14,7 @@ import logging
 import json
 from typing import Dict, Any, List, Optional
 
-from core.state import AgenticState, TaskStatus, update_task_status
+from core.state import AgenticState, TaskStatus, update_task_status, add_error
 from core.prompts import CodingPrompts
 from .base_workflow import BaseWorkflow
 
@@ -233,8 +233,7 @@ class CodingWorkflow(BaseWorkflow):
                 logger.error(error_msg)
                 logger.error(f"Full LLM response:\n{response[:500] if response else 'None'}")
 
-                # Store failed parsing attempt
-                from core.state import add_error
+                # Store failed parsing attempt (add_error already imported at top)
                 state = add_error(state, error_msg)
 
                 # Add to tool_calls as failed attempt for tracking
@@ -255,7 +254,6 @@ class CodingWorkflow(BaseWorkflow):
 
         except Exception as e:
             logger.error(f"Execution error: {e}")
-            from core.state import add_error
             state = add_error(state, f"Execution failed: {e}")
             state["should_continue"] = False
             return state
@@ -499,7 +497,6 @@ class CodingWorkflow(BaseWorkflow):
 
         except Exception as e:
             logger.error(f"Reflection error: {e}")
-            from core.state import add_error
             state = add_error(state, f"Reflection failed: {e}")
             state["should_continue"] = False
             return state
