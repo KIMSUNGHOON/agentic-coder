@@ -281,8 +281,16 @@ class DualEndpointLLMClient:
                 # Record success
                 self.health[endpoint.name].record_success()
 
-                # Extract response content
-                response_content = response.choices[0].message.content if response.choices else "No content"
+                # Extract response content - CRITICAL: handle None!
+                response_content = None
+                if response.choices and len(response.choices) > 0:
+                    response_content = response.choices[0].message.content
+
+                # Handle None content
+                if response_content is None:
+                    response_content = "No content"
+
+                # Now safe to use len()
                 response_preview = response_content[:500] + "..." if len(response_content) > 500 else response_content
 
                 logger.info(
