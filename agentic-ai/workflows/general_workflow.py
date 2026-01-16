@@ -376,19 +376,35 @@ Iteration 5-50: Keep repeating tools (WRONG!)
             if action_type == "LIST_DIRECTORY":
                 path = params.get("path", ".")
                 result = await self.fs_tools.list_directory(path)
-                return {"success": result.success, "entries": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "output": result.output,  # CRITICAL: Use "output" not "entries" for consistency!
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') and result.metadata else {}
+                }
 
             elif action_type == "SEARCH_FILES":
                 pattern = params.get("pattern", "*")
                 result = await self.fs_tools.search_files(pattern)
-                return {"success": result.success, "files": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "output": result.output,  # List of file paths
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') and result.metadata else {}
+                }
 
             elif action_type == "READ_FILE":
                 file_path = params.get("file_path")
                 if not file_path:
                     return {"success": False, "error": "Missing file_path parameter"}
                 result = await self.fs_tools.read_file(file_path)
-                return {"success": result.success, "content": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "content": result.output,  # File content as string
+                    "output": result.output,  # Also provide as output for consistency
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') and result.metadata else {}
+                }
 
             elif action_type == "WRITE_FILE":
                 file_path = params.get("file_path")
@@ -406,18 +422,35 @@ Iteration 5-50: Keep repeating tools (WRONG!)
                 else:
                     logger.error(f"❌ Failed to write file: {result.error}")
 
-                return {"success": result.success, "message": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "message": result.output,
+                    "output": result.output,  # Also provide as output
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') and result.metadata else {}
+                }
 
             elif action_type == "RUN_COMMAND":
                 command = params.get("command")
                 if not command:
                     return {"success": False, "error": "Missing command parameter"}
                 result = await self.process_tools.execute_command(command)
-                return {"success": result.success, "output": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "output": result.output,
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') and result.metadata else {}
+                }
 
             elif action_type == "GIT_STATUS":
                 result = await self.git_tools.status()
-                return {"success": result.success, "status": result.output, "error": result.error}
+                return {
+                    "success": result.success,
+                    "output": result.output,  # Git status output
+                    "status": result.output,  # Also provide as "status" for backward compatibility
+                    "error": result.error,
+                    "metadata": result.metadata if hasattr(result, 'metadata') and result.metadata else {}
+                }
 
             elif action_type == "COMPLETE":
                 summary = params.get("summary", "Task complete")
