@@ -215,7 +215,14 @@ class DualEndpointLLMClient:
         """
         request_id = f"req_{int(time.time() * 1000)}"
         logger.info(f"📤 Starting chat completion request [{request_id}]")
-        logger.debug(f"   Messages: {len(messages)}, Temp: {temperature}")
+        logger.info(f"   Messages: {len(messages)}, Temp: {temperature}")
+
+        # Log full request (CRITICAL for debugging)
+        for i, msg in enumerate(messages):
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            content_preview = content[:500] + "..." if len(content) > 500 else content
+            logger.info(f"   [{i+1}] {role}: {content_preview}")
 
         last_exception = None
 
@@ -255,10 +262,15 @@ class DualEndpointLLMClient:
                 # Record success
                 self.health[endpoint.name].record_success()
 
+                # Extract response content
+                response_content = response.choices[0].message.content if response.choices else "No content"
+                response_preview = response_content[:500] + "..." if len(response_content) > 500 else response_content
+
                 logger.info(
                     f"✅ [{request_id}] Success on {endpoint.name} "
                     f"({elapsed:.2f}s, {response.usage.total_tokens} tokens)"
                 )
+                logger.info(f"📥 Response: {response_preview}")
 
                 return response
 
@@ -322,7 +334,14 @@ class DualEndpointLLMClient:
         """
         request_id = f"req_{int(time.time() * 1000)}"
         logger.info(f"📤 Starting STREAMING chat completion [{request_id}]")
-        logger.debug(f"   Messages: {len(messages)}, Temp: {temperature}")
+        logger.info(f"   Messages: {len(messages)}, Temp: {temperature}")
+
+        # Log full request (CRITICAL for debugging)
+        for i, msg in enumerate(messages):
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            content_preview = content[:500] + "..." if len(content) > 500 else content
+            logger.info(f"   [{i+1}] {role}: {content_preview}")
 
         last_exception = None
 

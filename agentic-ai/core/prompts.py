@@ -213,6 +213,9 @@ Now analyze this task and provide your plan:"""
         - WRITE_FILE: Write or create file
           Parameters: {"file_path": "path/to/file.py", "content": "file contents"}
 
+        - LIST_DIRECTORY: List directory contents
+          Parameters: {"path": ".", "recursive": false}
+
         - SEARCH_CODE: Search for pattern in code
           Parameters: {"pattern": "search term", "file_pattern": "*.py"}
 
@@ -233,7 +236,7 @@ Now analyze this task and provide your plan:"""
 
         json_schema = {
             "reasoning": "string - Why you chose this action",
-            "action": "string - UPPERCASE action name (READ_FILE, WRITE_FILE, SEARCH_CODE, RUN_TESTS, GIT_STATUS, or COMPLETE)",
+            "action": "string - UPPERCASE action name (READ_FILE, WRITE_FILE, LIST_DIRECTORY, SEARCH_CODE, RUN_TESTS, GIT_STATUS, or COMPLETE)",
             "parameters": {
                 "param_name": "param_value - Specific to the action"
             },
