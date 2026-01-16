@@ -92,11 +92,14 @@ Analyze the user's request and classify it into ONE of these domains:
    - Database queries, data modeling
    Examples: "Analyze this CSV file", "Create a dashboard", "Clean the customer data"
 
-4. GENERAL: Task management and mixed workflows
+4. GENERAL: Task management, greetings, and mixed workflows
+   - Simple greetings and conversational responses (ALWAYS use GENERAL for greetings!)
    - File operations, system tasks
    - Multi-domain tasks that don't fit other categories
    - Administrative tasks, scheduling
-   Examples: "Organize these files", "Create a project plan", "Help me with my to-do list"
+   Examples: "Hello", "Hi", "Hey", "How are you?", "Organize these files", "Create a project plan"
+
+IMPORTANT: If the input is a simple greeting (hello, hi, hey, etc.), ALWAYS classify as GENERAL with high confidence!
 
 User Request: {user_prompt}
 

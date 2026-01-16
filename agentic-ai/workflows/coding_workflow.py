@@ -57,6 +57,22 @@ class CodingWorkflow(BaseWorkflow):
         logger.info(f"📋 Planning coding task: {state['task_description'][:100]}")
 
         try:
+            # Initialize context if needed
+            if "context" not in state:
+                state["context"] = {}
+
+            # DEFENSIVE: Handle simple greetings (should be classified as GENERAL, but just in case)
+            task_lower = state['task_description'].lower().strip()
+            greeting_keywords = ['hello', 'hi', 'hey', 'greetings', '안녕', '하이', 'good morning', 'good afternoon']
+
+            # Check if it's a short greeting
+            if any(keyword in task_lower for keyword in greeting_keywords) and len(task_lower) < 30:
+                logger.info("👋 Detected greeting in coding workflow (misclassified?), handling gracefully")
+                state["task_status"] = TaskStatus.COMPLETED.value
+                state["task_result"] = "Hello! I'm Agentic 2.0, your AI coding assistant. I can help you with:\n- Writing and debugging code\n- Creating files and projects\n- Running tests\n- Git operations\n\nWhat would you like to build today?"
+                state["should_continue"] = False
+                return state
+
             # Use optimized prompt for GPT-OSS-120B
             messages = CodingPrompts.planning_prompt(
                 task=state['task_description'],
