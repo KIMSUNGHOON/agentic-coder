@@ -179,24 +179,52 @@ class CodingWorkflow(BaseWorkflow):
 
             # Parse action with defensive checks
             try:
+                # CRITICAL: Log raw response for debugging
+                logger.info("=" * 60)
+                logger.info("📥 RAW LLM RESPONSE:")
+                logger.info(f"   Length: {len(response)} chars")
+                logger.info(f"   First 500 chars: {repr(response[:500])}")
+                logger.info(f"   Last 200 chars: {repr(response[-200:])}")
+                logger.info("=" * 60)
+
                 # Extract JSON - SAFE split handling
                 json_str = None
                 if "```json" in response:
                     parts = response.split("```json")
                     if len(parts) > 1:
                         json_str = parts[1].split("```")[0].strip()
+                        logger.info("✅ Extracted JSON from ```json``` block")
                 elif "```" in response:
                     parts = response.split("```")
                     if len(parts) > 1:
                         json_str = parts[1].split("```")[0].strip()
+                        logger.info("✅ Extracted JSON from ``` block")
                 else:
                     json_str = response.strip()
+                    logger.info("✅ Using entire response as JSON")
 
                 # Check if we extracted valid JSON string
                 if not json_str:
                     raise ValueError("Could not extract JSON from LLM response")
 
-                action = json.loads(json_str)
+                logger.info(f"📋 Extracted JSON string length: {len(json_str)}")
+                logger.info(f"📋 JSON preview: {repr(json_str[:300])}")
+
+                # CRITICAL: Validate JSON before parsing
+                try:
+                    action = json.loads(json_str)
+                    logger.info(f"✅ JSON parsed successfully")
+                    logger.info(f"   Action type: {action.get('action')}")
+                    logger.info(f"   Has parameters: {'parameters' in action}")
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"❌ JSON parsing failed at position {json_err.pos}")
+                    logger.error(f"   Error: {json_err.msg}")
+                    logger.error(f"   Line: {json_err.lineno}, Column: {json_err.colno}")
+                    logger.error(f"   Context around error:")
+                    start = max(0, json_err.pos - 50)
+                    end = min(len(json_str), json_err.pos + 50)
+                    logger.error(f"   ...{repr(json_str[start:end])}...")
+                    raise  # Re-raise to be caught by outer handler
 
                 # Execute action
                 action_result = await self._execute_action(action, state)
