@@ -203,8 +203,15 @@ Domain:"""
             max_tokens=500,
         )
 
-        # Parse response
-        content = response.choices[0].message.content.strip()
+        # Parse response - CRITICAL: Handle None safely
+        if not response.choices or len(response.choices) == 0:
+            raise ValueError("LLM returned empty response (no choices)")
+
+        content = response.choices[0].message.content
+        if content is None:
+            raise ValueError("LLM returned None content")
+
+        content = content.strip()
 
         # Extract JSON if it's wrapped in markdown
         if "```json" in content:

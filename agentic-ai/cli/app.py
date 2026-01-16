@@ -362,7 +362,9 @@ class AgenticApp(App):
                     # For WRITE_FILE, log content availability
                     if tool == "WRITE_FILE":
                         has_content = 'content' in params
-                        content_len = len(params.get('content', ''))
+                        # CRITICAL: Handle None content safely
+                        content_value = params.get('content', '')
+                        content_len = len(content_value) if content_value is not None else 0
                         log.add_log("info", f"  WRITE_FILE has_content={has_content}, content_len={content_len}")
 
                     # Format parameters for display

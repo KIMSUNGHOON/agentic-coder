@@ -190,7 +190,13 @@ Respond in JSON format:
 
         # Parse response
         try:
+            # CRITICAL: Handle None safely
+            if not response.choices or len(response.choices) == 0:
+                raise ValueError("LLM returned empty response (no choices)")
+
             content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("LLM returned None content")
 
             if "```json" in content:
                 json_str = content.split("```json")[1].split("```")[0].strip()
@@ -264,7 +270,13 @@ Respond in JSON format:
 
         # Parse response
         try:
+            # CRITICAL: Handle None safely
+            if not response.choices or len(response.choices) == 0:
+                raise ValueError("LLM returned empty response (no choices)")
+
             content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("LLM returned None content")
 
             if "```json" in content:
                 json_str = content.split("```json")[1].split("```")[0].strip()

@@ -505,7 +505,16 @@ Example: 0.75
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                return response.choices[0].message.content
+
+                # CRITICAL: Handle None safely
+                if not response.choices or len(response.choices) == 0:
+                    raise ValueError("LLM returned empty response (no choices)")
+
+                content = response.choices[0].message.content
+                if content is None:
+                    raise ValueError("LLM returned None content")
+
+                return content
 
             # Use cache if enabled
             if use_cache and temperature < 0.5:  # Only cache deterministic calls

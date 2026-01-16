@@ -230,7 +230,13 @@ class SubAgent:
                 max_tokens=2000
             )
 
+            # CRITICAL: Handle None safely
+            if not response.choices or len(response.choices) == 0:
+                raise ValueError("LLM returned empty response (no choices)")
+
             content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("LLM returned None content")
 
             # Check if task is complete
             if self._is_task_complete(content):

@@ -205,8 +205,15 @@ Keep the summary under 500 words.
                 max_tokens=1000
             )
 
-            summary = response.choices[0].message.content
-            return summary
+            # CRITICAL: Handle None safely
+            if not response.choices or len(response.choices) == 0:
+                raise ValueError("LLM returned empty response (no choices)")
+
+            content = response.choices[0].message.content
+            if content is None:
+                raise ValueError("LLM returned None content")
+
+            return content
 
         except Exception as e:
             logger.error(f"Summarization failed: {e}")
